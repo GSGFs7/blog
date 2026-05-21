@@ -99,6 +99,18 @@ class ImageResource(BaseModel):
 
     is_processed = models.BooleanField(default=False)
 
+    @property
+    def avif_url(self) -> str | None:
+        return self.avif_file.url if self.avif_file else None
+
+    @property
+    def webp_url(self) -> str | None:
+        return self.webp_file.url if self.webp_file else None
+
+    @property
+    def thumbnail_url(self) -> str | None:
+        return self.thumbnail.url if self.thumbnail else None
+
     class Meta:
         indexes = [models.Index(fields=["checksum"])]
 
