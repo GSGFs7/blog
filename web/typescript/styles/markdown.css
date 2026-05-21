@@ -1,0 +1,456 @@
+.markdown-body {
+  /* Default variables */
+  --md-font-size: 18px;
+  --md-fg: #1f2328;
+  --md-bg: transparent;
+  --md-border: #d0d7de;
+  --md-heading-border: #d0d7de;
+  --md-blockquote-border: #d0d7de;
+  --md-blockquote-fg: #636c76;
+  --md-table-tr-bg: #ffffff;
+  --md-table-tr-2n-bg: #f6f8fa;
+  --md-code-bg: rgba(175, 184, 193, 0.2);
+  --md-pre-bg: #f6f8fa;
+  --md-pre-border: #d0d7de;
+  --md-link: #0969da;
+  --md-hr-bg: #d0d7de;
+  --md-syntax-fg: #0969da;
+
+  /* Syntax Highlighting */
+  --syn-comment: #6e7781;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-function: #8250df;
+  --syn-constant: #0550ae;
+  --syn-variable: #953800;
+  --syn-punctuation: #1f2328;
+
+  color-scheme: light dark;
+  text-size-adjust: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--md-font-size);
+  line-height: 1.45;
+  word-wrap: break-word;
+  color: var(--md-fg);
+  background-color: var(--md-bg);
+}
+
+@media (max-width: 767px) {
+  /* 18px may too large too mobile device */
+  .markdown-body {
+    --md-font-size: 16px;
+  }
+}
+
+/* Dark Mode Overrides */
+:where(html.dark, .dark) .markdown-body {
+  --md-fg: #e6edf3;
+  --md-bg: #1a1c25;
+  --md-border: #30363d;
+  --md-heading-border: #30363d;
+  --md-blockquote-border: #30363d;
+  --md-blockquote-fg: #8b949e;
+  --md-table-tr-bg: #0d1117;
+  --md-table-tr-2n-bg: #161b22;
+  --md-code-bg: rgb(64 67 75 / 0.4);
+  --md-pre-bg: #151b23;
+  --md-pre-border: #30363d;
+  --md-link: #4493f8;
+  --md-hr-bg: #30363d;
+  --md-syntax-fg: #5b6976;
+
+  --syn-comment: #9198a1;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-function: #d2a8ff;
+  --syn-constant: #79c0ff;
+  --syn-variable: #ffa657;
+  --syn-punctuation: #d1d7dd;
+}
+
+.markdown-body > * {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+/* Typography */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: 1.5em;
+  margin-bottom: 1em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown-body h1::before,
+.markdown-body h2::before,
+.markdown-body h3::before,
+.markdown-body h4::before,
+.markdown-body h5::before,
+.markdown-body h6::before {
+  color: var(--md-syntax-fg);
+  margin-right: 0.5ch;
+  font-weight: 400;
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.markdown-body h1::before {
+  content: "#";
+}
+.markdown-body h2::before {
+  content: "##";
+}
+.markdown-body h3::before {
+  content: "###";
+}
+.markdown-body h4::before {
+  content: "####";
+}
+.markdown-body h5::before {
+  content: "#####";
+}
+.markdown-body h6::before {
+  content: "######";
+}
+
+.markdown-body h1 {
+  font-size: 2em;
+  padding-bottom: 0.3em;
+  margin-top: 0;
+  border-bottom: 1px solid var(--md-heading-border);
+}
+
+.markdown-body h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-heading-border);
+}
+
+.markdown-body h3 {
+  font-size: 1.25em;
+}
+.markdown-body h4 {
+  font-size: 1em;
+}
+.markdown-body h5 {
+  font-size: 0.875em;
+}
+.markdown-body h6 {
+  font-size: 0.85em;
+  color: var(--md-blockquote-fg);
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+.markdown-body em {
+  font-style: italic;
+}
+
+.markdown-body del,
+.markdown-body s {
+  color: var(--md-blockquote-fg);
+}
+
+.markdown-body a {
+  color: var(--md-link);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+/* Lists */
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 2em;
+}
+
+.markdown-body ul {
+  list-style-type: disc;
+}
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body li {
+  margin-top: 0.5em;
+}
+.markdown-body li > p {
+  margin-top: 1em;
+}
+.markdown-body li + li {
+  margin-top: 0.5em;
+}
+
+/* Blockquotes */
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: var(--md-blockquote-fg);
+  border-left: 0.25em solid var(--md-blockquote-border);
+  margin: 0 0 1em 0;
+}
+
+.markdown-body blockquote > :first-child {
+  margin-top: 0;
+}
+.markdown-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Tables */
+.markdown-body table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 0.4em 0.8em;
+  border: 1px solid var(--md-border);
+}
+
+.markdown-body table th {
+  font-weight: 600;
+  background-color: var(--md-table-tr-2n-bg);
+}
+
+.markdown-body table tr {
+  background-color: var(--md-table-tr-bg);
+  border-top: 1px solid var(--md-border);
+}
+
+.markdown-body table tr:nth-child(2n) {
+  background-color: var(--md-table-tr-2n-bg);
+}
+
+/* Horizontal Rules */
+.markdown-body hr {
+  height: 0.25em;
+  padding: 0;
+  margin: 1.5em 0;
+  background-color: var(--md-hr-bg);
+  border: 0;
+}
+
+/* Images */
+.markdown-body img {
+  max-width: 100%;
+  box-sizing: content-box;
+  background-color: transparent;
+}
+
+.markdown-body .md-img-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 1.5em 2em;
+}
+
+@media (max-width: 767px) {
+  .markdown-body .md-img-container {
+    margin: 1.5em 1em;
+  }
+}
+
+.markdown-body .md-img-container::after {
+  content: attr(data-caption);
+  display: block;
+  margin-top: 0.5em;
+  font-size: 0.85em;
+  color: var(--md-blockquote-fg);
+  font-style: italic;
+}
+
+.markdown-body .md-img-container[data-caption=""]::after {
+  display: none;
+}
+
+/* Code */
+.markdown-body code:not(pre code) {
+  padding: 0 0.4ch 0 0;
+  margin: 0 0.1em;
+  font-size: 85%;
+  font-family: var(--font-mono);
+  border-bottom: 1.5px solid var(--md-syntax-fg);
+}
+
+.markdown-body code:not(pre code)::before,
+.markdown-body code:not(pre code)::after {
+  content: "`";
+  color: var(--md-syntax-fg);
+  font-size: 0.9em;
+  user-select: none;
+  display: inline-block;
+  width: 0.6ch;
+  overflow: hidden;
+  text-align: center;
+  vertical-align: 0.12em;
+  position: relative;
+  z-index: 1;
+}
+
+.markdown-body code:not(pre code)::before {
+  margin-left: 0.2ch;
+  margin-right: 0.4ch;
+}
+
+.markdown-body code:not(pre code)::after {
+  margin-left: 0;
+  margin-right: 0.2ch;
+}
+
+.markdown-body pre {
+  padding: 1em;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background-color: var(--md-pre-bg);
+  border-radius: 6px;
+  margin-bottom: 1em;
+}
+
+.markdown-body pre::before,
+.markdown-body pre::after {
+  display: block;
+  color: var(--md-syntax-fg);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  user-select: none;
+  opacity: 0.6;
+}
+
+:where(html.dark, .dark) .markdown-body pre::before,
+:where(html.dark, .dark) .markdown-body pre::after {
+  color: var(--syn-comment);
+  opacity: 0.8;
+}
+
+.markdown-body pre::before {
+  /* Using attr(data-language) to dynamically show the language.
+     Ensure adds data-language to the <pre> tag. */
+  content: "```" attr(data-language);
+  margin-bottom: 0.5em;
+}
+
+.markdown-body pre::after {
+  content: "```";
+  margin-top: 0.5em;
+}
+
+.markdown-body pre code {
+  display: inline;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  line-height: inherit;
+  word-wrap: normal;
+  background-color: transparent;
+  border: 0;
+  font-family: var(--font-mono);
+}
+
+/* Syntect Syntax Highlighting Colors */
+.syntect-comment {
+  color: var(--syn-comment);
+}
+.syntect-comment.syntect-punctuation {
+  /* Ensure comment color wins over punctuation if both are present */
+  color: var(--syn-comment);
+}
+.syntect-keyword,
+.syntect-storage {
+  color: var(--syn-keyword);
+}
+.syntect-string {
+  color: var(--syn-string);
+}
+.syntect-entity.syntect-name.syntect-function {
+  color: var(--syn-function);
+}
+.syntect-support.syntect-function,
+.syntect-macro {
+  color: var(--syn-function);
+}
+.syntect-constant {
+  color: var(--syn-constant);
+}
+.syntect-variable {
+  color: var(--syn-variable);
+}
+.syntect-punctuation {
+  color: var(--syn-punctuation);
+}
+
+/* --- Other styles --- */
+
+/* Mask layer lifted on mouseover ("黑幕" in Chinese) */
+.markdown-body .heimu {
+  border-radius: 0.125rem;
+  padding: 0.125rem;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #000;
+  background: #000;
+}
+
+.markdown-body .heimu:hover,
+.markdown-body .heimu:active {
+  color: inherit !important;
+}
+
+/* Image zoom */
+.markdown-body img {
+  cursor: zoom-in;
+  transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.markdown-body:has(img.is-zoomed) {
+  backdrop-filter: none !important;
+}
+
+.markdown-body img.is-zoomed {
+  cursor: zoom-out;
+  position: relative;
+  z-index: 1001;
+  background-color: var(--md-bg);
+}
+
+#zoom-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  z-index: 1000;
+}
+
+#zoom-overlay.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* TODO: task list styles */
+/* (and other) */

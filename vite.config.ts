@@ -36,6 +36,7 @@ export default defineConfig(({ command, isSsrBuild }) => {
       navbarCss: "web/typescript/styles/navbar.css",
       footerCss: "web/typescript/styles/footer.css",
       fontCss: "web/typescript/styles/font.css",
+      markdownCss: "web/typescript/styles/markdown.css",
     };
   }
 
@@ -53,7 +54,7 @@ export default defineConfig(({ command, isSsrBuild }) => {
       },
       cssMinify: "lightningcss",
       cssCodeSplit: true,
-      minify: "oxc"
+      minify: "oxc",
     },
     ssr: {
       // put the dependencies to the bundle

@@ -1,4 +1,5 @@
 import json
+import re
 import tomllib
 from typing import Any
 
@@ -22,7 +23,7 @@ class Markdown:
         heading_anchors: bool = False,
         syntax_highlighting: bool = True,
         syntax_theme: str | None = None,
-        syntax_classed: bool = False,
+        syntax_classed: bool = True,
     ):
         # tuple native support hash
         idx_key = (
@@ -64,9 +65,44 @@ class Markdown:
         else:
             return {}
 
+    @staticmethod
+    def _post_process(result: str) -> str:
+        """Post-process rendered HTML"""
+
+        def wrap_img(match: re.Match) -> str:
+            img_tag = match.group(1)
+            # Extract alt and title attributes
+            alt_match = re.search(r'alt="([^"]*)"', img_tag)
+            title_match = re.search(r'title="([^"]*)"', img_tag)
+
+            alt = alt_match.group(1) if alt_match else ""
+            title = title_match.group(1) if title_match else ""
+
+            # Prioritize title for display, fallback to alt
+            caption = title if title else alt
+
+            return (
+                f'<span class="md-img-container" data-caption="{caption}">'
+                f"{img_tag}"
+                f"</span>"
+            )
+
+        # Wrap <img> tags in a span for centering (span is valid inside <p>)
+        result = re.sub(r"(<img[^>]*>)", wrap_img, result)
+
+        # Extract language from <code class="...language-xxx..."> and put it on <pre>
+        result = re.sub(
+            r'(<pre)([^>]*>)\s*<code class="([^"]*\blanguage-(\w+))"',
+            r'\1 data-language="\4"\2<code class="\3"',
+            result,
+        )
+
+        return result
+
     def render(self, markdown: str) -> str:
         """markdown -> HTML"""
-        return self.md.render(markdown)
+        result = self.md.render(markdown)
+        return self._post_process(result)
 
     def frontmatter(self, markdown: str) -> dict[str, Any]:
         """extract frontmatter"""
@@ -78,9 +114,10 @@ class Markdown:
     def render_with_frontmatter(self, markdown: str) -> tuple[dict[str, Any], str]:
         """markdown -> frontmatter + HTML"""
         res = self.md.render_with_frontmatter(markdown)
+        html = self._post_process(res.html)
         if frontmatter := res.frontmatter:
-            return self._parse_frontmatter(frontmatter), res.html
-        return {}, res.html
+            return self._parse_frontmatter(frontmatter), html
+        return {}, html
 
 
 if __name__ == "__main__":
@@ -104,6 +141,10 @@ E = mc^2
 $$
 
 <a href="https://a.com">inline html</a>
+
+```python
+print("你好")
+```
 """
 
     fm, html = Markdown().render_with_frontmatter(test_md)

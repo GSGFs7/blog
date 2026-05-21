@@ -21,7 +21,7 @@ def blog(request: HttpRequest):
 
 def blog_post(request: HttpRequest, post_id: int):
     post = get_object_or_404(Post, id=post_id)
-    context = {"content_html": post.content_html}
+    context = {"title": post.title, "content_html": post.content_html}
     return render(request, "web/pages/blog_post.html", context)
 
 

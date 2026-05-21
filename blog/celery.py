@@ -2,7 +2,7 @@ import logging
 import os
 
 from celery import Celery
-from celery.signals import worker_process_init, worker_process_shutdown
+from celery.signals import worker_process_init
 
 logger = logging.getLogger(__name__)
 

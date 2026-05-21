@@ -771,7 +771,7 @@ requires-dist = [
     { name = "flower", specifier = ">=2.0.1" },
     { name = "gunicorn", specifier = ">=23.0.0" },
     { name = "jieba", git = "https://github.com/GSGFs7/jieba.git?rev=master" },
-    { name = "markdown-it-rs-py", specifier = ">=0.1.0" },
+    { name = "markdown-it-rs-py", git = "https://github.com/GSGFs7/markdown-it-rs.git?subdirectory=bindings%2Fpython" },
     { name = "pgvector", specifier = ">=0.4.1" },
     { name = "phonenumbers", specifier = ">=9.0.12" },
     { name = "pillow", specifier = ">=11.3.0" },
@@ -993,20 +993,7 @@ wheels = [
 [[package]]
 name = "markdown-it-rs-py"
 version = "0.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/55/34/5f927f34de5af9cd89ffcd5e68ff8bcc280ff0b68a77a3bb08f26a45b01b/markdown_it_rs_py-0.1.0.tar.gz", hash = "sha256:2bfce4539bfcf381e7a21f3482cea37580b795bdcd64a718fb4457bdb14b4dbe", size = 191149, upload-time = "2026-04-25T06:09:07.853Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/0d/0e561f0d80864fef1cccecab55090b673ca4be0e5ae8d1852c16bc651717/markdown_it_rs_py-0.1.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:8d793a9c3df53a14fa38f768b1d4459afc9611873e5afa64a74022ec1cf681f0", size = 2558387, upload-time = "2026-04-25T06:08:47.941Z" },
-    { url = "https://files.pythonhosted.org/packages/17/ad/6231813ad3a95479b81c4952f22b28c5725d92fe99012deba5d8311e536c/markdown_it_rs_py-0.1.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e0636a7e07608b756067e9c6984bf6ed6da62cf3f94a810c120c6bb706b920b4", size = 2833106, upload-time = "2026-04-25T06:08:49.733Z" },
-    { url = "https://files.pythonhosted.org/packages/45/5b/c3ac5a585fdd35a19cf1c8fdf5ca2a2721c131ab13a44a62fb3fb8c52347/markdown_it_rs_py-0.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c26e255a302e6e71b1a6f7928c5af7c0cab8b1b9758019611019c8ddedf04b26", size = 2812019, upload-time = "2026-04-25T06:08:51.34Z" },
-    { url = "https://files.pythonhosted.org/packages/86/1d/30f60a97d25094ce22e6368db32554a06015057fd5e52509064fb4f427af/markdown_it_rs_py-0.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:3b4094b014ff783cd62bb538de92fd7a8235c540b5a2dc7fa75db2099f4f4d33", size = 2392344, upload-time = "2026-04-25T06:08:53.194Z" },
-    { url = "https://files.pythonhosted.org/packages/b7/92/fd6f78ddfdfe8a8f67a46e38cbe81b8f5f9637d2c698f66e9218cb4c428d/markdown_it_rs_py-0.1.0-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3ef85e9a91526943426c55e0548ed700ea778219c8cdfa685a4f4a099ae920a2", size = 2834641, upload-time = "2026-04-25T06:08:54.751Z" },
-    { url = "https://files.pythonhosted.org/packages/85/5b/415eae81afe8649b678faaa464dff2b775e8e15b0bd3ca3ceaf373db1173/markdown_it_rs_py-0.1.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:3374168fbef18d4caa5c67fdf68126c642b57979192fad94503a77cf9374a276", size = 2557937, upload-time = "2026-04-25T06:08:56.26Z" },
-    { url = "https://files.pythonhosted.org/packages/19/52/5f47ca2919359860f2c0258b48b29d617b2e012f1a91874cee0418d00f7d/markdown_it_rs_py-0.1.0-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:839e7a462c800ec16cb3734a9a87eb4741d6918c75a04a3eed9bb1fc23e72d46", size = 2833313, upload-time = "2026-04-25T06:08:58.087Z" },
-    { url = "https://files.pythonhosted.org/packages/83/6a/a56949b7b6be87b2e0d524be2a17421338bde9d057c83cf468f14963f2e0/markdown_it_rs_py-0.1.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a4272b961b1e839eca9131931deac0ac94489c6a730eb1a7b3e0826e2b47c33f", size = 2812214, upload-time = "2026-04-25T06:08:59.533Z" },
-    { url = "https://files.pythonhosted.org/packages/03/8b/69add46f91859d246f6546b96d3b2e2fc5ed4108cf19b39780a69c354dc5/markdown_it_rs_py-0.1.0-cp314-cp314-win_amd64.whl", hash = "sha256:3147069ef31b7c0c40393776c1aea7d8a5b27388dc473a106b796c1e3efd6211", size = 2392421, upload-time = "2026-04-25T06:09:01.335Z" },
-    { url = "https://files.pythonhosted.org/packages/d7/3c/c62cbb67794a4a4f9ec14a395f130bce03ad360e7496348537d29fcf78af/markdown_it_rs_py-0.1.0-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e3a9961a5fddc92638878455b6576551edea20714d9789ecfb809ba75b5fa3d6", size = 2834496, upload-time = "2026-04-25T06:09:02.994Z" },
-]
+source = { git = "https://github.com/GSGFs7/markdown-it-rs.git?subdirectory=bindings%2Fpython#8c1bb8bf04e6ef7f2e62a2146e12d2eb43ca6d58" }
 
 [[package]]
 name = "markupsafe"

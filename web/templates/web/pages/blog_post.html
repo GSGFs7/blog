@@ -1,7 +1,17 @@
 {% extends "web/layout/base.html" %}
 
+{% load vite %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/markdown.css' %}">
+{% endblock %}
+
 {% block content %}
-  <article class="markdown-body mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 md:p-8">
+  <article
+    class="markdown-body mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 md:p-8"
+  >
     {{ content_html|safe }}
   </article>
 {% endblock %}

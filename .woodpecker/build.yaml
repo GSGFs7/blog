@@ -43,21 +43,21 @@ steps:
       - |
         # 1. Install necessary tools
         pacman -Sy --noconfirm podman skopeo fuse-overlayfs curl jq ca-certificates
-        
+
         # 2. Register private CA in system trust store
         if [ -n "$REGISTRY_CA_CERT" ]; then
           echo "$REGISTRY_CA_CERT" > /usr/share/ca-certificates/trust-source/anchors/registry-ca.crt
           update-ca-trust
           echo "System trust store updated with private CA."
         fi
-        
+
         # 3. Setup DNS bypass for registry
         if [ -n "$REGISTRY_IP" ] && [ -n "$REGISTRY_DOMAIN" ]; then
           echo "$REGISTRY_IP $REGISTRY_DOMAIN" >> /etc/hosts
           echo "::1 $REGISTRY_DOMAIN" >> /etc/hosts
           echo "DNS bypass configured for $REGISTRY_DOMAIN."
         fi
-        
+
         # 4. Execute build script
         chmod +x ./scripts/build-and-push.sh
         ./scripts/build-and-push.sh
