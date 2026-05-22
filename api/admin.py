@@ -115,6 +115,7 @@ class PostAdmin(admin.ModelAdmin):
                     "title",
                     "content",
                     "content_html",
+                    "toc",
                     "tags",
                     "category",
                     "status",
@@ -137,6 +138,14 @@ class PostAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    @admin.action(description="重新生成所选文章的所有生成内容")
+    def regenerate_content(self, request, queryset):
+        for post in queryset:
+            post.save()
+        self.message_user(request, f"已重新生成 {queryset.count()} 篇文章的内容")
+
+    actions = [regenerate_content]
     form = PostAdminForm
     readonly_fields = ["updated_at", "content_update_at"]
     list_display = [

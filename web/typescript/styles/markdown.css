@@ -315,11 +315,9 @@
 
 /* Blockquotes */
 .markdown-body blockquote {
-  padding: 0.6em 1.2em;
+  padding: 0 1em;
   color: var(--md-blockquote-fg);
   border-left: 0.25em solid var(--md-blockquote-border);
-  background-color: var(--md-table-tr-2n-bg);
-  border-radius: 0 6px 6px 0;
   margin: 0 0 1em 0;
 }
 

@@ -96,12 +96,16 @@ def convert_gal_markdown_to_html(sender, instance, **kwargs):
 def convert_post_markdown_to_html(sender, instance, **kwargs):
     try:
         if settings.DEBUG:
-            html = Markdown().render(instance.content)
+            html, toc = Markdown().render_with_toc(instance.content)
         else:
-            html = markdown_to_html_frontend(instance.content).html
+            res = markdown_to_html_frontend(instance.content)
+            html = res.html
+            _, toc = Markdown().render_with_toc(instance.content)
+
         post_save.disconnect(convert_post_markdown_to_html, sender=Post)
         instance.content_html = html
-        instance.save(update_fields=["content_html"])
+        instance.toc = toc
+        instance.save(update_fields=["content_html", "toc"])
         post_save.connect(convert_post_markdown_to_html, sender=Post)
     except Exception as e:
         logger.error(f"Markdown conversion failed: {e}")

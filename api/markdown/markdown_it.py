@@ -23,7 +23,7 @@ class Markdown:
         tasklist: bool = True,
         typographer: bool = False,
         sourcepos: bool = False,
-        heading_anchors: bool = False,
+        heading_anchors: bool = True,
         syntax_highlighting: bool = True,
         syntax_theme: str | None = None,
         syntax_classed: bool = True,
@@ -147,6 +147,26 @@ class Markdown:
         """markdown -> HTML"""
         result = self.md.render(markdown)
         return self._post_process(result)
+
+    def render_with_toc(self, markdown: str) -> tuple[str, list[dict[str, Any]]]:
+        """markdown -> (HTML, TOC)"""
+        ast = self.md.parse(markdown)
+        toc = []
+        for node in ast.root.children:
+            if "heading" in node.type_name.lower():
+                html = node.render()
+                # Use regex to extract level, id, and content
+                # <h1 id="heading-1">Heading 1</h1>
+                match = re.search(r'<h(\d) id="([^"]*)">(.*)</h\1>', html)
+                if match:
+                    level = int(match.group(1))
+                    slug = match.group(2)
+                    # Strip any internal HTML from the heading text for the TOC label
+                    text = re.sub(r"<[^>]*>", "", match.group(3))
+                    toc.append({"level": level, "slug": slug, "text": text})
+
+        html = self._post_process(ast.root.render())
+        return html, toc
 
     def frontmatter(self, markdown: str) -> dict[str, Any]:
         """extract frontmatter"""

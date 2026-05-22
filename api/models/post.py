@@ -21,6 +21,7 @@ class Post(BaseModel):
 
     # 渲染后的内容
     content_html = models.TextField(null=True, blank=True, help_text="自动生成")
+    toc = models.JSONField(null=True, blank=True, help_text="文章目录")
 
     # 图片相关
     cover_image = models.URLField(
