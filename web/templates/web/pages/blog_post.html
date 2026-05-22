@@ -1,11 +1,12 @@
 {% extends "web/layout/base.html" %}
 
-{% load vite %}
+{% load vite static %}
 
 {% block title %}{{ title }}{% endblock %}
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/markdown.css' %}">
+  <link rel="stylesheet" href="{% static 'katex/katex.min.css' %}">
 {% endblock %}
 
 {% block content %}

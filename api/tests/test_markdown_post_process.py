@@ -1,5 +1,7 @@
 from django.test import SimpleTestCase
+
 from api.markdown.markdown_it import Markdown
+
 
 class TestMarkdownPostProcess(SimpleTestCase):
     def setUp(self):
@@ -11,7 +13,7 @@ class TestMarkdownPostProcess(SimpleTestCase):
         html = self.md.render(markdown_text)
         self.assertIn('<span class="md-img-container"', html)
         self.assertIn('<img src="test.png" alt="alt">', html)
-        self.assertIn('</span>', html)
+        self.assertIn("</span>", html)
 
     def test_caption_priority_alt_only(self):
         """Test that data-caption uses alt when title is missing."""
@@ -48,11 +50,14 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertIn('data-caption="img2"', html)
 
     def test_image_inside_other_text(self):
-        """Test that images inside paragraphs are correctly wrapped without breaking text."""
+        """
+        Test that images inside paragraphs are correctly
+        wrapped without breaking text.
+        """
         markdown_text = "Text before ![alt](img.png) text after."
         html = self.md.render(markdown_text)
         self.assertIn('<p>Text before <span class="md-img-container"', html)
-        self.assertIn('</span> text after.</p>', html)
+        self.assertIn("</span> text after.</p>", html)
 
     def test_pre_data_language(self):
         markdown_text = "```python\nprint('hello')\n```"
@@ -62,10 +67,17 @@ class TestMarkdownPostProcess(SimpleTestCase):
     def test_pre_without_language_class(self):
         markdown_text = "```\nno language\n```"
         html = self.md.render(markdown_text)
-        self.assertNotIn('data-language=', html)
+        self.assertNotIn("data-language=", html)
 
     def test_pre_data_language_multiple_blocks(self):
         markdown_text = "```python\na = 1\n```\n\n```rust\nlet x = 1;\n```"
         html = self.md.render(markdown_text)
         self.assertIn('data-language="python"', html)
         self.assertIn('data-language="rust"', html)
+
+    def test_domain_injection(self):
+        """Test that data-domain is injected only into the <span> tag."""
+        markdown_text = "[google](https://google.com)"
+        html = self.md.render(markdown_text)
+        self.assertIn('<span data-domain="google.com">google</span>', html)
+        self.assertNotIn('<a data-domain="google.com"', html)

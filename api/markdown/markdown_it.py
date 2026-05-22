@@ -2,6 +2,7 @@ import json
 import re
 import tomllib
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 from markdown_it_rs_py import FrontMatter, MarkdownIt
@@ -18,12 +19,15 @@ class Markdown:
         linkify: bool = True,
         math: bool = True,
         frontmatter: bool = True,
+        footnote: bool = True,
+        tasklist: bool = True,
         typographer: bool = False,
         sourcepos: bool = False,
         heading_anchors: bool = False,
         syntax_highlighting: bool = True,
         syntax_theme: str | None = None,
         syntax_classed: bool = True,
+        directives: bool = False,
     ):
         # tuple native support hash
         idx_key = (
@@ -31,12 +35,15 @@ class Markdown:
             linkify,
             math,
             frontmatter,
+            footnote,
+            tasklist,
             typographer,
             sourcepos,
             heading_anchors,
             syntax_highlighting,
             syntax_theme,
             syntax_classed,
+            directives,
         )
 
         if md := self._mds.get(idx_key):
@@ -47,12 +54,15 @@ class Markdown:
                 linkify=linkify,
                 math=math,
                 frontmatter=frontmatter,
+                footnote=footnote,
+                tasklist=tasklist,
                 typographer=typographer,
                 sourcepos=sourcepos,
                 heading_anchors=heading_anchors,
                 syntax_highlighting=syntax_highlighting,
                 syntax_theme=syntax_theme,
                 syntax_classed=syntax_classed,
+                directives=directives,
             )
             self._mds[idx_key] = self.md
 
@@ -68,6 +78,32 @@ class Markdown:
     @staticmethod
     def _post_process(result: str) -> str:
         """Post-process rendered HTML"""
+
+        def inject_domain(match: re.Match) -> str:
+            full_tag = match.group(0)
+            href = match.group(1)
+            try:
+                parsed = urlparse(href)
+                # Only add for http/https and if it has a netloc (domain)
+                if parsed.scheme in ("http", "https") and parsed.netloc:
+                    domain = parsed.netloc
+                    if "data-domain=" not in full_tag:
+                        # Extract the tag content to wrap it in a span
+                        # This regex finds the closing </a> and captures content
+                        tag_pattern = re.compile(
+                            r'(<a\s+[^>]*href="[^"]*"[^>]*>)(.*?)(</a>)', re.DOTALL
+                        )
+                        tag_match = tag_pattern.search(full_tag)
+                        if tag_match:
+                            start_tag, content, end_tag = tag_match.groups()
+                            return (
+                                f'{start_tag}<span data-domain="{domain}">'
+                                f"{content}"
+                                f"</span>{end_tag}"
+                            )
+            except Exception:
+                pass
+            return full_tag
 
         def wrap_img(match: re.Match) -> str:
             img_tag = match.group(1)
@@ -86,6 +122,14 @@ class Markdown:
                 f"{img_tag}"
                 f"</span>"
             )
+
+        # Inject data-domain into <a> tags
+        result = re.sub(
+            r'<a\s+[^>]*href="([^"]*)"[^>]*>.*?</a>',
+            inject_domain,
+            result,
+            flags=re.DOTALL,
+        )
 
         # Wrap <img> tags in a span for centering (span is valid inside <p>)
         result = re.sub(r"(<img[^>]*>)", wrap_img, result)

@@ -993,7 +993,7 @@ wheels = [
 [[package]]
 name = "markdown-it-rs-py"
 version = "0.1.0"
-source = { git = "https://github.com/GSGFs7/markdown-it-rs.git?subdirectory=bindings%2Fpython#8c1bb8bf04e6ef7f2e62a2146e12d2eb43ca6d58" }
+source = { git = "https://github.com/GSGFs7/markdown-it-rs.git?subdirectory=bindings%2Fpython#966e936bf634855da02cf464adccd94b7e8b40ba" }
 
 [[package]]
 name = "markupsafe"

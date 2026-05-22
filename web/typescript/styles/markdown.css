@@ -1,6 +1,10 @@
+/* tribute to GitHub Primer */
+/* styled with markdown art */
+
 .markdown-body {
   /* Default variables */
   --md-font-size: 18px;
+  --md-code-font-weight: 500;
   --md-fg: #1f2328;
   --md-bg: transparent;
   --md-border: #d0d7de;
@@ -162,13 +166,123 @@
   color: var(--md-blockquote-fg);
 }
 
+/* Links */
 .markdown-body a {
   color: var(--md-link);
   text-decoration: none;
+  position: relative;
+  display: inline-block;
+  transition: color 0.2s ease;
 }
 
 .markdown-body a:hover {
   text-decoration: underline;
+}
+
+.markdown-body a::before {
+  content: "[";
+  color: var(--md-syntax-fg);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  user-select: none;
+  margin-right: -1px;
+  text-decoration: none;
+  display: inline-block;
+  vertical-align: 0.05em;
+}
+
+.markdown-body a::after {
+  content: "]";
+  color: var(--md-syntax-fg);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  user-select: none;
+  margin-left: -1px;
+  text-decoration: none;
+  display: inline-block;
+  vertical-align: 0.05em;
+}
+
+.markdown-body code a::before,
+.markdown-body code a::after {
+  content: none;
+}
+
+/* Domain Tooltip */
+.markdown-body a > span[data-domain] {
+  position: relative;
+}
+
+.markdown-body a > span[data-domain]::after {
+  content: attr(data-domain);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-2px);
+
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  font-weight: var(--md-code-font-weight);
+  line-height: 1;
+
+  /* High contrast theme */
+  color: #ffffff;
+  background-color: #24292f;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+
+  pointer-events: none;
+  text-decoration: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+/* Tooltip Arrow */
+.markdown-body a > span[data-domain]::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+
+  border: 5px solid transparent;
+  border-top-color: #24292f;
+
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  z-index: 100;
+}
+
+.markdown-body a > span[data-domain]:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+.markdown-body a > span[data-domain]:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(3px);
+}
+
+:where(html.dark, .dark) .markdown-body a > span[data-domain]::after {
+  background-color: #30363d;
+  color: #e6edf3;
+  border: 1px solid #444c56;
+}
+
+:where(html.dark, .dark) .markdown-body a > span[data-domain]::before {
+  border-top-color: #444c56; /* Match border/bg of dark tooltip */
 }
 
 /* Lists */
@@ -185,20 +299,27 @@
 }
 
 .markdown-body li {
-  margin-top: 0.5em;
+  margin-top: 0.25em;
 }
 .markdown-body li > p {
-  margin-top: 1em;
+  margin-top: 0.5em;
+  margin-bottom: 0;
 }
 .markdown-body li + li {
-  margin-top: 0.5em;
+  margin-top: 0.25em;
+}
+
+.markdown-body li > .contains-task-list {
+  margin-top: 0;
 }
 
 /* Blockquotes */
 .markdown-body blockquote {
-  padding: 0 1em;
+  padding: 0.6em 1.2em;
   color: var(--md-blockquote-fg);
   border-left: 0.25em solid var(--md-blockquote-border);
+  background-color: var(--md-table-tr-2n-bg);
+  border-radius: 0 6px 6px 0;
   margin: 0 0 1em 0;
 }
 
@@ -289,7 +410,8 @@
   margin: 0 0.1em;
   font-size: 85%;
   font-family: var(--font-mono);
-  border-bottom: 1.5px solid var(--md-syntax-fg);
+  font-weight: var(--md-code-font-weight);
+  border-bottom: 1px solid var(--md-syntax-fg);
 }
 
 .markdown-body code:not(pre code)::before,
@@ -366,6 +488,53 @@
   background-color: transparent;
   border: 0;
   font-family: var(--font-mono);
+  font-weight: var(--md-code-font-weight);
+}
+
+/* Footnotes */
+.markdown-body .footnotes {
+  font-size: 0.85em;
+  color: var(--md-blockquote-fg);
+  border-top: 1px solid var(--md-border);
+  margin-top: 2em;
+  padding-top: 1em;
+}
+
+.markdown-body .footnotes-sep {
+  display: none;
+}
+
+.markdown-body .footnotes ol {
+  padding-left: 1.5em;
+}
+
+.markdown-body .footnote-item {
+  margin-bottom: 0.5em;
+}
+
+.markdown-body .footnote-item p {
+  display: inline;
+  margin-bottom: 0;
+}
+
+.markdown-body .footnote-ref {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 2px;
+}
+
+.markdown-body .footnote-ref a::before,
+.markdown-body .footnote-ref a::after,
+.markdown-body .footnote-backref::before,
+.markdown-body .footnote-backref::after {
+  content: none;
+}
+
+.markdown-body .footnote-backref {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 
 /* Syntect Syntax Highlighting Colors */
@@ -440,7 +609,7 @@
   width: 100%;
   height: 100%;
   background-color: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(4px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s;
@@ -452,5 +621,35 @@
   pointer-events: auto;
 }
 
-/* TODO: task list styles */
-/* (and other) */
+/* Task lists */
+.markdown-body .contains-task-list {
+  padding-left: 0;
+  list-style-type: none;
+}
+
+.markdown-body .contains-task-list .contains-task-list {
+  padding-left: 1.6em;
+}
+
+.markdown-body .task-list-item {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 0.25em;
+}
+
+.markdown-body .task-list-item + .task-list-item {
+  margin-top: 0.25em;
+}
+
+.markdown-body .task-list-item-checkbox {
+  margin: 0.35em 0.5ch 0 0.2em;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+/* Completed task style */
+.markdown-body .task-list-item:has(input:checked) {
+  color: var(--md-blockquote-fg);
+  text-decoration: line-through;
+  text-decoration-color: var(--md-border);
+}

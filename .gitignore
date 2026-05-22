@@ -4,6 +4,7 @@ __pycache__
 node_modules
 web/static/dist/
 web/static/ssr/
+web/static/katex/
 coverage/
 .coverage
 coverage.xml
