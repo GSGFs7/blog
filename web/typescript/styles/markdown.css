@@ -203,8 +203,8 @@
   vertical-align: 0.05em;
 }
 
-.markdown-body code a::before,
-.markdown-body code a::after {
+.markdown-body.is-decorated code a::before,
+.markdown-body.is-decorated code a::after {
   content: none;
 }
 
@@ -522,10 +522,10 @@
   margin-left: 2px;
 }
 
-.markdown-body .footnote-ref a::before,
-.markdown-body .footnote-ref a::after,
-.markdown-body .footnote-backref::before,
-.markdown-body .footnote-backref::after {
+.markdown-body.is-decorated .footnote-ref a::before,
+.markdown-body.is-decorated .footnote-ref a::after,
+.markdown-body.is-decorated .footnote-backref::before,
+.markdown-body.is-decorated .footnote-backref::after {
   content: none;
 }
 

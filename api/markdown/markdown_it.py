@@ -1,11 +1,10 @@
 import json
-import re
-import tomllib
 from typing import Any
-from urllib.parse import urlparse
 
-import yaml
-from markdown_it_rs_py import FrontMatter, MarkdownIt
+from markdown_it_rs_py import MarkdownIt
+
+from .post_processors import post_process_html
+from .utils import extract_toc, parse_frontmatter
 
 
 class Markdown:
@@ -66,122 +65,32 @@ class Markdown:
             )
             self._mds[idx_key] = self.md
 
-    @staticmethod
-    def _parse_frontmatter(frontmatter: FrontMatter) -> dict[str, Any]:
-        if frontmatter.kind == "yaml":
-            return yaml.safe_load(frontmatter.raw)
-        elif frontmatter.kind == "toml":
-            return tomllib.loads(frontmatter.raw)
-        else:
-            return {}
-
-    @staticmethod
-    def _post_process(result: str) -> str:
-        """Post-process rendered HTML"""
-
-        def inject_domain(match: re.Match) -> str:
-            full_tag = match.group(0)
-            href = match.group(1)
-            try:
-                parsed = urlparse(href)
-                # Only add for http/https and if it has a netloc (domain)
-                if parsed.scheme in ("http", "https") and parsed.netloc:
-                    domain = parsed.netloc
-                    if "data-domain=" not in full_tag:
-                        # Extract the tag content to wrap it in a span
-                        # This regex finds the closing </a> and captures content
-                        tag_pattern = re.compile(
-                            r'(<a\s+[^>]*href="[^"]*"[^>]*>)(.*?)(</a>)', re.DOTALL
-                        )
-                        tag_match = tag_pattern.search(full_tag)
-                        if tag_match:
-                            start_tag, content, end_tag = tag_match.groups()
-                            return (
-                                f'{start_tag}<span data-domain="{domain}">'
-                                f"{content}"
-                                f"</span>{end_tag}"
-                            )
-            except Exception:
-                pass
-            return full_tag
-
-        def wrap_img(match: re.Match) -> str:
-            img_tag = match.group(1)
-            # Extract alt and title attributes
-            alt_match = re.search(r'alt="([^"]*)"', img_tag)
-            title_match = re.search(r'title="([^"]*)"', img_tag)
-
-            alt = alt_match.group(1) if alt_match else ""
-            title = title_match.group(1) if title_match else ""
-
-            # Prioritize title for display, fallback to alt
-            caption = title if title else alt
-
-            return (
-                f'<span class="md-img-container" data-caption="{caption}">'
-                f"{img_tag}"
-                f"</span>"
-            )
-
-        # Inject data-domain into <a> tags
-        result = re.sub(
-            r'<a\s+[^>]*href="([^"]*)"[^>]*>.*?</a>',
-            inject_domain,
-            result,
-            flags=re.DOTALL,
-        )
-
-        # Wrap <img> tags in a span for centering (span is valid inside <p>)
-        result = re.sub(r"(<img[^>]*>)", wrap_img, result)
-
-        # Extract language from <code class="...language-xxx..."> and put it on <pre>
-        result = re.sub(
-            r'(<pre)([^>]*>)\s*<code class="([^"]*\blanguage-(\w+))"',
-            r'\1 data-language="\4"\2<code class="\3"',
-            result,
-        )
-
-        return result
-
     def render(self, markdown: str) -> str:
         """markdown -> HTML"""
         result = self.md.render(markdown)
-        return self._post_process(result)
+        return post_process_html(result)
 
     def render_with_toc(self, markdown: str) -> tuple[str, list[dict[str, Any]]]:
         """markdown -> (HTML, TOC)"""
         ast = self.md.parse(markdown)
-        toc = []
-        for node in ast.root.children:
-            if "heading" in node.type_name.lower():
-                html = node.render()
-                # Use regex to extract level, id, and content
-                # <h1 id="heading-1">Heading 1</h1>
-                match = re.search(r'<h(\d) id="([^"]*)">(.*)</h\1>', html)
-                if match:
-                    level = int(match.group(1))
-                    slug = match.group(2)
-                    # Strip any internal HTML from the heading text for the TOC label
-                    text = re.sub(r"<[^>]*>", "", match.group(3))
-                    toc.append({"level": level, "slug": slug, "text": text})
-
-        html = self._post_process(ast.root.render())
+        toc = extract_toc(ast.root.children)
+        html = post_process_html(ast.root.render())
         return html, toc
-
-    def frontmatter(self, markdown: str) -> dict[str, Any]:
-        """extract frontmatter"""
-        frontmatter = self.md.parse_frontmatter(markdown)
-        if frontmatter:
-            return self._parse_frontmatter(frontmatter)
-        return {}
 
     def render_with_frontmatter(self, markdown: str) -> tuple[dict[str, Any], str]:
         """markdown -> frontmatter + HTML"""
         res = self.md.render_with_frontmatter(markdown)
-        html = self._post_process(res.html)
+        html = post_process_html(res.html)
         if frontmatter := res.frontmatter:
-            return self._parse_frontmatter(frontmatter), html
+            return parse_frontmatter(frontmatter), html
         return {}, html
+
+    def extract_frontmatter(self, markdown: str) -> dict[str, Any]:
+        """extract frontmatter"""
+        frontmatter = self.md.parse_frontmatter(markdown)
+        if frontmatter:
+            return parse_frontmatter(frontmatter)
+        return {}
 
 
 if __name__ == "__main__":
