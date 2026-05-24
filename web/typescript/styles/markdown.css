@@ -90,12 +90,12 @@
   line-height: 1.25;
 }
 
-.markdown-body h1::before,
-.markdown-body h2::before,
-.markdown-body h3::before,
-.markdown-body h4::before,
-.markdown-body h5::before,
-.markdown-body h6::before {
+.markdown-body.is-decorated h1::before,
+.markdown-body.is-decorated h2::before,
+.markdown-body.is-decorated h3::before,
+.markdown-body.is-decorated h4::before,
+.markdown-body.is-decorated h5::before,
+.markdown-body.is-decorated h6::before {
   color: var(--md-syntax-fg);
   margin-right: 0.5ch;
   font-weight: 400;
@@ -103,22 +103,22 @@
   user-select: none;
 }
 
-.markdown-body h1::before {
+.markdown-body.is-decorated h1::before {
   content: "#";
 }
-.markdown-body h2::before {
+.markdown-body.is-decorated h2::before {
   content: "##";
 }
-.markdown-body h3::before {
+.markdown-body.is-decorated h3::before {
   content: "###";
 }
-.markdown-body h4::before {
+.markdown-body.is-decorated h4::before {
   content: "####";
 }
-.markdown-body h5::before {
+.markdown-body.is-decorated h5::before {
   content: "#####";
 }
-.markdown-body h6::before {
+.markdown-body.is-decorated h6::before {
   content: "######";
 }
 
@@ -179,7 +179,7 @@
   text-decoration: underline;
 }
 
-.markdown-body a::before {
+.markdown-body.is-decorated a::before {
   content: "[";
   color: var(--md-syntax-fg);
   font-family: var(--font-mono);
@@ -191,7 +191,7 @@
   vertical-align: 0.05em;
 }
 
-.markdown-body a::after {
+.markdown-body.is-decorated a::after {
   content: "]";
   color: var(--md-syntax-fg);
   font-family: var(--font-mono);
@@ -412,8 +412,8 @@
   border-bottom: 1px solid var(--md-syntax-fg);
 }
 
-.markdown-body code:not(pre code)::before,
-.markdown-body code:not(pre code)::after {
+.markdown-body.is-decorated code:not(pre code)::before,
+.markdown-body.is-decorated code:not(pre code)::after {
   content: "`";
   color: var(--md-syntax-fg);
   font-size: 0.9em;
@@ -427,12 +427,12 @@
   z-index: 1;
 }
 
-.markdown-body code:not(pre code)::before {
+.markdown-body.is-decorated code:not(pre code)::before {
   margin-left: 0.2ch;
   margin-right: 0.4ch;
 }
 
-.markdown-body code:not(pre code)::after {
+.markdown-body.is-decorated code:not(pre code)::after {
   margin-left: 0;
   margin-right: 0.2ch;
 }
@@ -447,8 +447,8 @@
   margin-bottom: 1em;
 }
 
-.markdown-body pre::before,
-.markdown-body pre::after {
+.markdown-body.is-decorated pre::before,
+.markdown-body.is-decorated pre::after {
   display: block;
   color: var(--md-syntax-fg);
   font-family: var(--font-mono);
@@ -457,20 +457,20 @@
   opacity: 0.6;
 }
 
-:where(html.dark, .dark) .markdown-body pre::before,
-:where(html.dark, .dark) .markdown-body pre::after {
+:where(html.dark, .dark) .markdown-body.is-decorated pre::before,
+:where(html.dark, .dark) .markdown-body.is-decorated pre::after {
   color: var(--syn-comment);
   opacity: 0.8;
 }
 
-.markdown-body pre::before {
+.markdown-body.is-decorated pre::before {
   /* Using attr(data-language) to dynamically show the language.
      Ensure adds data-language to the <pre> tag. */
   content: "```" attr(data-language);
   margin-bottom: 0.5em;
 }
 
-.markdown-body pre::after {
+.markdown-body.is-decorated pre::after {
   content: "```";
   margin-top: 0.5em;
 }
