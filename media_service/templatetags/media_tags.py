@@ -62,6 +62,9 @@ def render_image(
             f"background-size: cover;"
         )
 
+    picture_width = f' width="{resource.width}"' if resource.width else ""
+    picture_height = f' height="{resource.height}"' if resource.height else ""
+
     # render <picture>
     picture_html = f'<picture class="{class_name}">'
     for s in sources:
@@ -74,8 +77,8 @@ def render_image(
         f' class="{img_class}"'
         f' loading="{loading}"'
         f' decoding="async"'
-        f" {f'width="{resource.width}"' if resource else ''}"
-        f" {f'height="{resource.height}"' if resource.height else ''}"
+        f"{picture_width}"
+        f"{picture_height}"
         f">"
     )
     picture_html += "</picture>"
@@ -84,7 +87,7 @@ def render_image(
 
 
 @register.filter
-def to_thumbnail(image_input):
+def to_thumbnail(image_input: Image | ImageResource | str | None):
     if not image_input:
         return ""
 
