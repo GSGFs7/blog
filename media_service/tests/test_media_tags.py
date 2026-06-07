@@ -30,7 +30,7 @@ class MediaTagsTestCase(TestCase):
             size=1000,
             mime_type="image/jpeg",
             file=ContentFile(b"fake image content", name="test.jpg"),
-            placeholder="cGxhY2Vob2xkZXI=",
+            placeholder="data:image/webp;base64,cGxhY2Vob2xkZXI=",
         )
         content_type = ContentType.objects.get_for_model(self.user)
         self.image = Image.objects.create(
@@ -59,7 +59,8 @@ class MediaTagsTestCase(TestCase):
         self.assertIn('class="picture-cls"', result)
         self.assertIn(f'src="{self.resource.file.url}"', result)
         self.assertIn(
-            "background-image: url(data:image/svg+xml;base64,cGxhY2Vob2xkZXI=)", result
+            "background-image: url(data:image/webp;base64,cGxhY2Vob2xkZXI=)",
+            result,
         )
 
     def test_render_image_obj(self):

@@ -58,8 +58,7 @@ def render_image(
     style = ""
     if resource.placeholder:
         style = (
-            f"background-image: url(data:image/svg+xml;base64,{resource.placeholder});"
-            f"background-size: cover;"
+            f"background-image: url({resource.placeholder}); background-size: cover;"
         )
 
     picture_width = f' width="{resource.width}"' if resource.width else ""

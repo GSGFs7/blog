@@ -6,10 +6,7 @@ from typing import Any
 import yaml
 from markdown_it_rs_py import FrontMatter, Node
 
-__all__ = [
-    "extract_toc",
-    "parse_frontmatter"
-]
+__all__ = ["extract_toc", "parse_frontmatter"]
 
 
 def extract_toc(nodes: Sequence[Node]) -> list[dict[str, Any]]:

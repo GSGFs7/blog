@@ -1,6 +1,7 @@
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from api.markdown.markdown_it import Markdown
+from media_service.models import ImageResource
 
 
 class TestMarkdownPostProcess(SimpleTestCase):
@@ -81,3 +82,32 @@ class TestMarkdownPostProcess(SimpleTestCase):
         html = self.md.render(markdown_text)
         self.assertIn('<span data-domain="google.com">google</span>', html)
         self.assertNotIn('<a data-domain="google.com"', html)
+
+
+@override_settings(MEDIA_URL="/media/")
+class TestMarkdownImageOptimization(TestCase):
+    def test_image_resource_is_rendered_as_wrapped_picture(self):
+        checksum = "d45c3754209b10b7c7ecab223d712ddbc21dde4e58cd819f05381c92d3327aa3"
+        ImageResource.objects.create(
+            checksum=checksum,
+            file=f"images/raw/d4/5c/{checksum}.jpg",
+            avif_file=f"images/avif/d4/5c/{checksum}.avif",
+            webp_file=f"images/webp/d4/5c/{checksum}.webp",
+            width=916,
+            height=916,
+            size=1,
+            mime_type="image/jpeg",
+            placeholder="data:image/webp;base64,test+value",
+        )
+
+        html = Markdown().render(f"![caption]({checksum})")
+
+        self.assertIn('<span class="md-img-container" data-caption="caption">', html)
+        self.assertIn("<picture>", html)
+        self.assertIn('type="image/avif"', html)
+        self.assertIn('type="image/webp"', html)
+        self.assertIn(f'src="/media/images/raw/d4/5c/{checksum}.jpg"', html)
+        self.assertIn("background-image: url(data:image/webp;base64,test+value);", html)
+        self.assertIn("background-size: cover;", html)
+        self.assertNotIn("</picture?", html)
+        self.assertNotIn("\\+", html)
