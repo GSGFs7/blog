@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install system dependencies and create user
 RUN pacman-key --init && \
     pacman-key --populate archlinux && \
-    pacman -Syu --noconfirm uv perl-image-exiftool git nodejs pnpm && \
+    pacman -Syu --noconfirm base-devel uv perl-image-exiftool git nodejs pnpm && \
     rm -rf /etc/pacman.d/gnupg/ /var/cache/pacman/pkg/ && \
     useradd -m -u 1000 user && \
     chown user /app
