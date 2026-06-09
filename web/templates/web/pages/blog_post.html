@@ -10,9 +10,11 @@
 {% endblock %}
 
 {% block content %}
-  <article
-    class="markdown-body is-decorated mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 md:p-8"
-  >
-    {{ content_html|safe }}
-  </article>
+  {% with current_layout=layout|default:'article' %}
+    <article
+      class="markdown-body markdown-body--{{ current_layout }}{% if current_layout == 'article' %} is-decorated{% endif %} mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 md:p-8"
+    >
+      {{ content_html|safe }}
+    </article>
+  {% endwith %}
 {% endblock %}

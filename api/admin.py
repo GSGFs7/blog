@@ -115,6 +115,7 @@ class PostAdmin(admin.ModelAdmin):
                     "title",
                     "content",
                     "content_html",
+                    "layout",
                     "toc",
                     "tags",
                     "category",

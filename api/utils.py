@@ -17,6 +17,7 @@ class MetadataResult(TypedDict):
     category: Optional[str]
     cover_image: Optional[str]
     header_image: Optional[str]
+    layout: Optional[str]
 
 
 def remove_html_tags(text: str) -> str:
@@ -321,6 +322,9 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
     # === description ===
     description = Truncator(text).chars(150)
 
+    # === layout ===
+    layout = front_matter.get("layout")
+
     # Return the most common words as a comma-separated string
     return {
         "keywords": ",".join(keywords_list[:num_keywords]),
@@ -331,6 +335,7 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
         "cover_image": cover_image,
         "header_image": header_image,
         "description": description,
+        "layout": layout,
     }
 
 

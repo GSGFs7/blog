@@ -25,6 +25,7 @@ def blog_post(request: HttpRequest, post_id: int):
         "title": post.title,
         "content_html": post.content_html,
         "toc": post.toc,
+        "layout": post.layout,
     }
     return render(request, "web/pages/blog_post.html", context)
 

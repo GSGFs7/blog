@@ -5,6 +5,9 @@ metadata:
   namespace: blog
 spec:
   ipAllowList:
+    # Public requests arrive through the Kubernetes load balancer, so Traefik sees
+    # an internal hop as RemoteAddr. Check X-Forwarded-For instead, otherwise the
+    # private CIDR whitelist below also allows public clients through the LB.
     ipStrategy:
       depth: 1
     sourceRange:
