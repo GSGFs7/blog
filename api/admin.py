@@ -1,6 +1,8 @@
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.forms.models import ModelForm
+from django.http import HttpRequest
 from django.utils import timezone
 
 from api.constants import POST_RESERVED_SLUGS
@@ -41,8 +43,8 @@ class PostAdminForm(forms.ModelForm):
         """
 
         cleaned_data = super().clean()
-        title = cleaned_data.get("title")
-        content = cleaned_data.get("content")
+        title: str | None = cleaned_data.get("title")
+        content: str | None = cleaned_data.get("content")
 
         metadata = {}
         errors = {}
@@ -55,7 +57,7 @@ class PostAdminForm(forms.ModelForm):
 
         # === tags ===
         if not cleaned_data.get("tags"):
-            tag_names = metadata.get("tags")
+            tag_names: str | None = metadata.get("tags")
             if tag_names:
                 tags_to_set = []
                 for tag_name in tag_names:
@@ -347,7 +349,9 @@ class ApiClientAdmin(admin.ModelAdmin):
             return []
         return self.readonly_fields
 
-    def save_model(self, request, obj, form, change):
+    def save_model(
+        self, request: HttpRequest, obj: ApiClient, form: ModelForm, change: bool
+    ):
         if not change:
             raw_secret = ApiClient.generate_secret()
             obj.secret = raw_secret

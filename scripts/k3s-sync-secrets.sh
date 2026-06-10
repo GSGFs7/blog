@@ -45,6 +45,8 @@ kubectl create secret generic blog-secrets \
     --from-literal=SERVER_NAME="${SERVER_NAME}" \
     --from-literal=LITELLM_API_KEY="${REMOTE_EMBEDDING_API_KEY}" \
     --from-literal=REMOTE_EMBEDDING_API_KEY="${REMOTE_EMBEDDING_API_KEY}" \
+    --from-literal=FERNET_KEY="${FERNET_KEY}" \
+    --from-literal=FERNET_OLD_KEYS="${FERNET_OLD_KEYS}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
 echo ""
