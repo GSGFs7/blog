@@ -1,4 +1,5 @@
 from .anime import Anime
+from .api_client import ApiClient
 from .base import BaseModel
 from .category import Category
 from .comment import Comment
@@ -28,4 +29,6 @@ __all__ = [
     "Anime",
     # gal
     "Gal",
+    # api client (downstream)
+    "ApiClient",
 ]

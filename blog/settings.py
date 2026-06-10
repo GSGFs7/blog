@@ -306,6 +306,10 @@ INTERNAL_IPS = [
 API_KEY = os.getenv("API_KEY")
 if API_KEY is None:
     logging.warning("API_KEY is not set in environment variables.")
+FERNET_KEY = os.getenv("FERNET_KEY")
+if FERNET_KEY is None:
+    logging.warning("FERNET_KEY is not set in environment variables.")
+FERNET_OLD_KEYS = _split_csv(os.getenv("FERNET_OLD_KEYS", ""))
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 

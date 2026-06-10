@@ -1,10 +1,12 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from api.constants import POST_RESERVED_SLUGS
 from api.models import (
     Anime,
+    ApiClient,
     Comment,
     Gal,
     Guest,
@@ -295,8 +297,106 @@ class AnimeAdmin(admin.ModelAdmin):
     list_display = ["name", "created_at", "updated_at"]
 
 
+class ApiClientAdmin(admin.ModelAdmin):
+    list_display = [
+        "client_id",
+        "display_is_active",
+        "expires_at",
+        "revoked_at",
+        "created_at",
+    ]
+    list_filter = []
+    search_fields = ["client_id"]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "masked_secret",
+        "revoked_at",
+    ]
+
+    _add_fieldsets = [
+        (None, {"fields": ["client_id", "scopes"]}),
+        ("Lifecycle", {"fields": ["expires_at"]}),
+    ]
+    _change_fieldsets = [
+        (None, {"fields": ["client_id", "masked_secret", "scopes"]}),
+        ("Lifecycle", {"fields": ["expires_at", "revoked_at"]}),
+        ("Timestamps", {"fields": ["created_at", "updated_at"]}),
+    ]
+
+    # makesure it display as a boolean (it will render a icon in Django Admin panel)
+    @admin.display(boolean=True, description="Active")
+    def display_is_active(self, obj):
+        return obj.is_active
+
+    # do not display raw secret
+    @admin.display(description="Secret")
+    def masked_secret(self, obj):
+        raw = obj.secret
+        if not raw:
+            return "-"
+        return f"******{raw[-4:]}"
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            return self._add_fieldsets
+        return self._change_fieldsets
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            return []
+        return self.readonly_fields
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            raw_secret = ApiClient.generate_secret()
+            obj.secret = raw_secret
+            super().save_model(request, obj, form, change)
+            self.message_user(
+                request,
+                f"“{obj.client_id}”的 secret （只会显示一次）: {raw_secret}",
+                level=messages.SUCCESS,
+            )
+        else:
+            super().save_model(request, obj, form, change)
+
+    actions = ["regenerate_secret", "revoke_clients"]
+
+    @admin.action(description="Revoke selected clients")
+    def revoke_clients(self, request, queryset):
+        now = timezone.now()
+        active = queryset.filter(revoked_at__isnull=True)
+        count = active.update(revoked_at=now)
+        skipped = queryset.count() - count
+        msg = f"已撤销 {count} 个客户端。"
+        if skipped:
+            msg += f" {skipped} 个已处于撤销状态，跳过。"
+        self.message_user(request, msg, level=messages.SUCCESS)
+
+    @admin.action(description="Regenerate secret for selected clients")
+    def regenerate_secret(self, request, queryset):
+        results = []
+        skipped = 0
+        for client in queryset:
+            if client.revoked_at is not None:
+                skipped += 1
+                continue
+            raw_secret = ApiClient.generate_secret()
+            client.secret = raw_secret
+            client.save(update_fields=["secret"])
+            results.append(f"  {client.client_id}: {raw_secret}")
+
+        msg = f"已重新生成 {len(results)} 个 secret（只会显示一次）:\n" + "\n".join(
+            results
+        )
+        if skipped:
+            msg += f"\n跳过 {skipped} 个已撤销的客户端。"
+        self.message_user(request, msg, level=messages.SUCCESS)
+
+
 admin.site.register(Post, PostAdmin)
 admin.site.register(Guest, GuestAdmin)
 admin.site.register(Comment, CommentAdmin)
 admin.site.register(Gal, GalAdmin)
 admin.site.register(Anime, AnimeAdmin)
+admin.site.register(ApiClient, ApiClientAdmin)

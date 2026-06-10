@@ -389,6 +389,7 @@ def chinese_slugify(title: str, max_length: int = 50) -> str:
     return slug or "untitled"
 
 
+# TODO: refactor this, Cognitive Complexity 117
 def _openapi_convert(spec: Dict[str, Any]) -> Dict[str, Any]:
     """
     convert django-ninja openapi 3.1 -> openapi 3.0

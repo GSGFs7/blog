@@ -1,14 +1,16 @@
 import asyncio
-import base64
-import hashlib
 import logging
+import typing
 import uuid
 from abc import ABC, abstractmethod
 
-from cryptography.fernet import Fernet
-from django.conf import settings
 from django.core.cache import cache
 from ninja.security import HttpBearer
+
+from core.fernet import get_fernet
+
+if typing.TYPE_CHECKING:
+    from cryptography.fernet import MultiFernet
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,7 @@ class TimeBaseAuth(HttpBearer, ABC):
     """
 
     @classmethod
-    def create_token(cls, client_id: str, nonce: str = None) -> str:
+    def create_token(cls, client_id: str, nonce: str | None = None) -> str:
         if nonce is None:
             nonce = uuid.uuid4().hex
 
@@ -30,7 +32,7 @@ class TimeBaseAuth(HttpBearer, ABC):
         return f.encrypt(payload).decode("utf-8")
 
     @staticmethod
-    def generate_auth_token_cache_key(client_id: str, nonce: str):
+    def generate_auth_token_cache_key(client_id: str, nonce: str) -> str:
         return f"auth_token:{client_id}:{nonce}"
 
     @staticmethod
@@ -38,12 +40,8 @@ class TimeBaseAuth(HttpBearer, ABC):
         return f"{client_id}:{nonce}"
 
     @staticmethod
-    def get_fernet():
-        if not settings.API_KEY:
-            raise ValueError("API_KEY is not configured")
-
-        key = hashlib.sha256(settings.API_KEY.encode()).digest()
-        return Fernet(base64.urlsafe_b64encode(key))
+    def get_fernet() -> MultiFernet:
+        return get_fernet()
 
     @abstractmethod
     def authenticate(self, request, token):

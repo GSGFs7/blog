@@ -15,6 +15,7 @@ from api.schemas import (
 from api.tasks import mail_admins_task
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 # get comment from id
@@ -28,7 +29,7 @@ async def get_comment(request, comment_id: int):
     except Comment.DoesNotExist:
         return 404, {"message": "Not found"}
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return 500, {"message": "Internal Server Error"}
 
 
@@ -49,7 +50,7 @@ async def get_comment_ids_from_post(request, post_id: int):
         ]
         return 200, {"ids": comment_ids}
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return 500, {"message": "Internal Server Error"}
 
 
@@ -75,7 +76,7 @@ async def get_all_comment_from_post(request, post_id: int):
         ]
         return 200, {"comments": comments}
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return 500, {"message": "Internal Server Error"}
 
 
@@ -111,5 +112,5 @@ async def new_comment(request, body: NewCommentSchema):
     except Guest.DoesNotExist:
         return 404, {"message": "Guest not found"}
     except Exception as e:
-        logging.error(e)
-        return 500, {"message", "Internal Server Error"}
+        logger.error(e)
+        return 500, {"message": "Internal Server Error"}
