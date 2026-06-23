@@ -60,8 +60,8 @@ _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `
     ```bash
     # 运行 vite
     ./manage.py vite # 或者 pnpm run dev
-    # 新开一个终端, 运行 Django 开发服务器
-    ./manage.py runserver
+    # 新开一个终端, 运行 Django ASGI 开发服务器
+    ./manage.py runasgi
     ```
 
 ## 可选依赖

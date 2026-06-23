@@ -26,6 +26,7 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             for client in qs.iterator():
+                # re-save it with the new master key
                 client.secret = client.secret
                 client.save(update_fields=["secret"])
                 count += 1
