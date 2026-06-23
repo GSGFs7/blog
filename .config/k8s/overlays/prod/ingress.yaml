@@ -53,13 +53,20 @@ spec:
     - host: $BACKEND_DOMAIN
       http:
         paths:
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-django
+                port:
+                  name: static
           - path: /
             pathType: Prefix
             backend:
               service:
                 name: blog-django
                 port:
-                  number: 8000
+                  name: http
 
 ---
 apiVersion: networking.k8s.io/v1
