@@ -14,7 +14,7 @@ class Markdown:
     def __init__(
         self,
         *,
-        html: bool = False,
+        html: bool = True,
         linkify: bool = True,
         math: bool = True,
         frontmatter: bool = True,
