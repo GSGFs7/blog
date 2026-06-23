@@ -58,6 +58,8 @@ steps:
       SONAR_TOKEN:
         from_secret: SONAR_TOKEN
       SONAR_HOST_URL: https://sonarqube.gsgfs.sh
+    commands:
+      - sonar-scanner -Dproject.settings=.config/sonar/sonar-project.properties
     when:
       - branch: [main]
         event: [push, pull_request, manual]

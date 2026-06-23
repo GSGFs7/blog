@@ -56,8 +56,5 @@ web/static/
 # model file
 sentence_transformers_models/
 
-# project config
-.config/
-
 # npm
 node_modules/

@@ -45,7 +45,7 @@ RUN --mount=type=secret,id=hf_token \
 COPY --chown=user:user . .
 
 # supervisor configuration
-COPY --chown=root:root supervisord.conf /etc/supervisor/supervisord.conf
+COPY --chown=root:root .config/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 
 # prepare environment
 RUN mkdir -p /var/log/supervisor && \

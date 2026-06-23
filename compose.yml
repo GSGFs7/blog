@@ -2,7 +2,7 @@ services:
   blog-django:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .config/docker/Dockerfile
       secrets:
         - hf_token
       args:
