@@ -33,7 +33,7 @@ spec:
         - name: copy-staticfiles
           image: blog-app:latest
           command: ["sh", "-c"]
-          args: ["cp -a /app/staticfiles/. /staticfiles/"]
+          args: ["cp -R /app/staticfiles/. /staticfiles/"]
           volumeMounts:
             - name: staticfiles
               mountPath: /staticfiles
