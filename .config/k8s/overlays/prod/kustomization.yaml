@@ -12,10 +12,10 @@ resources:
 images:
 - name: blog-app
   newName: registry.gsgfs.sh/blog-app
-  newTag: 646a9a938565e42826c1b307af053f3b8d60d0a3
+  newTag: 9cf027cc30b714676bd4b638eeb268c0dd607120
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
-  newTag: 646a9a938565e42826c1b307af053f3b8d60d0a3
+  newTag: 9cf027cc30b714676bd4b638eeb268c0dd607120
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
-  newTag: latest
+  newTag: 9cf027cc30b714676bd4b638eeb268c0dd607120
