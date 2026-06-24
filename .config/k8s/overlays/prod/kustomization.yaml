@@ -16,3 +16,6 @@ images:
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
   newTag: 646a9a938565e42826c1b307af053f3b8d60d0a3
+- name: blog-model-downloader
+  newName: registry.gsgfs.sh/blog-model-downloader
+  newTag: latest

@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 declare -a IMAGES=(
     ".config/k8s/containers/app.Dockerfile::app"
     ".config/k8s/containers/backup.Dockerfile::backup"
+    ".config/k8s/containers/model-downloader.Dockerfile::model-downloader"
 )
 
 # Detect available container builder (podman preferred)

@@ -17,14 +17,14 @@ RUN pacman-key --init && \
     pacman -Syu --noconfirm base-devel uv perl-image-exiftool git nodejs pnpm && \
     rm -rf /etc/pacman.d/gnupg/ /var/cache/pacman/pkg/ && \
     useradd -m -u 1000 user && \
-    chown user /app
+    chown user:user /app
 
 USER user
 
 # Pre-install Python and frontend dependencies
 COPY --chown=user:user pyproject.toml uv.lock package.json pnpm-lock.yaml /app/
 COPY --chown=user:user scripts/copy-katex.mjs /app/scripts/
-RUN uv sync --frozen --no-install-project --no-cache && \
+RUN uv sync --frozen --no-dev --no-install-project --no-cache && \
     pnpm install --frozen-lockfile
 
 # Copy project files, build frontend, and collect static

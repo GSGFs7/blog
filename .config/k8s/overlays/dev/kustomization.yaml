@@ -18,6 +18,9 @@ images:
   - name: blog-backup
     newName: localhost/blog-backup
     newTag: latest
+  - name: blog-model-downloader
+    newName: localhost/blog-model-downloader
+    newTag: latest
 
 # Force local image pulling in dev (one patch per resource for precise targeting)
 patches:
@@ -56,8 +59,6 @@ patches:
               - name: wait-for-db
                 imagePullPolicy: Never
               - name: wait-for-redis
-                imagePullPolicy: Never
-              - name: download-model
                 imagePullPolicy: Never
             containers:
               - name: blog-celery-worker

@@ -7,38 +7,45 @@ requires-python = ">=3.13"
 dependencies = [
     "blake3>=1.0.8",
     "boto3>=1.40.63",
-    "boto3-stubs[s3]>=1.40.63",
     "celery>=5.6.3",
-    "celery-types>=0.23.0",
-    "coverage>=7.13.5",
     "cryptography>=46.0.5",
     "django>=5.2.9",
     "django-celery-beat>=2.8.1",
-    "django-debug-toolbar>=6.1.0",
     "django-ninja>=1.4.5",
     "django-prometheus>=2.4.0",
     "django-redis>=6.0.0",
     "django-storages[s3]>=1.14.6",
     "django-two-factor-auth>=1.18.1",
-    "filelock>=3.25.2",
-    "flower>=2.0.1",
     "gunicorn>=23.0.0",
+    "httpx>=0.28.1",
     # Using fork because original fxsjy/jieba is no longer maintained; this fork includes Python 3.13+ compatibility fixes
     "jieba @ git+https://github.com/GSGFs7/jieba.git@master",
     "markdown-it-rs-py @ git+https://github.com/GSGFs7/markdown-it-rs.git#subdirectory=bindings/python",
     "pgvector>=0.4.1",
-    "phonenumbers>=9.0.12",
     "pillow>=11.3.0",
-    "psutil>=7.0.0",
     "psycopg[binary]>=3.3.3",
     "pypinyin>=0.55.0",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "resend>=2.19.0",
-    "sentence-transformers>=5.1.2",
-    "torch>=2.9.0",
     "uvicorn[standard]>=0.42.0",
 ]
+
+
+[project.optional-dependencies]
+ml = ["filelock>=3.25.2", "huggingface-hub>=1.20.1", "sentence-transformers>=5.1.2", "torch>=2.9.0"]
+
+
+[dependency-groups]
+dev = [
+    "coverage>=7.13.5",
+    "django-debug-toolbar>=6.1.0",
+    "boto3-stubs[s3]>=1.40.63",
+    "celery-types>=0.23.0",
+    "flower>=2.0.1",
+]
+# for 'scripts/download-gguf-model.py'
+model-download = ["filelock>=3.25.2", "huggingface-hub>=1.20.1"]
 
 
 [tool.uv.sources]

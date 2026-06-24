@@ -14,6 +14,7 @@ data:
   REDIS_HOST: "blog-redis"
   REDIS_PORT: "6379"
   USE_S3: "True"
+  USE_REMOTE_EMBEDDING: "True"
   MODEL_NAME: "google/embeddinggemma-300m"
   GGUF_MODEL_NAME: "ggml-org/embeddinggemma-300M-GGUF"
   SENTENCE_TRANSFORMERS_HOME: "/models"

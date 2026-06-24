@@ -17,6 +17,7 @@ MANIFEST_ACCEPT_HEADER="application/vnd.oci.image.index.v1+json, application/vnd
 declare -a IMAGES=(
     ".config/k8s/containers/app.Dockerfile::app"
     ".config/k8s/containers/backup.Dockerfile::backup"
+    ".config/k8s/containers/model-downloader.Dockerfile::model-downloader"
 )
 
 function setup_podman_cert() {
@@ -38,7 +39,7 @@ function check_cdn_bypass() {
     # Verify DNS resolution (should match /etc/hosts entries)
     local resolved_ips
     resolved_ips=$(getent ahosts "$REGISTRY_DOMAIN" | awk '{print $1}' | sort -u)
-    
+
     local found_expected_ipv4=false
     local found_blackhole_ipv6=false
 

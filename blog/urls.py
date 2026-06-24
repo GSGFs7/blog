@@ -15,7 +15,6 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from debug_toolbar.toolbar import debug_toolbar_urls
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -31,7 +30,19 @@ urlpatterns = [
     path("", include("web.urls")),
     path("prometheus/", include(prometheus_url)),
     path("", include(tf_urls)),
-] + debug_toolbar_urls()
+]
 
 if settings.DEBUG:
+    from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # provider static files in runasgi command
+    urlpatterns += staticfiles_urlpatterns()
+
+    # django-debug-toolbar
+    try:
+        from debug_toolbar.toolbar import debug_toolbar_urls
+
+        urlpatterns += debug_toolbar_urls()
+    except ImportError:
+        pass

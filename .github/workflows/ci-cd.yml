@@ -1,3 +1,5 @@
+# deprecated. use woodpecker CI
+
 name: CI/CD Pipeline
 
 on:
@@ -53,7 +55,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --extra ml
 
       - name: Wait for database
         run: uv run scripts/wait_for_db.py

@@ -29,6 +29,7 @@ steps:
       - cd .config/k8s/overlays/prod
       - kustomize edit set image blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}
       - kustomize edit set image blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}
+      - kustomize edit set image blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}
       # commit and push
       - git add kustomization.yaml
       - |

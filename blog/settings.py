@@ -100,12 +100,7 @@ INSTALLED_APPS = [
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
-    # "django_otp.plugins.otp_email",  # <- if you want email capability.
     "two_factor",
-    # "two_factor.plugins.phonenumber",  # <- if you want phone number capability.
-    # "two_factor.plugins.email",  # <- if you want email capability.
-    # "two_factor.plugins.yubikey",  # <- for yubikey capability.
-    "debug_toolbar",  # debug包
     "django_celery_beat",  # Celery 定时任务
     "django_prometheus",  # 监控
     "api.apps.ApiConfig",
@@ -123,7 +118,6 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "debug_toolbar.middleware.DebugToolbarMiddleware",  # 一个debug包的中间件
     "web.middleware.HtmxMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
@@ -296,11 +290,6 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# debug包所需的内部ip列表
-INTERNAL_IPS = [
-    "127.0.0.1",
-]
-
 API_KEY = os.getenv("API_KEY")
 if API_KEY is None:
     logging.warning("API_KEY is not set in environment variables.")
@@ -380,3 +369,22 @@ if SENTENCE_TRANSFORMERS_HOME:
 TEST_RUNNER = "api.tests.runner.QuietTestRunner"
 # Disable hugging face process bar
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+# DEBUG settings
+if DEBUG:
+    try:
+        import debug_toolbar  # noqa
+    except ImportError:
+        pass
+    else:
+        # django-debug-toolbar
+        INSTALLED_APPS.append(
+            "debug_toolbar",
+        )
+        MIDDLEWARE.insert(
+            MIDDLEWARE.index("web.middleware.HtmxMiddleware"),
+            "debug_toolbar.middleware.DebugToolbarMiddleware",
+        )
+        INTERNAL_IPS = [
+            "127.0.0.1",
+        ]

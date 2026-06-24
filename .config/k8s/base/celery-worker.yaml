@@ -49,19 +49,6 @@ spec:
                   except Exception:
                       print('waiting for redis...')
                       time.sleep(2)
-        - name: download-model
-          image: blog-app:latest
-          command:
-            - python
-            - /app/scripts/download-model.py
-          envFrom:
-            - configMapRef:
-                name: blog-config
-            - secretRef:
-                name: blog-secrets
-          volumeMounts:
-            - name: model-cache
-              mountPath: /models
       containers:
         - name: blog-celery-worker
           image: blog-app:latest

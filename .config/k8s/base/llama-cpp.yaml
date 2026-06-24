@@ -21,10 +21,10 @@ spec:
             claimName: blog-model-pvc
       initContainers:
         - name: download-model
-          image: blog-app:latest
+          image: blog-model-downloader:latest
           command:
             - python
-            - /app/scripts/download-model.py
+            - /app/scripts/download-gguf-model.py
           envFrom:
             - configMapRef:
                 name: blog-config
