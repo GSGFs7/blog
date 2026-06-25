@@ -12,8 +12,15 @@ class MarkdownEditorWidget(forms.Textarea):
         self.attrs = {
             "class": "solid-markdown-editor vLargeTextField",
             "data-editor-target": "content",
-            "data-katex-css-url": static("katex/katex.min.css"),
             "data-markdown-css-url": vite_asset("web/typescript/styles/markdown.css"),
             "cols": "40",
             "rows": "10",
         }
+
+    def get_context(self, name, value, attrs):
+        context = super().get_context(name, value, attrs)
+        # calling static() at import time will cause a ValueError
+        # because the staticfiles manifest don't exist yet (collectstatic not ran)
+        # so, defer it
+        context["widget"]["attrs"]["data-katex-css-url"] = static("katex/katex.min.css")
+        return context
