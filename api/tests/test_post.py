@@ -124,6 +124,14 @@ class TestPost(TestCase):
         if error_post is not None:
             raise
 
+    def test_numeric_slug_rejected(self):
+        with self.assertRaises(ValidationError):
+            Post.objects.create(
+                title="numeric slug test",
+                content="numeric slug content",
+                slug="123",
+            )
+
 
 @override_settings(
     SECURE_SSL_REDIRECT=False,

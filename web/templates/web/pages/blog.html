@@ -50,10 +50,9 @@
           <div
             class="relative flex h-16 w-full flex-col items-center overflow-hidden rounded-lg border border-white/30 sm:h-52 sm:flex-4 md:h-80"
           >
-            <button
+            <a
               class="relative flex h-full w-full cursor-pointer items-center justify-center"
-              type="button"
-              onclick=""
+              href="{% url 'blog_random_post' %}"
             >
               <span class="absolute top-2 rounded-md px-2 py-1 text-3xl dark:text-gray-300 transition-all">
                 随机一篇
@@ -76,58 +75,14 @@
                   loading="lazy"
                 >
               </picture>
-            </button>
+            </a>
           </div>
         </div>
 
         {# post list #}
         <div class="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2 sm:gap-10 sm:pt-6">
-          {% for p in posts %}
-            <article class="group mt-4 h-64 overflow-hidden rounded-lg border border-gray-500/70 md:mt-4 md:h-72">
-              <a href="/blog/{{ p.id }}">
-                <div
-                  class="relative z-10 h-44 w-full overflow-hidden transition-all duration-500 group-hover:scale-[1.65] md:h-56">
-                  <img
-                    alt="post cover"
-                    class="scale-100 object-cover object-center"
-                    loading="lazy"
-                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    src="{{ p.cover_image|default:'https://img.gsgfs.moe/images/webp/ff/87/ff87dd4044f5fb6614d80f11b1d336a279c5d3640faa1b1cb3221566321865ba.webp' }}"
-                  >
-                </div>
-
-                <h3
-                  class="absolute text-xl px-2 py-1 z-20 translate-3 -translate-y-14 rounded-md bg-gray-500/30 text-white backdrop-blur-sm">
-                  {{ p.title }}
-                </h3>
-                {% with info_class="flex items-center px-1" %}
-                  <section class="flex w-full flex-row flex-wrap px-2 py-1">
-                    <p class="{{ info_class }}">
-                      <span>发布于:</span>
-                      <time>{{ p.created_at|date:"Y-m-d" }}</time>
-                    </p>
-                    <p class="{{ info_class }}">
-                      <span>更新于:</span>
-                      <time>{{ p.content_update_at|date:"Y-m-d" }}</time>
-                    </p>
-                    <p class="{{ info_class }}">
-                      <span>{{ p.category|default:"未分类" }}</span>
-                    </p>
-                    <p class="flex flex-nowrap items-center px-1 text-nowrap">
-                      {% if p.tags.count %}
-                        <span class="flex">
-                          {% for t in p.tags.all %}
-                            <span>{{ t.name }}</span>{% if not forloop.last %}|{% endif %}
-                          {% endfor %}
-                        </span>
-                      {% else %}
-                        <span>无标签</span>
-                      {% endif %}
-                    </p>
-                  </section>
-                {% endwith %}
-              </a>
-            </article>
+          {% for post in posts %}
+            {% include "web/partials/blog/post_list_item.html" with post=post only %}
           {% endfor %}
         </div>
       </div>

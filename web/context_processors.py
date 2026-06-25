@@ -21,4 +21,6 @@ def site_meta(request):
                 "href": "/about",
             },
         ],
+        # without tailing '/'
+        "SITE_CANONICAL": "https://gsgfs.moe",
     }

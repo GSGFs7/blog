@@ -2,6 +2,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy
 from pgvector.django import HnswIndex, VectorField
 
@@ -104,6 +105,7 @@ class Post(BaseModel):
     content_update_at = models.DateTimeField(
         null=False, blank=True, help_text="文章正文最后更新时间"
     )
+    published_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(BaseModel.Meta):
         ordering = ["-order", "-created_at"]
@@ -133,6 +135,8 @@ class Post(BaseModel):
             raise ValidationError(
                 f"Slug '{self.slug}' is a reserved keyword and cannot be used."
             )
+        if self.slug.isdigit():
+            raise ValidationError(f"Slug '{self.slug}' cannot be purely numeric.")
 
         # === description ===
         if not self.meta_description:
@@ -160,6 +164,10 @@ class Post(BaseModel):
                 if layout == value or layout == label:
                     self.layout = value
                     break
+
+        # === published time ===
+        if self.status == "published" and self.published_at is None:
+            self.published_at = timezone.now()
 
         # === tokenize (PG FTS) ===
         import jieba

@@ -99,9 +99,12 @@ class PostAdminForm(forms.ModelForm):
                 .exists()
             ):
                 errors["slug"] = "The slug already exists."
-        if cleaned_data.get("slug") in POST_RESERVED_SLUGS:
+        if (
+            cleaned_data.get("slug") in POST_RESERVED_SLUGS
+            or str(cleaned_data.get("slug")).isdigit()
+        ):
             errors["slug"] = (
-                "Slug is reserved and cannot be used. Please choose another."
+                "Slug is reserved or purely numeric. Please choose another."
             )
 
         if errors:
@@ -139,6 +142,7 @@ class PostAdmin(admin.ModelAdmin):
                     "order",
                     "keywords",
                     "content_update_at",
+                    "published_at",
                 ]
             },
         ),
@@ -150,12 +154,23 @@ class PostAdmin(admin.ModelAdmin):
             post.save()
         self.message_user(request, f"已重新生成 {queryset.count()} 篇文章的内容")
 
-    actions = [regenerate_content]
+    @admin.action(description="发布所选文章")
+    def make_published(self, request, queryset):
+        updated = queryset.update(status="published", published_at=timezone.now())
+        self.message_user(request, f"已成功发布 {updated} 篇文章")
+
+    @admin.action(description="取消发布所选文章（设为草稿）")
+    def make_draft(self, request, queryset):
+        updated = queryset.update(status="draft", published_at=None)
+        self.message_user(request, f"已成功将 {updated} 篇文章设为草稿")
+
+    actions = [regenerate_content, make_published, make_draft]
     form = PostAdminForm
     readonly_fields = ["updated_at", "content_update_at"]
     list_display = [
         "title",
         "status",
+        "published_at",
         "created_at",
         "updated_at",
     ]  # 在列表中显示日期
