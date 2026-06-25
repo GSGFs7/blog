@@ -11,7 +11,7 @@
     "jsxImportSource": "solid-js",
     "esModuleInterop": true,
     "noEmit": true,
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals", "vite/client"]
   },
   "include": ["web/typescript/**/*.ts", "web/typescript/**/*.tsx"]
 }

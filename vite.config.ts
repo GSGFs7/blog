@@ -37,6 +37,8 @@ export default defineConfig(({ command, isSsrBuild }) => {
       footerCss: "web/typescript/styles/footer.css",
       fontCss: "web/typescript/styles/font.css",
       markdownCss: "web/typescript/styles/markdown.css",
+      // admin
+      admin: "web/typescript/admin/index.ts",
     };
   }
 

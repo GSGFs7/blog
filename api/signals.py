@@ -7,6 +7,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from .markdown import Markdown, markdown_to_html_frontend
+from .markdown.post_processors import sanitize_html
 from .models import Anime, Gal, Post
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ def convert_gal_markdown_to_html(sender, instance, **kwargs):
         if settings.DEBUG:
             html = Markdown().render(instance.review)
         else:
-            html = markdown_to_html_frontend(instance.review).html
+            html = sanitize_html(markdown_to_html_frontend(instance.review).html)
         instance.review_html = html
         # Disconnect signal, avoid infinite loop
         post_save.disconnect(convert_gal_markdown_to_html, sender=Gal)
@@ -99,7 +100,7 @@ def convert_post_markdown_to_html(sender, instance, **kwargs):
             html, toc = Markdown().render_with_toc(instance.content)
         else:
             res = markdown_to_html_frontend(instance.content)
-            html = res.html
+            html = sanitize_html(res.html)
             _, toc = Markdown().render_with_toc(instance.content)
 
         post_save.disconnect(convert_post_markdown_to_html, sender=Post)

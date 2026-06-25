@@ -1,8 +1,10 @@
 import re
 from collections.abc import Callable
+from copy import deepcopy
 from urllib.parse import urlparse
 
 from django.utils.html import escape
+from nh3 import nh3
 
 from media_service.models import ImageResource
 
@@ -15,6 +17,79 @@ HtmlPostProcessor = Callable[[str], str]
 IMG_RE = re.compile(r"<img\b(?P<attrs>[^>]*)>", re.IGNORECASE)
 ATTR_RE = re.compile(r'(?P<name>[\w:-]+)="(?P<value>[^"]*)"')
 CHECKSUM_RE = re.compile(r"([a-f0-9]{64})")
+
+HTML_TAGS = nh3.ALLOWED_TAGS | {
+    "annotation",
+    "maction",
+    "math",
+    "menclose",
+    "merror",
+    "mfrac",
+    "mi",
+    "mmultiscripts",
+    "mn",
+    "mo",
+    "mover",
+    "mpadded",
+    "mphantom",
+    "mprescripts",
+    "mroot",
+    "mrow",
+    "ms",
+    "mspace",
+    "msqrt",
+    "mstyle",
+    "msub",
+    "msubsup",
+    "msup",
+    "mtable",
+    "mtd",
+    "mtext",
+    "mtr",
+    "munder",
+    "munderover",
+    "none",
+    "picture",
+    "section",
+    "semantics",
+    "source",
+    "input",
+}
+
+HTML_ATTRIBUTES = deepcopy(nh3.ALLOWED_ATTRIBUTES)
+HTML_ATTRIBUTES["*"] = {"aria-hidden", "class", "id", "title"}
+HTML_ATTRIBUTES.setdefault("a", set()).update({"href", "target"})
+HTML_ATTRIBUTES.setdefault("annotation", set()).add("encoding")
+HTML_ATTRIBUTES.setdefault("code", set()).add("class")
+HTML_ATTRIBUTES.setdefault("img", set()).update(
+    {"decoding", "loading", "style", "title"}
+)
+HTML_ATTRIBUTES.setdefault("input", set()).update({"checked", "disabled"})
+HTML_ATTRIBUTES.setdefault("math", set()).update({"display", "xmlns"})
+HTML_ATTRIBUTES.setdefault("pre", set()).add("data-language")
+HTML_ATTRIBUTES.setdefault("source", set()).update({"media", "sizes", "srcset", "type"})
+HTML_ATTRIBUTES.setdefault("span", set()).update(
+    {"data-caption", "data-domain", "style"}
+)
+HTML_ATTRIBUTES.setdefault("td", set()).update({"colspan", "rowspan"})
+HTML_ATTRIBUTES.setdefault("th", set()).update({"colspan", "rowspan"})
+HTML_ATTRIBUTES.setdefault("time", set()).add("datetime")
+
+HTML_STYLE_PROPERTIES = {
+    "background-image",
+    "background-size",
+    "height",
+    "left",
+    "margin-left",
+    "margin-right",
+    "min-width",
+    "right",
+    "top",
+    "vertical-align",
+    "width",
+}
+
+HTML_URL_SCHEMES = {"http", "https", "mailto", "tel"}
 
 
 def inject_link_domains(html: str) -> str:
@@ -148,11 +223,25 @@ def optimize_images(html: str) -> str:
     return "".join(parts)
 
 
+def sanitize_html(html: str) -> str:
+    return nh3.clean(
+        html,
+        tags=HTML_TAGS,
+        clean_content_tags={"script", "style"},
+        attributes=HTML_ATTRIBUTES,
+        tag_attribute_values={"input": {"type": {"checkbox"}}},
+        set_tag_attribute_values={"input": {"disabled": ""}},
+        filter_style_properties=HTML_STYLE_PROPERTIES,
+        url_schemes=HTML_URL_SCHEMES,
+    )
+
+
 POST_PROCESSORS: tuple[HtmlPostProcessor, ...] = (
     inject_link_domains,
     optimize_images,
     wrap_images,
     add_pre_language_attributes,
+    sanitize_html,
 )
 
 

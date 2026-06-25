@@ -1,0 +1,8 @@
+{% extends "admin/change_form.html" %}
+{% load vite static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% vite_hmr %}
+  <script type="module" src="{% vite_asset 'web/typescript/admin/index.ts' %}"></script>
+{% endblock %}

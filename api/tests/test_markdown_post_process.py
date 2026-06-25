@@ -83,6 +83,51 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertIn('<span data-domain="google.com">google</span>', html)
         self.assertNotIn('<a data-domain="google.com"', html)
 
+    def test_sanitizes_dangerous_html(self):
+        markdown_text = """
+<span class="heimu" onclick="alert(1)">secret</span>
+<script>alert(1)</script>
+<a href="javascript:alert(1)">bad</a>
+<img src="x" onerror="alert(1)">
+"""
+        html = self.md.render(markdown_text)
+
+        self.assertIn('<span class="heimu">secret</span>', html)
+        self.assertIn('<a rel="noopener noreferrer">bad</a>', html)
+        self.assertNotIn("alert(1)", html)
+        self.assertNotIn("javascript:", html)
+        self.assertNotIn("onclick", html)
+        self.assertNotIn("onerror", html)
+        self.assertNotIn("<script", html)
+
+    def test_task_list_survives_sanitizer(self):
+        html = self.md.render("- [x] done\n- [ ] todo")
+
+        self.assertIn('class="contains-task-list"', html)
+        self.assertIn('class="task-list-item"', html)
+        self.assertIn('class="task-list-item-checkbox"', html)
+        self.assertIn('type="checkbox"', html)
+        self.assertIn('disabled=""', html)
+        self.assertIn('checked=""', html)
+
+    def test_footnotes_survive_sanitizer(self):
+        html = self.md.render("hello[^1]\n\n[^1]: note")
+
+        self.assertIn('<section class="footnotes">', html)
+        self.assertIn('class="footnote-ref"', html)
+        self.assertIn('id="fnref1"', html)
+        self.assertIn('href="#fn1"', html)
+        self.assertIn('class="footnote-backref"', html)
+
+    def test_math_survives_sanitizer(self):
+        html = self.md.render("$$\nE = mc^2\n$$")
+
+        self.assertIn('class="math-block"', html)
+        self.assertIn('class="katex"', html)
+        self.assertIn('xmlns="http://www.w3.org/1998/Math/MathML"', html)
+        self.assertIn('encoding="application/x-tex"', html)
+        self.assertIn('style="height:', html)
+
 
 @override_settings(MEDIA_URL="/media/")
 class TestMarkdownImageOptimization(TestCase):
@@ -107,7 +152,7 @@ class TestMarkdownImageOptimization(TestCase):
         self.assertIn('type="image/avif"', html)
         self.assertIn('type="image/webp"', html)
         self.assertIn(f'src="/media/images/raw/d4/5c/{checksum}.jpg"', html)
-        self.assertIn("background-image: url(data:image/webp;base64,test+value);", html)
-        self.assertIn("background-size: cover;", html)
+        self.assertIn("background-image:url(data:image/webp;base64,test+value)", html)
+        self.assertIn("background-size:cover", html)
         self.assertNotIn("</picture?", html)
         self.assertNotIn("\\+", html)

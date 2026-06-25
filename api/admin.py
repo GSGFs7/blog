@@ -16,12 +16,14 @@ from api.models import (
     Tag,
 )
 from api.utils import chinese_slugify, extract_metadata
+from api.widgets import MarkdownEditorWidget
 
 
 class PostAdminForm(forms.ModelForm):
     class Meta:
         model = Post
         fields = "__all__"
+        widgets = {"content": MarkdownEditorWidget}
 
     def clean(self):
         """
@@ -114,6 +116,17 @@ class PostAdminForm(forms.ModelForm):
 
 
 class PostAdmin(admin.ModelAdmin):
+    form = PostAdminForm
+    readonly_fields = ["updated_at", "content_update_at"]
+    list_display = [
+        "title",
+        "status",
+        "published_at",
+        "created_at",
+        "updated_at",
+    ]  # 在列表中显示日期
+    list_filter = ["status", "category"]  # 添加过滤器
+    search_fields = ["title", "content"]  # 添加搜索功能
     fieldsets = [
         (
             None,
@@ -165,17 +178,6 @@ class PostAdmin(admin.ModelAdmin):
         self.message_user(request, f"已成功将 {updated} 篇文章设为草稿")
 
     actions = [regenerate_content, make_published, make_draft]
-    form = PostAdminForm
-    readonly_fields = ["updated_at", "content_update_at"]
-    list_display = [
-        "title",
-        "status",
-        "published_at",
-        "created_at",
-        "updated_at",
-    ]  # 在列表中显示日期
-    list_filter = ["status", "category"]  # 添加过滤器
-    search_fields = ["title", "content"]  # 添加搜索功能
 
 
 class CommentAdmin(admin.ModelAdmin):
