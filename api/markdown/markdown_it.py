@@ -26,7 +26,7 @@ class Markdown:
         syntax_highlighting: bool = True,
         syntax_theme: str | None = None,
         syntax_classed: bool = True,
-        directives: bool = False,
+        directives: bool = True,
     ):
         # tuple native support hash
         idx_key = (

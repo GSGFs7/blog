@@ -1,3 +1,8 @@
+import { setupIslands } from "../core/bootstrap";
+import { COMPONENTS } from "../islands";
+
+setupIslands(COMPONENTS);
+
 (async function adminMount() {
   const textareaForMarkdownEditor = document.querySelector(
     '.solid-markdown-editor[data-editor-target="content"]',

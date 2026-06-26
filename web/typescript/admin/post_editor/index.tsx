@@ -1,10 +1,13 @@
 import { createEffect, createSignal, onCleanup } from "solid-js";
 
+import { bootstrap, cleanup } from "../../core/bootstrap";
+
 export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement }>) {
   let previewContainerRef: HTMLDivElement | undefined;
   let renderRequestId = 0;
   const katexCssUrl = props.textarea.dataset.katexCssUrl || "/static/katex/katex.min.css";
   const markdownCssUrl = props.textarea.dataset.markdownCssUrl || "";
+  const tailwindCssUrl = props.textarea.dataset.tailwindCssUrl || "";
 
   const [source, setSource] = createSignal(props.textarea.value);
   const [debouncedSource, setDebouncedSource] = createSignal(source());
@@ -86,6 +89,7 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
         // do not merge with HTML content update
         shadow = previewContainerRef.attachShadow({ mode: "open" });
         shadow.innerHTML = `
+          <link rel="stylesheet" href="${tailwindCssUrl}" />
           <link rel="stylesheet" href="${markdownCssUrl}" />
           <link rel="stylesheet" href="${katexCssUrl}" />
           <div id="content-container"></div>
@@ -95,12 +99,15 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
       // update content
       const container = shadow.getElementById("content-container");
       if (container) {
+        cleanup(container);
         container.className = isDark() ? "dark" : "";
         container.innerHTML = `
           <div class="markdown-body is-decorated">
             ${previewHtml()}
           </div>
         `;
+        bootstrap(container);
+        onCleanup(() => cleanup(container));
       }
     }
   });

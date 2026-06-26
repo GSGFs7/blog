@@ -1,3 +1,4 @@
+import json
 import re
 from collections.abc import Callable
 from copy import deepcopy
@@ -17,6 +18,9 @@ HtmlPostProcessor = Callable[[str], str]
 IMG_RE = re.compile(r"<img\b(?P<attrs>[^>]*)>", re.IGNORECASE)
 ATTR_RE = re.compile(r'(?P<name>[\w:-]+)="(?P<value>[^"]*)"')
 CHECKSUM_RE = re.compile(r"([a-f0-9]{64})")
+
+DIRECTIVE_TAG_RE = re.compile(r"<(?P<tag>span|div)\b(?P<attrs>[^>]*)>", re.IGNORECASE)
+MARKDOWN_DIRECTIVE_ISLANDS = {"counter": "Counter"}
 
 HTML_TAGS = nh3.ALLOWED_TAGS | {
     "annotation",
@@ -69,8 +73,9 @@ HTML_ATTRIBUTES.setdefault("math", set()).update({"display", "xmlns"})
 HTML_ATTRIBUTES.setdefault("pre", set()).add("data-language")
 HTML_ATTRIBUTES.setdefault("source", set()).update({"media", "sizes", "srcset", "type"})
 HTML_ATTRIBUTES.setdefault("span", set()).update(
-    {"data-caption", "data-domain", "style"}
+    {"data-caption", "data-domain", "style", "data-solid-island", "data-props"}
 )
+HTML_ATTRIBUTES.setdefault("div", set()).update({"data-solid-island", "data-props"})
 HTML_ATTRIBUTES.setdefault("td", set()).update({"colspan", "rowspan"})
 HTML_ATTRIBUTES.setdefault("th", set()).update({"colspan", "rowspan"})
 HTML_ATTRIBUTES.setdefault("time", set()).add("datetime")
@@ -223,6 +228,29 @@ def optimize_images(html: str) -> str:
     return "".join(parts)
 
 
+def mount_solid_directives(html: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        attrs = _parse_attrs(match.group("attrs"))
+        classes = attrs.get("class", "").split()
+        if "directive" not in classes:
+            return match.group(0)
+
+        directive_name = next((name for name in classes if name != "directive"), "")
+        component_name = MARKDOWN_DIRECTIVE_ISLANDS.get(directive_name)
+        if not component_name:
+            return match.group(0)
+
+        props = {key: value for key, value in attrs.items() if key != "class"}
+        props_json = escape(json.dumps(props, separators=(",", ":")))
+        tag = match.group("tag").lower()
+        return (
+            f'<{tag} data-solid-island="{escape(component_name)}" '
+            f'data-props="{props_json}">'
+        )
+
+    return DIRECTIVE_TAG_RE.sub(replace, html)
+
+
 def sanitize_html(html: str) -> str:
     return nh3.clean(
         html,
@@ -241,6 +269,7 @@ POST_PROCESSORS: tuple[HtmlPostProcessor, ...] = (
     optimize_images,
     wrap_images,
     add_pre_language_attributes,
+    mount_solid_directives,
     sanitize_html,
 )
 

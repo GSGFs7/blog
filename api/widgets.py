@@ -25,4 +25,7 @@ class MarkdownEditorWidget(forms.Textarea):
         context["widget"]["attrs"]["data-markdown-css-url"] = vite_asset(
             "web/typescript/styles/markdown.css"
         )
+        context["widget"]["attrs"]["data-tailwind-css-url"] = vite_asset(
+            "web/typescript/styles/globals.css"
+        )
         return context
