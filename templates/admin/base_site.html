@@ -1,4 +1,11 @@
 {% extends "admin/base.html" %}
+{% load vite %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% vite_hmr %}
+  <script type="module" src="{% vite_asset 'web/typescript/admin/index.ts' %}"></script>
+{% endblock %}
 
 {% block title %}
   {% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}
