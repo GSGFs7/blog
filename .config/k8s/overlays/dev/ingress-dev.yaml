@@ -16,6 +16,13 @@ spec:
                 name: blog-litellm
                 port:
                   number: 4000
+          - path: /favicon.ico
+            pathType: Exact
+            backend:
+              service:
+                name: blog-django
+                port:
+                  name: static
           - path: /static
             pathType: Prefix
             backend:

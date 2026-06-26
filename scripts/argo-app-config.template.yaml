@@ -23,6 +23,16 @@ spec:
               value: ${BACKEND_DOMAIN}
         - target:
             kind: Ingress
+            name: blog-static-ingress
+          patch: |-
+            - op: replace
+              path: /spec/rules/0/host
+              value: ${BACKEND_DOMAIN}
+            - op: replace
+              path: /spec/tls/0/hosts/0
+              value: ${BACKEND_DOMAIN}
+        - target:
+            kind: Ingress
             name: blog-litellm-ingress
           patch: |-
             - op: replace

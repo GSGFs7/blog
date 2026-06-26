@@ -51,7 +51,9 @@ testapp/
 .ssh/
 media/
 staticfiles/
-web/static/
+web/static/dist/
+web/static/ssr/
+web/static/katex/
 
 # model file
 sentence_transformers_models/
