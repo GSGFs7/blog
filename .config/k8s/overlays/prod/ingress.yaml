@@ -30,6 +30,33 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: blog-static-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.priority: "50"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - $BACKEND_DOMAIN
+      secretName: blog-django-tls-secret
+  rules:
+    - host: $BACKEND_DOMAIN
+      http:
+        paths:
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-django
+                port:
+                  name: static
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: blog-ingress
   annotations:
     # the entry point used by the route (WebSecure corresponds to HTTPS port 443).
@@ -53,13 +80,6 @@ spec:
     - host: $BACKEND_DOMAIN
       http:
         paths:
-          - path: /static
-            pathType: Prefix
-            backend:
-              service:
-                name: blog-django
-                port:
-                  name: static
           - path: /
             pathType: Prefix
             backend:

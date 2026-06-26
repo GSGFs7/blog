@@ -16,6 +16,13 @@ spec:
                 name: blog-litellm
                 port:
                   number: 4000
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: blog-django
+                port:
+                  name: static
           - path: /
             pathType: Prefix
             backend:
