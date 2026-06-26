@@ -12,7 +12,6 @@ class MarkdownEditorWidget(forms.Textarea):
         self.attrs = {
             "class": "solid-markdown-editor vLargeTextField",
             "data-editor-target": "content",
-            "data-markdown-css-url": vite_asset("web/typescript/styles/markdown.css"),
             "cols": "40",
             "rows": "10",
         }
@@ -23,4 +22,7 @@ class MarkdownEditorWidget(forms.Textarea):
         # because the staticfiles manifest don't exist yet (collectstatic not ran)
         # so, defer it
         context["widget"]["attrs"]["data-katex-css-url"] = static("katex/katex.min.css")
+        context["widget"]["attrs"]["data-markdown-css-url"] = vite_asset(
+            "web/typescript/styles/markdown.css"
+        )
         return context
