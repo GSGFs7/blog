@@ -38,6 +38,7 @@ steps:
         from_secret: HUGGINGFACE_HUB_TOKEN
       REGISTRY_RETAIN_COMMITS: "20"
       REGISTRY_CLEANUP_ENABLED: "true"
+      REGISTRY_CLEANUP_REQUIRED: "true"
       STORAGE_DRIVER: overlay
     commands:
       - |
@@ -46,7 +47,8 @@ steps:
 
         # 2. Register private CA in system trust store
         if [ -n "$REGISTRY_CA_CERT" ]; then
-          echo "$REGISTRY_CA_CERT" > /usr/share/ca-certificates/trust-source/anchors/registry-ca.crt
+          mkdir -p /etc/ca-certificates/trust-source/anchors
+          printf '%s\n' "$REGISTRY_CA_CERT" > /etc/ca-certificates/trust-source/anchors/registry-ca.crt
           update-ca-trust
           echo "System trust store updated with private CA."
         fi

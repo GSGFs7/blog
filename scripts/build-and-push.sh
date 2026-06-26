@@ -12,6 +12,7 @@ REGISTRY_RETAIN_COMMITS="${REGISTRY_RETAIN_COMMITS:-20}"
 REGISTRY_CLEANUP_ENABLED="${REGISTRY_CLEANUP_ENABLED:-true}"
 REGISTRY_CLEANUP_REQUIRED="${REGISTRY_CLEANUP_REQUIRED:-false}"
 REGISTRY_CERT_DIR=""
+REGISTRY_CURL_CA_BUNDLE=""
 MANIFEST_ACCEPT_HEADER="application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
 
 declare -a IMAGES=(
@@ -20,14 +21,62 @@ declare -a IMAGES=(
     ".config/k8s/containers/model-downloader.Dockerfile::model-downloader"
 )
 
+function write_secret_file() {
+    local value=$1
+    local path=$2
+
+    if [ -n "$value" ]; then
+        printf '%s\n' "$value" > "$path"
+    else
+        rm -f "$path"
+    fi
+}
+
+# ca files in woodpecker is self signed only
+function find_system_ca_bundle() {
+    local bundle
+
+    for bundle in \
+        /etc/ssl/certs/ca-certificates.crt \
+        /etc/pki/tls/certs/ca-bundle.crt \
+        /etc/ssl/ca-bundle.pem \
+        /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem; do
+        if [ -s "$bundle" ]; then
+            printf '%s\n' "$bundle"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+function setup_registry_curl_ca_bundle() {
+    local system_bundle
+    local custom_ca="$REGISTRY_CERT_DIR/ca.crt"
+
+    if system_bundle=$(find_system_ca_bundle); then
+        REGISTRY_CURL_CA_BUNDLE="$REGISTRY_CERT_DIR/curl-ca-bundle.crt"
+        cp "$system_bundle" "$REGISTRY_CURL_CA_BUNDLE"
+        if [ -s "$custom_ca" ]; then
+            printf '\n' >> "$REGISTRY_CURL_CA_BUNDLE"
+            cat "$custom_ca" >> "$REGISTRY_CURL_CA_BUNDLE"
+        fi
+    elif [ -s "$custom_ca" ]; then
+        REGISTRY_CURL_CA_BUNDLE="$custom_ca"
+    fi
+}
+
 function setup_podman_cert() {
     BASE_DIR="$HOME/.config/containers/certs.d/$REGISTRY_DOMAIN/"
     REGISTRY_CERT_DIR="$BASE_DIR"
     mkdir -p "$BASE_DIR"
-    echo "$REGISTRY_CA_CERT" > "$BASE_DIR/ca.crt"
-    echo "$REGISTRY_CLIENT_CERT" > "$BASE_DIR/client.cert"
-    echo "$REGISTRY_CLIENT_KEY" > "$BASE_DIR/client.key"
-    chmod 600 "$BASE_DIR/client.key"
+    write_secret_file "${REGISTRY_CA_CERT:-}" "$BASE_DIR/ca.crt"
+    write_secret_file "${REGISTRY_CLIENT_CERT:-}" "$BASE_DIR/client.cert"
+    write_secret_file "${REGISTRY_CLIENT_KEY:-}" "$BASE_DIR/client.key"
+    if [ -f "$BASE_DIR/client.key" ]; then
+        chmod 600 "$BASE_DIR/client.key"
+    fi
+    setup_registry_curl_ca_bundle
 }
 
 function check_cdn_bypass() {
@@ -149,13 +198,21 @@ function push_images() {
 }
 
 function registry_curl() {
-    curl -fsS \
-        --retry 3 \
-        --retry-delay 2 \
-        --cacert "$REGISTRY_CERT_DIR/ca.crt" \
-        --cert "$REGISTRY_CERT_DIR/client.cert" \
-        --key "$REGISTRY_CERT_DIR/client.key" \
-        "$@"
+    local args=(
+        curl -fsS
+        --retry 3
+        --retry-delay 2
+    )
+
+    if [ -n "$REGISTRY_CURL_CA_BUNDLE" ]; then
+        args+=(--cacert "$REGISTRY_CURL_CA_BUNDLE")
+    fi
+
+    if [ -s "$REGISTRY_CERT_DIR/client.cert" ] && [ -s "$REGISTRY_CERT_DIR/client.key" ]; then
+        args+=(--cert "$REGISTRY_CERT_DIR/client.cert" --key "$REGISTRY_CERT_DIR/client.key")
+    fi
+
+    "${args[@]}" "$@"
 }
 
 # identification git's 40 hexadecimal characters
