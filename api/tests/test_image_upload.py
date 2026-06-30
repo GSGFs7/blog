@@ -53,11 +53,7 @@ class ImageUploadTest(BaseImageUploadTest):
         self.client = Client()
         self.guest = Guest.objects.create(
             name="tester",
-            unique_id="myself-1",
             email="tester@gsgfs.moe",
-            password="secret",
-            provider=Guest.Providers.myself,
-            provider_id=1,
             avatar="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png",
         )
 
@@ -103,11 +99,7 @@ class ImageDeduplicationTest(BaseImageUploadTest):
         self.client = Client()
         self.guest = Guest.objects.create(
             name="tester",
-            unique_id="myself-2",
             email="tester2@example.com",
-            password="secret",
-            provider=Guest.Providers.myself,
-            provider_id=2,
             avatar="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png",
         )
 
@@ -177,11 +169,7 @@ class WebImageUploadTest(BaseImageUploadTest):
         self.client = Client()
         self.guest = Guest.objects.create(
             name="tester",
-            unique_id="myself-3",
             email="tester3@example.com",
-            password="secret",
-            provider=Guest.Providers.myself,
-            provider_id=3,
             avatar="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png",
         )
         # NOTE: it a PNG file actually

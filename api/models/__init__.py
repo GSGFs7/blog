@@ -5,6 +5,7 @@ from .category import Category
 from .comment import Comment
 from .gal import Gal
 from .guest import Guest
+from .oauth import OAuthIdentity, OAuthProvider
 from .page import Page
 from .post import Post, PostChunk
 from .tag import Tag
@@ -31,4 +32,7 @@ __all__ = [
     "Gal",
     # api client (downstream)
     "ApiClient",
+    # OAuth
+    "OAuthIdentity",
+    "OAuthProvider",
 ]

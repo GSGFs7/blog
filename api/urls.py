@@ -8,7 +8,6 @@ from .routers.auth import router as auth_router
 from .routers.category import router as categories_router
 from .routers.comment import router as comment_router
 from .routers.gal import router as gal_router
-from .routers.guest import router as guest_router
 from .routers.health import router as health_router
 from .routers.image import router as image_router
 from .routers.mail import router as mail_router
@@ -41,7 +40,7 @@ api.add_router("/auth", auth_router)
 api.add_router("/category", categories_router)
 api.add_router("/comment", comment_router)
 api.add_router("/gal", gal_router)
-api.add_router("/guest", guest_router)
+# api.add_router("/guest", guest_router)
 api.add_router("/health", health_router)
 api.add_router("/image", image_router)
 api.add_router("/mail", mail_router)

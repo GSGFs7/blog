@@ -31,6 +31,7 @@ class QuietTestRunner(DiscoverRunner):
             "celery": logging.WARNING,
             "django_celery_beat": logging.WARNING,
             "django.request": logging.CRITICAL,  # Suppress Unauthorized messages
+            "django.security.csrf": logging.CRITICAL,  # Suppress CSRF
             "django.db.backends": logging.WARNING,
             "api.exiftool": logging.CRITICAL,  # Suppress ExifTool error messages
         }
@@ -81,6 +82,7 @@ class QuietTestRunner(DiscoverRunner):
             "celery",
             "django_celery_beat",
             "django.request",
+            "django.security.csrf",
             "django.db.backends",
             "api.exiftool",
         ]

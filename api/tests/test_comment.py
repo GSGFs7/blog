@@ -3,7 +3,7 @@ import json
 from django.test import TestCase, override_settings
 
 from api.auth import TimeBaseAuth
-from api.models import Comment, Guest, Post
+from api.models import Comment, Guest, OAuthIdentity, OAuthProvider, Post
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -12,13 +12,30 @@ class TestComment(TestCase):
         Post.objects.create(
             title="comment test", content="comment test", slug="comment_test"
         )
-        Guest.objects.create(
-            unique_id="myself-114514", name="test-user", provider_id="114514"
+        self.guest = Guest.objects.create(
+            name="test-user",
+            email="test-user@example.com",
+            avatar="https://example.com/avatar.png",
+        )
+        provider = OAuthProvider.objects.create(
+            provider_key="myself",
+            name="Myself",
+            client_id="test-client",
+            client_secret="test-secret",
+            authorization_url="https://example.com/authorize",
+            token_url="https://example.com/token",
+            userinfo_url="https://example.com/userinfo",
+        )
+        OAuthIdentity.objects.create(
+            guest=self.guest,
+            provider=provider,
+            user_id="114514",
         )
 
     def test_new_comment_endpoint(self) -> None:
         data = {
-            "unique_id": "myself-114514",
+            "provider_key": "myself",
+            "user_id": "114514",
             "content": "test comment",
             "post_id": Post.objects.get(title="comment test").pk,
             "metadata": {
@@ -56,14 +73,12 @@ class TestComment(TestCase):
 
     def test_get_all_comment_from_post_performance(self):
         post = Post.objects.get(title="comment test")
-        guest = Guest.objects.get(unique_id="myself-114514")
-
         # Create multiple comments
         for i in range(5):
             Comment.objects.create(
                 content=f"test comment {i}",
                 post=post,
-                guest=guest,
+                guest=self.guest,
             )
 
         # The number of queries should be constant regardless of the number of comments

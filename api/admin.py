@@ -12,6 +12,8 @@ from api.models import (
     Comment,
     Gal,
     Guest,
+    OAuthIdentity,
+    OAuthProvider,
     Post,
     Tag,
 )
@@ -256,11 +258,7 @@ class GuestAdmin(admin.ModelAdmin):
             {
                 "fields": [
                     "name",
-                    "unique_id",
                     "email",
-                    "password",
-                    "provider",
-                    "provider_id",
                     "avatar",
                     "is_admin",
                 ]
@@ -279,8 +277,9 @@ class GuestAdmin(admin.ModelAdmin):
     ]
 
     readonly_fields = ["created_at", "updated_at", "last_visit"]
-    list_display = ["name", "provider", "created_at", "updated_at"]
-    list_filter = ["provider"]
+    list_display = ["name", "created_at", "updated_at"]
+    list_filter = []
+    search_fields = ["name", "email"]
 
 
 class AnimeAdmin(admin.ModelAdmin):
@@ -415,9 +414,72 @@ class ApiClientAdmin(admin.ModelAdmin):
         self.message_user(request, msg, level=messages.SUCCESS)
 
 
+class OAuthProviderAdmin(admin.ModelAdmin):
+    list_display = ["provider_key", "name", "is_active", "created_at", "updated_at"]
+    list_filter = ["is_active"]
+    search_fields = ["provider_key", "name"]
+    readonly_fields = ["created_at", "updated_at"]
+
+    fieldsets = [
+        (None, {"fields": ["provider_key", "name", "is_active"]}),
+        (
+            "OAuth Endpoints",
+            {"fields": ["authorization_url", "token_url", "userinfo_url"]},
+        ),
+        ("Credentials", {"fields": ["client_id", "masked_secret"]}),
+        ("Scope", {"fields": ["scope"]}),
+        ("Timestamps", {"fields": ["created_at", "updated_at"]}),
+    ]
+
+    @admin.display(description="Client Secret")
+    def masked_secret(self, obj):
+        raw = obj.client_secret
+        if not raw:
+            return "-"
+        return f"******{raw[-4:]}"
+
+    def get_fieldsets(self, request, obj=None):
+        fs = list(super().get_fieldsets(request, obj))
+        if not obj:
+            fs[2] = ("Credentials", {"fields": ["client_id", "client_secret"]})
+        return fs
+
+
+class OAuthIdentityAdmin(admin.ModelAdmin):
+    list_display = ["guest", "provider", "user_id", "created_at", "updated_at"]
+    list_filter = ["provider"]
+    search_fields = ["guest__name", "provider__provider_key", "user_id"]
+    readonly_fields = ["created_at", "updated_at"]
+    autocomplete_fields = ["guest", "provider"]
+
+    fieldsets = [
+        (None, {"fields": ["guest", "provider", "user_id"]}),
+        (
+            "Tokens",
+            {"fields": ["masked_access_token", "masked_refresh_token", "expires_at"]},
+        ),
+        ("Extra Data", {"fields": ["extra_data"]}),
+        ("Timestamps", {"fields": ["created_at", "updated_at"]}),
+    ]
+
+    @admin.display(description="Access Token")
+    def masked_access_token(self, obj):
+        if not obj.access_token:
+            return "-"
+        return f"******{obj.access_token[-6:]}"
+
+    @admin.display(description="Refresh Token")
+    def masked_refresh_token(self, obj):
+        if not obj.refresh_token:
+            return "-"
+        return f"******{obj.refresh_token[-6:]}"
+
+
 admin.site.register(Post, PostAdmin)
 admin.site.register(Guest, GuestAdmin)
 admin.site.register(Comment, CommentAdmin)
 admin.site.register(Gal, GalAdmin)
 admin.site.register(Anime, AnimeAdmin)
 admin.site.register(ApiClient, ApiClientAdmin)
+admin.site.register(OAuthProvider, OAuthProviderAdmin)
+admin.site.register(OAuthIdentity, OAuthIdentityAdmin)
