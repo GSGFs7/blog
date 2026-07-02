@@ -13,5 +13,5 @@
     "noEmit": true,
     "types": ["vitest/globals", "vite/client"]
   },
-  "include": ["web/typescript/**/*.ts", "web/typescript/**/*.tsx"]
+  "include": ["web/typescript/**/*.ts", "web/typescript/**/*.tsx", "web/typescript/**/*.d.ts"]
 }

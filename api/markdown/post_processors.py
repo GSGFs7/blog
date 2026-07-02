@@ -20,7 +20,11 @@ ATTR_RE = re.compile(r'(?P<name>[\w:-]+)="(?P<value>[^"]*)"')
 CHECKSUM_RE = re.compile(r"([a-f0-9]{64})")
 
 DIRECTIVE_TAG_RE = re.compile(r"<(?P<tag>span|div)\b(?P<attrs>[^>]*)>", re.IGNORECASE)
-MARKDOWN_DIRECTIVE_ISLANDS = {"counter": "Counter"}
+MARKDOWN_DIRECTIVE_ISLANDS = {
+    "counter": "Counter",
+    "python-wasm": "PythonREPL",
+    "python-repl": "PythonREPL",
+}
 
 HTML_TAGS = nh3.ALLOWED_TAGS | {
     "annotation",

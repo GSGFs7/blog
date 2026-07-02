@@ -1,7 +1,5 @@
 // similar to Astro.js, a jsx component is an JS island
 
-import { render } from "solid-js/web";
-
 import type { ComponentProps, ComponentRegistry } from "../types";
 import { initZoom } from "./zoom";
 
@@ -23,6 +21,8 @@ function parseProps(componentName: string, propsJSON: string | null): ComponentP
 
 // mount solid component
 async function mountIsland(element: IslandElement): Promise<void> {
+  const { render } = await import("solid-js/web");
+
   if (element.__solidDispose__ || element.__solidMounting__) {
     // avoid duplicate mounting
     return;

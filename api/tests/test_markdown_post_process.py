@@ -128,6 +128,11 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertIn('encoding="application/x-tex"', html)
         self.assertIn('style="height:', html)
 
+    def test_python_wasm_directive_mounts_repl_island(self):
+        html = self.md.render('<div class="directive python-wasm"></div>')
+
+        self.assertIn('data-solid-island="PythonREPL"', html)
+
 
 @override_settings(MEDIA_URL="/media/")
 class TestMarkdownImageOptimization(TestCase):

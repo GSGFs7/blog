@@ -1,6 +1,9 @@
 import htmx from "htmx.org";
 import "htmx-ext-head-support";
 
+// settings
+htmx.config.includeIndicatorStyles = false;
+
 declare global {
   interface Window {
     htmx: typeof htmx;
