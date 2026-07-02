@@ -1,5 +1,7 @@
 {% extends "web/layout/base.html" %}
 
+{% load static %}
+
 {% block title %}Home{% endblock %}
 
 {% block extra_head %}
@@ -114,9 +116,9 @@
           aria-controls="image-description"
           aria-expanded="false"
           class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center dark:text-[#cccccc] transition-colors hover:dark:text-[#c0c0c0]"
+          data-image-description-toggle
           type="button"
           tabindex="0"
-          onclick="const p = document.getElementById('image-description'); const isHidden = p.classList.toggle('hidden'); this.setAttribute('aria-expanded', !isHidden);"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-full w-full">
             <path
@@ -127,4 +129,8 @@
       </div>
     </div>
   </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/page/index/image-description.js' %}"></script>
 {% endblock %}
