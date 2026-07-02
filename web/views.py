@@ -1,7 +1,8 @@
 import random
 
-from django.http import Http404, HttpRequest
+from django.http import Http404, HttpRequest, HttpResponsePermanentRedirect
 from django.shortcuts import get_object_or_404, redirect, render
+from django.templatetags.static import static
 from django.views.decorators.http import require_GET
 
 from api.models import Post
@@ -46,8 +47,8 @@ def blog_post_id(request: HttpRequest, post_id: int):
 @require_GET
 def blog_post_slug(request: HttpRequest, post_slug: str):
     post = Post.objects.filter(slug=post_slug).first()
-    if post.status != "published":
-        raise Http404("This post not published yet.")
+    if post is None or post.status != "published":
+        raise Http404("This post not found.")
 
     context = {
         "title": post.title,
@@ -62,3 +63,22 @@ def blog_post_slug(request: HttpRequest, post_slug: str):
 @require_GET
 def about(request: HttpRequest):
     return render(request, "web/pages/about.html")
+
+
+# nginx will process this in prod
+@require_GET
+def favicon(request: HttpRequest):
+    return HttpResponsePermanentRedirect(static("favicon.ico"))
+
+
+def page_not_found(request: HttpRequest, exception: Exception):
+    context = {
+        "visitor": (
+            request.user.get_username() if request.user.is_authenticated else "visitor"
+        )
+    }
+    return render(request, "404.html", context=context, status=404)
+
+
+def server_error(request: HttpRequest):
+    return render(request, "500.html", status=500)

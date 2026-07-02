@@ -11,4 +11,5 @@ urlpatterns = [
     path("blog/<int:post_id>", views.blog_post_id, name="blog_post_id"),
     path("blog/<str:post_slug>", views.blog_post_slug, name="blog_post_slug"),
     path("about", views.about, name="about"),
+    path("favicon.ico", views.favicon, name="favicon"),
 ]
