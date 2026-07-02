@@ -7,12 +7,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <script type="module" src="{% vite_asset 'web/typescript/core/theme.ts' %}"></script>
-  <script>document.documentElement.classList.replace("no-js", "js");</script>
-  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/navbar.css' %}">
-  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/footer.css' %}">
-  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/base.css' %}">
-  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/globals.css' %}">
-  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/font.css' %}">
+  <script type="application/javascript" src="{% static 'js/layout/base/load.js' %}"></script>
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/navbar.css' %}" crossorigin>
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/footer.css' %}" crossorigin>
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/base.css' %}" crossorigin>
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/globals.css' %}" crossorigin>
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/font.css' %}" crossorigin>
   <link rel="alternate" type="application/atom+xml" title="GSGFs's blog" href="{% url 'blog_feed' %}">
   <link rel="icon" href="{% static 'favicon.ico' %}" type="image/x-icon">
   <title>{% block title %}{% endblock %} - {{ SITE_TITLE }}</title>

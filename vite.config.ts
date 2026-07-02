@@ -66,6 +66,9 @@ export default defineConfig(({ command, isSsrBuild }) => {
       port: 5173,
       strictPort: true,
       origin: "http://localhost:5173",
+      headers: {
+        "Cross-Origin-Resource-Policy": "cross-origin",
+      },
     },
     test: {
       environment: "jsdom",

@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import List
 
+from django.utils.csp import CSP
 from dotenv import load_dotenv
 
 
@@ -86,6 +87,40 @@ else:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
 
+# CSP
+_static_src = "https://static.gsgfs.moe"
+_img_src = "https://img.gsgfs.moe"
+_vite_src = "http://localhost:5173"
+_vite_ws_src = "ws://localhost:5173"
+CSP_POLICY = {
+    "default-src": [CSP.SELF, _img_src],  # prefetch imgs
+    "base-uri": [CSP.NONE],
+    "object-src": [CSP.NONE],
+    "frame-src": [CSP.NONE],
+    "frame-ancestors": [CSP.NONE],
+    "form-action": [CSP.SELF],
+    "script-src": [CSP.SELF, CSP.WASM_UNSAFE_EVAL, _static_src],
+    "script-src-attr": [CSP.NONE],
+    # xterm.js needs inline style
+    "style-src": [CSP.SELF, CSP.UNSAFE_INLINE],
+    "style-src-attr": [CSP.UNSAFE_INLINE],
+    "img-src": [CSP.SELF, "data:", "blob:", _img_src],
+    "font-src": [CSP.SELF, "data:"],
+    "connect-src": [CSP.SELF, _static_src],
+    "worker-src": [CSP.SELF, "blob:", _static_src],
+    "media-src": [CSP.SELF],
+    "manifest-src": [CSP.SELF],
+}
+if DEBUG:
+    CSP_POLICY["script-src"].append(_vite_src)
+    CSP_POLICY["style-src"].append(_vite_src)
+    CSP_POLICY["font-src"].append(_vite_src)
+    CSP_POLICY["connect-src"].extend([_vite_src, _vite_ws_src])
+else:
+    CSP_POLICY["upgrade-insecure-requests"] = True
+
+SECURE_CSP_REPORT_ONLY = CSP_POLICY
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -111,6 +146,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -119,6 +155,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "web.middleware.HtmxMiddleware",
+    "web.middleware.HeadersMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
@@ -128,8 +165,19 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [BASE_DIR / "templates"],  # 设置模板的搜索路径
-        "APP_DIRS": True,
+        "APP_DIRS": not DEBUG,
         "OPTIONS": {
+            # disable template cache in DEBUG
+            **(
+                {
+                    "loaders": [
+                        "django.template.loaders.filesystem.Loader",
+                        "django.template.loaders.app_directories.Loader",
+                    ]
+                }
+                if DEBUG
+                else {}
+            ),
             "context_processors": [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
