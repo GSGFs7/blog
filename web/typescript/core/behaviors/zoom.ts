@@ -110,6 +110,18 @@ export function createZoomBehavior(): Behavior {
     image.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
     overlay?.classList.add("is-visible");
 
+    // these listeners have 2 way to remove
+    // 1. user action:
+    //    -> handleKeydown/handleScroll/handleOutsideClick...
+    //    -> closeZoom()
+    //    -> removeWindowListeners()
+    // 2. runtime destroy
+    //    -> controller.abort()
+    //    -> behavior.destroy()
+    //    -> closeZoom(true)
+    //    -> removeWindowListeners()
+    //
+    // remember remove the listener in `removeWindowListeners()` if add a new listener here
     window.addEventListener("scroll", handleScroll, { once: true });
     window.addEventListener("keydown", handleKeydown);
     window.addEventListener("click", handleOutsideClick);

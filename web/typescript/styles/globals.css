@@ -1,4 +1,8 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+@source "../../../templates/";
+@source "../../templates/";
+@source "../";
 
 @theme {
   --font-sans: "LXGW WenKai Screen", sans-serif;

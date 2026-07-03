@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import tailwindcss from "@tailwindcss/vite";
 import type { Plugin } from "vite";
 import solidPlugin from "vite-plugin-solid";
@@ -7,17 +9,27 @@ import { defineConfig } from "vitest/config";
 const djangoTemplateReload = (): Plugin => ({
   name: "django-template-reload",
   configureServer: (server) => {
-    const templateDirs = ["web/templates/", "templates/"];
-    server.watcher.add(templateDirs);
+    server.watcher.add([resolve(server.config.root, "web/templates"), resolve(server.config.root, "templates")]);
+  },
+  hotUpdate({ file, server, timestamp }) {
+    if (this.environment.name !== "client" || !file.endsWith(".html")) {
+      return;
+    }
 
-    const reload = (path: string): void => {
-      if (path.endsWith(".html")) {
-        server.ws.send({ type: "full-reload" });
-      }
-    };
-    server.watcher.on("add", reload);
-    server.watcher.on("change", reload);
-    server.watcher.on("unlink", reload);
+    // invalid TWCSS (hot update)
+    const cssFile = resolve(server.config.root, "web/typescript/styles/globals.css");
+    const modules = this.environment.moduleGraph.getModulesByFile(cssFile);
+    const affectedModules = modules ? [...modules] : [];
+    for (const module of affectedModules) {
+      this.environment.moduleGraph.invalidateModule(module, undefined, timestamp, true);
+    }
+
+    this.environment.hot.send({
+      type: "full-reload",
+      path: "*",
+    });
+
+    return affectedModules;
   },
 });
 
