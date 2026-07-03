@@ -1,5 +1,3 @@
-{% load static %}
-
 <nav class="site-navbar">
   <div class="site-navbar__shell">
     <div class="site-navbar__inner">
@@ -50,7 +48,8 @@
       <button
         type="button"
         class="site-navbar__menu-button"
-        data-mobile-menu-open
+        aria-label="打开导航菜单"
+        popovertarget="mobile-menu"
       >
         <svg
           aria-hidden="true"
@@ -73,6 +72,9 @@
   <div
     id="mobile-menu"
     class="site-mobile-menu"
+    {# firefox >= 125, chrome >= 116 #}
+    {# the oldest in browserslist config: chrome >= 118 #}
+    popover
   >
     <div class="site-mobile-menu__inner">
       {# top #}
@@ -96,7 +98,9 @@
         <button
           type="button"
           class="site-mobile-menu__close-button"
-          data-mobile-menu-close
+          aria-label="关闭导航菜单"
+          popovertarget="mobile-menu"
+          popovertargetaction="hide"
         >
           <svg
             aria-hidden="true"
@@ -128,6 +132,4 @@
       </div>
     </div>
   </div>
-
-  <script src="{% static 'js/partials/globals/navbar/mobile.js' %}"></script>
 </nav>

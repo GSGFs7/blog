@@ -1,7 +1,5 @@
 {% extends "web/layout/base.html" %}
 
-{% load static %}
-
 {% block title %}Home{% endblock %}
 
 {% block extra_head %}
@@ -104,33 +102,23 @@
         >
       </picture>
 
-      <div class="relative mt-4 flex w-full items-start justify-end gap-3 min-h-8">
-        <p
-          class="absolute left-0 right-8 top-0 hidden text-right text-sm leading-6 dark:text-gray-500"
-          id="image-description"
-        >
-          <span>图片中的角色是《常轨脱离Creative》中的锦亚澄</span>
-        </p>
-        <button
+      <details class="relative mt-4 w-full min-h-8">
+        <summary
           aria-label="显示/隐藏图片信息"
-          aria-controls="image-description"
-          aria-expanded="false"
-          class="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center dark:text-[#cccccc] transition-colors hover:dark:text-[#c0c0c0]"
-          data-image-description-toggle
-          type="button"
-          tabindex="0"
+          class="ml-auto flex h-5 w-5 shrink-0 cursor-pointer list-none items-center justify-center dark:text-[#cccccc] transition-colors hover:dark:text-[#c0c0c0]"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-full w-full">
             <path
               d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM11 11V17H13V11H11ZM11 7V9H13V7H11Z"
             ></path>
           </svg>
-        </button>
-      </div>
+        </summary>
+        <p
+          class="absolute left-0 right-8 top-0 text-right text-sm leading-6 dark:text-gray-500"
+        >
+          <span>图片中的角色是《常轨脱离Creative》中的锦亚澄</span>
+        </p>
+      </details>
     </div>
   </div>
-{% endblock %}
-
-{% block extra_js %}
-  <script src="{% static 'js/page/index/image-description.js' %}"></script>
 {% endblock %}

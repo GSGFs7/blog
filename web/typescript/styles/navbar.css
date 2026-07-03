@@ -131,12 +131,18 @@
   inset: 0;
   z-index: 60;
   display: none;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  color: inherit;
   background: rgba(28, 27, 34, 0.95);
+  border: 0;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
-.site-mobile-menu.is-open {
+.site-mobile-menu:popover-open {
   display: block;
 }
 
@@ -191,7 +197,8 @@
   }
 
   .site-navbar__menu-button,
-  .site-mobile-menu {
+  .site-mobile-menu,
+  .site-mobile-menu:popover-open {
     display: none;
   }
 

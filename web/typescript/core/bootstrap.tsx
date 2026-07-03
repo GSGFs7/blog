@@ -1,7 +1,6 @@
 // similar to Astro.js, a jsx component is an JS island
 
 import type { ComponentProps, ComponentRegistry } from "../types";
-import { initZoom } from "./zoom";
 
 let registry: ComponentRegistry = {};
 
@@ -55,8 +54,6 @@ export function bootstrap(root: ParentNode = document) {
   root.querySelectorAll("[data-solid-island]").forEach((element) => {
     void mountIsland(element as IslandElement);
   });
-
-  initZoom(root);
 }
 
 export function cleanup(root: ParentNode) {

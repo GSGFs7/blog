@@ -1,6 +1,6 @@
 const PYTHON_WORKER_URL = "https://static.gsgfs.moe/python3.15-wasm/python.worker.mjs";
 
-// 'python.worker.mjs' provider this interface
+// 'python.worker.mjs' provide this interface
 export type PythonWorkerMessage =
   | { type: "ready" }
   | { type: "stdout"; stdout: number }

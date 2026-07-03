@@ -1,7 +1,5 @@
 {% extends "web/layout/base.html" %}
 
-{% load static %}
-
 {% block title %}Posts{% endblock %}
 
 {% block extra_head %}
@@ -15,7 +13,7 @@
         {# top card #}
         <div class="flex w-full flex-col gap-6 sm:mb-4 sm:flex-row">
           <div
-            id="blog-header-card"
+            data-blog-header
             class="relative flex h-52 w-full flex-col items-center justify-center overflow-hidden rounded-lg border dark:border-white/30 sm:flex-9 md:h-80"
           >
             <div
@@ -24,8 +22,8 @@
               <h2 class="text-4xl">Blog</h2>
               <p class="hidden max-w-lg text-center text-xl sm:block">
                 <span>光标位置:</span>
-                <span id="blog-mouse-position-x">0.00</span>
-                <span id="blog-mouse-position-y">0.00</span>
+                <span data-blog-pointer-x>0.00</span>
+                <span data-blog-pointer-y>0.00</span>
               </p>
             </div>
             {# bg img #}
@@ -40,6 +38,7 @@
               >
               <img
                 alt="blog post page top card"
+                data-blog-header-image
                 class="h-full w-full object-cover dark:brightness-85"
                 style="transform: scale(1.1) translateX(0px);"
                 src="https://img.gsgfs.moe/images/raw/54/0f/540f78d0502e4afa4468660e0464d4e79dfdf685f9897eca6109214484a1ef12.jpg"
@@ -90,8 +89,4 @@
       </div>
     </div>
   </div>
-{% endblock %}
-
-{% block extra_js %}
-  <script type="application/javascript" src="{% static 'js/page/blog/cursor.js' %}"></script>
 {% endblock %}

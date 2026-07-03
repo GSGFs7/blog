@@ -44,7 +44,6 @@
   "browserslist": [
     "> 1%",
     "last 2 versions",
-    "Firefox ESR",
     "not dead"
   ],
   "packageManager": "pnpm@11.3.0"
