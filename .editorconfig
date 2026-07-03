@@ -18,7 +18,7 @@ indent_size = 2
 [{*.json,*.jsonc}]
 indent_size = 2
 
-[{*.tsx,*.ts,*.js}]
+[{*.tsx,*.mts,*.ts,*.js}]
 indent_size = 2
 
 [*.css]

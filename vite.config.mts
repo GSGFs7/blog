@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
+import { visualizer } from "rollup-plugin-visualizer";
 import type { Plugin } from "vite";
 import solidPlugin from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
@@ -43,10 +44,7 @@ export default defineConfig(({ command, isSsrBuild }) => {
     rolldownInputs = {
       index: "web/typescript/index.tsx",
       loadTheme: "web/typescript/core/theme.ts",
-      styles: "web/typescript/styles/globals.css",
-      baseLayoutCss: "web/typescript/styles/base.css",
-      navbarCss: "web/typescript/styles/navbar.css",
-      footerCss: "web/typescript/styles/footer.css",
+      globalCss: "web/typescript/styles/globals.css",
       fontCss: "web/typescript/styles/font.css",
       markdownCss: "web/typescript/styles/markdown.css",
       // admin
@@ -56,7 +54,19 @@ export default defineConfig(({ command, isSsrBuild }) => {
 
   return {
     base: command === "build" ? "/static/dist/" : "/",
-    plugins: [!isSsrBuild && tailwindcss(), solidPlugin({ ssr: isSsrBuild }), djangoTemplateReload()],
+    plugins: [
+      !isSsrBuild && tailwindcss(),
+      solidPlugin({ ssr: isSsrBuild }),
+      djangoTemplateReload(),
+      !isSsrBuild &&
+        process.env.ANALYZE === "1" &&
+        visualizer({
+          filename: "bundle-report.html",
+          template: "treemap",
+          gzipSize: true,
+          open: true,
+        }),
+    ],
     build: {
       outDir: isSsrBuild ? "web/static/ssr" : "web/static/dist",
       assetsDir: "",

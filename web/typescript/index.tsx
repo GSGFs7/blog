@@ -2,8 +2,7 @@
 
 import "./core/htmx";
 import { setupBehaviors } from "./core/behaviors";
-import { setupIslands } from "./core/bootstrap";
-import { COMPONENTS } from "./islands";
+import { setupLazyIsland } from "./core/lazy-islands";
 
 setupBehaviors();
-setupIslands(COMPONENTS);
+setupLazyIsland();

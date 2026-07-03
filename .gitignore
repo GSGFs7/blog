@@ -8,6 +8,7 @@ web/static/katex/
 coverage/
 .coverage
 coverage.xml
+bundle-report.html
 .gemini/
 
 .vscode/

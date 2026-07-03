@@ -1,6 +1,6 @@
 import htmx from "htmx.org";
 import "htmx-ext-head-support";
-import "htmx-ext-preload"
+import "htmx-ext-preload";
 
 // settings
 htmx.config.includeIndicatorStyles = false;
