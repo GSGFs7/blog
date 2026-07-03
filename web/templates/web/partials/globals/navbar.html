@@ -5,6 +5,7 @@
       <a
         class="site-navbar__brand"
         href="/"
+        preload="mouseover"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
@@ -23,7 +24,11 @@
         <ul class="site-navbar__links">
           {% for item in SITE_NAV_ITEM %}
             <li class="site-navbar__item">
-              <a href="{{ item.href }}" class="site-navbar__link">
+              <a
+                href="{{ item.href }}"
+                class="site-navbar__link"
+                preload="mouseover"
+              >
                 {{ item.label }}
               </a>
             </li>
@@ -33,7 +38,11 @@
 
       {# Avatar #}
       <div class="site-navbar__avatar-wrap">
-        <a class="site-navbar__avatar-link" href="/user">
+        <a
+          class="site-navbar__avatar-link"
+          href="/user"
+          preload="mouseover"
+        >
           {# TODO #}
           <img
             alt="user's avatar"

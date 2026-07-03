@@ -23,6 +23,9 @@ importers:
       htmx-ext-head-support:
         specifier: ^2.0.5
         version: 2.0.5
+      htmx-ext-preload:
+        specifier: ^2.1.2
+        version: 2.1.2
       htmx.org:
         specifier: ^2.0.10
         version: 2.0.10
@@ -994,6 +997,9 @@ packages:
 
   htmx-ext-head-support@2.0.5:
     resolution: {integrity: sha512-fTzqnCw7OnMijiS48CCBFBHTuOMvycbX0nEFRL0lkRxyu5DFWX90IV1SwXpQ92fJf02IzkXcRNyjXn3j0QtYxA==}
+
+  htmx-ext-preload@2.1.2:
+    resolution: {integrity: sha512-foD06XAITUUQApCUQnPexyJ6B7+4vFGMQ+t42unTVTGRu/CYHdAAt6oHg7eekPHT7NRnbM5hjnGVKtClryPabg==}
 
   htmx.org@2.0.10:
     resolution: {integrity: sha512-kdeJe7ZVwaS6QMz/ebBIVtZdpwen6L0OQ5GOhPV9MKBb196TCZeZu4yA7ZIQsaLKv7EpXz+So7KSXNuHXhj7Cw==}
@@ -2240,6 +2246,10 @@ snapshots:
   html-escaper@2.0.2: {}
 
   htmx-ext-head-support@2.0.5:
+    dependencies:
+      htmx.org: 2.0.10
+
+  htmx-ext-preload@2.1.2:
     dependencies:
       htmx.org: 2.0.10
 

@@ -171,7 +171,9 @@ class PostAdmin(admin.ModelAdmin):
 
     @admin.action(description="发布所选文章")
     def make_published(self, request, queryset):
-        updated = queryset.update(status="published", published_at=timezone.now())
+        updated = queryset.exclude(status="published").update(
+            status="published", published_at=timezone.now()
+        )
         self.message_user(request, f"已成功发布 {updated} 篇文章")
 
     @admin.action(description="取消发布所选文章（设为草稿）")

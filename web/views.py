@@ -1,5 +1,6 @@
 import random
 
+from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponsePermanentRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -21,8 +22,17 @@ def test(request: HttpRequest):
 
 @require_GET
 def blog(request: HttpRequest):
-    posts = Post.objects.filter(status="published")[:10]
-    context = {"posts": posts}
+    page_number = request.GET.get("page", 1)
+
+    all_posts = (
+        Post.objects.filter(status="published")
+        .select_related("category")
+        .prefetch_related("tags")
+    )
+    paginator = Paginator(all_posts, 10)
+    context = {
+        "page_obj": paginator.get_page(page_number),
+    }
     return render(request, "web/pages/blog.html", context)
 
 

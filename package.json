@@ -21,6 +21,7 @@
     "@xterm/xterm": "^6.0.0",
     "fast-string-width": "^3.0.2",
     "htmx-ext-head-support": "^2.0.5",
+    "htmx-ext-preload": "^2.1.2",
     "htmx.org": "^2.0.10",
     "lxgw-wenkai-screen-web": "^1.522.0",
     "solid-js": "^1.9.13"
