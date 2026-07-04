@@ -1,7 +1,12 @@
-import { createSignal } from "solid-js";
+import { createSignal, onMount } from "solid-js";
 
-export function Counter({ initial }: Readonly<{ initial?: number }>) {
-  const [count, setCount] = createSignal(Number.isNaN(Number(initial)) ? 0 : Number(initial));
+export function Counter(props: Readonly<{ initial?: unknown }>) {
+  const [count, setCount] = createSignal(0);
+
+  onMount(() => {
+    const initial = Number(props.initial);
+    setCount(Number.isNaN(initial) ? 0 : initial);
+  });
 
   return (
     <div>

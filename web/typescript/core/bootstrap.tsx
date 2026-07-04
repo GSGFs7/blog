@@ -1,5 +1,7 @@
 // similar to Astro.js, a jsx component is an JS island
 
+import { render, hydrate } from "solid-js/web";
+
 import type { ComponentProps, ComponentRegistry } from "../types";
 
 let registry: ComponentRegistry = {};
@@ -20,8 +22,6 @@ function parseProps(componentName: string, propsJSON: string | null): ComponentP
 
 // mount solid component
 async function mountIsland(element: IslandElement): Promise<void> {
-  const { render } = await import("solid-js/web");
-
   if (element.__solidDispose__ || element.__solidMounting__) {
     // avoid duplicate mounting
     return;
@@ -42,9 +42,29 @@ async function mountIsland(element: IslandElement): Promise<void> {
     // get component props
     const props = parseProps(componentName, element.dataset.props ?? "{}");
 
-    // DO NOT HYDRATE! delete & render a new element
-    element.replaceChildren();
-    element.__solidDispose__ = render(() => <Component {...props} />, element);
+    // check 'data-solid-ssr' flag
+    if (Object.hasOwn(element.dataset, "solidSsr")) {
+      // about 'renderId':
+      // now frontend arch is island, it like this:
+      //  A -> hydrate(A, A container)
+      //  B -> hydrate(B, B container)
+      // no potential conflict, 'renderId' is useless now
+      try {
+        element.__solidDispose__ = hydrate(() => <Component {...props} />, element);
+      } catch (error) {
+        console.warn(
+          `Failed to hydrate Solid island '${componentName}', falling back to CSR.`,
+          error,
+        );
+
+        // fallback to CSR
+        element.replaceChildren();
+        element.__solidDispose__ = render(() => <Component {...props} />, element);
+      }
+    } else {
+      element.replaceChildren();
+      element.__solidDispose__ = render(() => <Component {...props} />, element);
+    }
   } finally {
     delete element.__solidMounting__;
   }

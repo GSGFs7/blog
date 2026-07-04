@@ -37,7 +37,7 @@ const djangoTemplateReload = (): Plugin => ({
   },
 });
 
-export default defineConfig(({ command, isSsrBuild }) => {
+export default defineConfig(({ command, isSsrBuild, mode }) => {
   let rolldownInputs: Record<string, string>;
   if (isSsrBuild) {
     rolldownInputs = {
@@ -59,7 +59,11 @@ export default defineConfig(({ command, isSsrBuild }) => {
     base: command === "build" ? "/static/dist/" : "/",
     plugins: [
       !isSsrBuild && tailwindcss(),
-      solidPlugin({ ssr: isSsrBuild }),
+      solidPlugin({
+        ssr: true,
+        hot: mode !== "test",
+        dev: command === "serve" && mode !== "test",
+      }),
       djangoTemplateReload(),
       !isSsrBuild &&
         process.env.ANALYZE === "1" &&
@@ -70,6 +74,7 @@ export default defineConfig(({ command, isSsrBuild }) => {
           open: true,
         }),
     ],
+    resolve: mode === "test" ? { conditions: ["solid", "browser"] } : undefined,
     build: {
       outDir: isSsrBuild ? "web/static/ssr" : "web/static/dist",
       assetsDir: "",

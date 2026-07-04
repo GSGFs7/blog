@@ -9,6 +9,7 @@
   <title>{% block title %}{% endblock %} - {{ SITE_TITLE }}</title>
   <script type="module" src="{% vite_asset 'web/typescript/core/theme.ts' %}"></script>
   <script type="application/javascript" src="{% static 'js/load.js' %}"></script>
+  <script src="{% static 'ssr/solid-hydrate-script.js' %}"></script>
   <script type="module" src="{% vite_asset 'web/typescript/index.tsx' %}"></script>
   <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/globals.css' %}" crossorigin>
   <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/font.css' %}" crossorigin>

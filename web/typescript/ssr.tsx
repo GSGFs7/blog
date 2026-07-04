@@ -34,3 +34,5 @@ export function buildSsrManifest() {
     islands,
   };
 }
+
+export { generateHydrationScript } from "solid-js/web";

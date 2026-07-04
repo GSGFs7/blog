@@ -15,6 +15,32 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+test("renders a non-SSR island with CSR", async () => {
+  document.body.innerHTML = `
+    <div data-solid-island="Counter" data-props='{"initial":1024}'>
+      <p data-testid="placeholder">Loading...</p>
+    </div>
+  `;
+
+  const island = document.querySelector<HTMLElement>("[data-solid-island]");
+  const placeholder = screen.getByTestId("placeholder");
+
+  expect(island).not.toBeNull();
+  expect(island).not.toHaveAttribute("data-solid-ssr");
+
+  bootstrap();
+
+  await waitFor(() => {
+    expect(screen.getByText("Count: 1024")).toBeInTheDocument();
+  });
+
+  expect(placeholder.isConnected).toBe(false);
+  expect(island!.firstElementChild).not.toBe(placeholder);
+
+  fireEvent.click(screen.getByRole("button"));
+  expect(screen.getByText("Count: 1025")).toBeInTheDocument();
+});
+
 test("bootstrap does not remount an already mounted island", async () => {
   document.body.innerHTML = '<div data-solid-island="Counter"></div>';
 

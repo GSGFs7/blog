@@ -9,7 +9,7 @@
 > [!NOTE]  
 > Django 自带的后台在 `/not-admin` 而不是 `/admin`
 
-`python`版本: `3.14`, 推荐使用 uv 作为包管理器
+`python`版本: `3.14`, 使用 uv 作为包管理器
 
 _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `python`, 例如 `./manage.py runserver`
 应该改为 `python ./manage.py runserver`_
@@ -90,6 +90,7 @@ _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `
 ├── blog/           # Django project
 ├── scripts/        # 辅助脚本
 ├── templates/      # Django 模板
+├── web/            # 前端 app
 └── manage.py       # Django cli
 ```
 
