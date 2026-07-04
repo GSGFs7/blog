@@ -60,6 +60,12 @@ steps:
           echo "DNS bypass configured for $REGISTRY_DOMAIN."
         fi
 
+        # 3.5. fix overlay on the overlay
+        # bug: https://github.com/podman-container-tools/buildah/issues/6892
+        BUILD_TMPDIR="/woodpecker/src/.buildah-tmp-${CI_PIPELINE_NUMBER:-unknown}-$$"
+        mkdir -p "$BUILD_TMPDIR"
+        trap 'rm -rf -- "$BUILD_TMPDIR"' EXIT
+        export TMPDIR="$BUILD_TMPDIR"
+
         # 4. Execute build script
-        chmod +x ./scripts/build-and-push.sh
         ./scripts/build-and-push.sh
