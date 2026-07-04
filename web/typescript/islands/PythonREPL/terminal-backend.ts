@@ -22,7 +22,9 @@ export interface LoadedTerminalBackend {
   styles: string;
 }
 
-export async function loadTerminalBackend(name: TerminalBackendName): Promise<LoadedTerminalBackend> {
+export async function loadTerminalBackend(
+  name: TerminalBackendName,
+): Promise<LoadedTerminalBackend> {
   if (name === "xterm") {
     const { XtermBackend, styles } = await import("./terminal-backend-xterm");
     return { backend: new XtermBackend(), styles };

@@ -92,5 +92,11 @@ export function PythonREPL(_props: Readonly<PythonREPLProps>) {
     terminal?.dispose();
   });
 
-  return <div class="h-100 w-full" ref={(element) => (container = element)} aria-label="Python REPL"></div>;
+  return (
+    <div
+      class="h-100 w-full"
+      ref={(element) => (container = element)}
+      aria-label="Python REPL"
+    ></div>
+  );
 }

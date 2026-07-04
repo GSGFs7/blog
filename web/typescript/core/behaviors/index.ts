@@ -11,7 +11,10 @@ export function setupBehaviors(document: Document = window.document): () => void
   activeSetups.get(document)?.();
 
   let stopped = false;
-  const stopRuntime = startBehaviorRuntime(document, [createBlogHeaderBehavior(), createZoomBehavior()]);
+  const stopRuntime = startBehaviorRuntime(document, [
+    createBlogHeaderBehavior(),
+    createZoomBehavior(),
+  ]);
   // tell caller how to clean this
   const teardown = () => {
     if (stopped) {

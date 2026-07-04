@@ -26,7 +26,9 @@ export class PythonWorker {
 
   init() {
     if (typeof SharedArrayBuffer === "undefined" || !globalThis.crossOriginIsolated) {
-      this.callbacks.onError("SharedArrayBuffer is unavailable. This page requires COOP and COEP headers.");
+      this.callbacks.onError(
+        "SharedArrayBuffer is unavailable. This page requires COOP and COEP headers.",
+      );
       return;
     }
 

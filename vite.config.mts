@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
-import { visualizer } from "rollup-plugin-visualizer";
+import Sonda from "sonda/vite";
 import type { Plugin } from "vite";
 import solidPlugin from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
@@ -10,7 +10,10 @@ import { defineConfig } from "vitest/config";
 const djangoTemplateReload = (): Plugin => ({
   name: "django-template-reload",
   configureServer: (server) => {
-    server.watcher.add([resolve(server.config.root, "web/templates"), resolve(server.config.root, "templates")]);
+    server.watcher.add([
+      resolve(server.config.root, "web/templates"),
+      resolve(server.config.root, "templates"),
+    ]);
   },
   hotUpdate({ file, server, timestamp }) {
     if (this.environment.name !== "client" || !file.endsWith(".html")) {
@@ -60,10 +63,10 @@ export default defineConfig(({ command, isSsrBuild }) => {
       djangoTemplateReload(),
       !isSsrBuild &&
         process.env.ANALYZE === "1" &&
-        visualizer({
-          filename: "bundle-report.html",
-          template: "treemap",
-          gzipSize: true,
+        Sonda({
+          filename: "bundle-report",
+          gzip: true,
+          brotli: true,
           open: true,
         }),
     ],
@@ -79,6 +82,7 @@ export default defineConfig(({ command, isSsrBuild }) => {
       cssMinify: "lightningcss",
       cssCodeSplit: true,
       minify: "oxc",
+      sourcemap: process.env.ANALYZE === "1",
     },
     ssr: {
       // put the dependencies to the bundle

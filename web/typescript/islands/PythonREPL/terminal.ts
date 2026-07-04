@@ -512,7 +512,9 @@ export class Terminal {
 
     if (this.historyIndex < this.history.length - 1) {
       this.historyIndex += 1;
-      this.replaceInput(this.historyDrafts.get(this.historyIndex) ?? this.history[this.historyIndex]);
+      this.replaceInput(
+        this.historyDrafts.get(this.historyIndex) ?? this.history[this.historyIndex],
+      );
     } else {
       // back to new line
       this.historyIndex = -1;
