@@ -1,8 +1,7 @@
-import random
-
-from django.core.paginator import Paginator
-from django.http import Http404, HttpRequest, HttpResponsePermanentRedirect
-from django.shortcuts import get_object_or_404, redirect, render
+from django.core.paginator import AsyncPaginator
+from django.http import HttpRequest, HttpResponsePermanentRedirect
+from django.shortcuts import aget_object_or_404, redirect, render
+from django.template.response import TemplateResponse
 from django.templatetags.static import static
 from django.views.decorators.http import require_GET
 
@@ -21,44 +20,74 @@ def test(request: HttpRequest):
 
 
 @require_GET
-def blog(request: HttpRequest):
-    page_number = request.GET.get("page", 1)
+async def blog(request: HttpRequest):
+    page = request.GET.get("page", "1")
+    page = max(1, int(page)) if page.isdigit() else 1
 
     all_posts = (
         Post.objects.filter(status="published")
         .select_related("category")
         .prefetch_related("tags")
     )
-    paginator = Paginator(all_posts, 10)
+    paginator = AsyncPaginator(all_posts, 10)
+    page_obj = await paginator.aget_page(page)
+
+    page_number = page_obj.number
+    post_list = await page_obj.aget_object_list()
+    has_previous = await page_obj.ahas_previous()
+    has_next = await page_obj.ahas_next()
+    previous_page_number = (
+        await page_obj.aprevious_page_number() if has_previous else None
+    )
+    next_page_number = await page_obj.anext_page_number() if has_next else None
     context = {
-        "page_obj": paginator.get_page(page_number),
+        "page_number": page_number,
+        "post_list": post_list,
+        "has_previous": has_previous,
+        "has_next": has_next,
+        "previous_page_number": previous_page_number,
+        "next_page_number": next_page_number,
     }
-    return render(request, "web/pages/blog.html", context)
+    return TemplateResponse(request, "web/pages/blog.html", context=context)
 
 
 @require_GET
-def blog_random_post(request: HttpRequest):
-    published_posts = Post.objects.filter(status="published")
-    count = published_posts.count()
-    if count == 0:
+async def blog_random_post(request: HttpRequest):
+    # faster, but code more complex
+    # ```py
+    # published_posts = Post.objects.filter(status="published")
+    # count = await published_posts.acount()
+    # random_index = random.randint(0, count - 1)
+    # post = await published_posts.only("slug")[
+    #     random_index : random_index + 1
+    # ].afirst()
+    # ```
+
+    # use Postgres random choice
+    # poor performance when record exceed 10k (it will sacn every raw in the table)
+    # I mean, it just a personal blog
+    # even if you write it every day, it enough uses 27 years
+    post = (
+        await Post.objects.filter(status="published")
+        .only("slug")
+        .order_by("?")
+        .afirst()
+    )
+    if post is None:
         return redirect("blog")
 
-    random_index = random.randint(0, count - 1)
-    post = published_posts[random_index]
     return redirect("blog_post_slug", post_slug=post.slug)
 
 
 @require_GET
-def blog_post_id(request: HttpRequest, post_id: int):
-    post = get_object_or_404(Post, id=post_id)
+async def blog_post_id(request: HttpRequest, post_id: int):
+    post = await aget_object_or_404(Post, id=post_id)
     return redirect("blog_post_slug", post_slug=post.slug, permanent=True)
 
 
 @require_GET
-def blog_post_slug(request: HttpRequest, post_slug: str):
-    post = Post.objects.filter(slug=post_slug).first()
-    if post is None or post.status != "published":
-        raise Http404("This post not found.")
+async def blog_post_slug(request: HttpRequest, post_slug: str):
+    post = await aget_object_or_404(Post, slug=post_slug, status="published")
 
     context = {
         "title": post.title,
@@ -67,7 +96,7 @@ def blog_post_slug(request: HttpRequest, post_slug: str):
         "layout": post.layout,
         "slug": post.slug,
     }
-    return render(request, "web/pages/blog_post.html", context)
+    return TemplateResponse(request, "web/pages/blog_post.html", context=context)
 
 
 @require_GET
@@ -81,13 +110,10 @@ def favicon(request: HttpRequest):
     return HttpResponsePermanentRedirect(static("favicon.ico"))
 
 
-def page_not_found(request: HttpRequest, exception: Exception):
-    context = {
-        "visitor": (
-            request.user.get_username() if request.user.is_authenticated else "visitor"
-        )
-    }
-    return render(request, "404.html", context=context, status=404)
+async def page_not_found(request: HttpRequest, exception: Exception):
+    user = await request.auser()
+    context = {"visitor": (user.get_username() if user.is_authenticated else "visitor")}
+    return TemplateResponse(request, "404.html", context=context, status=404)
 
 
 def server_error(request: HttpRequest):

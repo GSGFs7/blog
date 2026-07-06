@@ -82,7 +82,7 @@
 
         {# post list #}
         <div class="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2 sm:gap-10 sm:pt-6">
-          {% for post in page_obj.object_list %}
+          {% for post in post_list %}
             {% include "web/partials/blog/post_list_item.html" with post=post only %}
           {% endfor %}
         </div>
@@ -93,8 +93,8 @@
             class="flex h-full cursor-pointer items-center justify-center aria-disabled:text-gray-600 aria-disabled:cursor-not-allowed"
             title="上一页"
             preload="mouseover"
-            {% if page_obj.has_previous %}
-            href="?page={{ page_obj.previous_page_number }}"
+            {% if has_previous %}
+            href="?page={{ previous_page_number }}"
             {% else %}
             aria-disabled="true"
             {% endif %}
@@ -116,15 +116,15 @@
 
           </a>
           <div class="mx-2 rounded-md border border-blue-700 px-1 py-1">
-            <span class="px-1.5">{{ page_obj.number }}</span>
+            <span class="px-1.5">{{ page_number }}</span>
           </div>
           <a
             aria-label="下一页"
             class="flex h-full cursor-pointer items-center justify-center aria-disabled:text-gray-600 aria-disabled:cursor-not-allowed"
             title="下一页"
             preload="mouseover"
-            {% if page_obj.has_next %}
-            href="?page={{ page_obj.next_page_number }}"
+            {% if has_next %}
+            href="?page={{ next_page_number }}"
             {% else %}
             aria-disabled="true"
             {% endif %}
