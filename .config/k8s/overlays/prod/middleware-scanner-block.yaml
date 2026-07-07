@@ -1,0 +1,35 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: scanner-block
+  namespace: blog
+spec:
+  ipAllowList:
+    rejectStatusCode: 403
+    sourceRange:
+      - 192.0.2.0/32
+      - 2001:db8::/128
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: blog-scanner-block
+  namespace: blog
+spec:
+  ingressClassName: traefik
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: >-
+        Host(`$BACKEND_DOMAIN`) &&
+        PathRegexp(`(?i)^/(?:\.(?:env|git|svn|hg|aws|ssh)(?:$|[./])|\.DS_Store$|\.npmrc$|\.ht(?:access|passwd)$|wp-(?:admin|login|content|includes)(?:/|\.php|$)|xmlrpc\.php$|phpmyadmin(?:/|$)|pma(?:/|$)|adminer(?:\.php)?$|vendor/phpunit(?:/|$)|server-(?:status|info)$|actuator(?:/|$)|cgi-bin(?:/|$)|boaform(?:/|$)|HNAP1$|composer\.(?:json|lock)$|package(?:-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$|static/(?:\.|.*\.map$|staticfiles\.json$|dist/manifest(?:\.[0-9a-f]+)?\.json$|ssr/(?:ssr(?:\.[0-9a-f]+)?\.mjs|solid-islands(?:\.[0-9a-f]+)?\.json)$))`)
+      priority: 1000
+      middlewares:
+        - name: scanner-block
+      services:
+        - name: blog-django
+          port: 8000
+  tls:
+    secretName: blog-django-tls-secret

@@ -55,6 +55,13 @@ spec:
                     - ${BACKEND_DOMAIN}
                   secretName: blog-django-tls-secret
         - target:
+            kind: IngressRoute
+            name: blog-scanner-block
+          patch: |-
+            - op: replace
+              path: /spec/routes/0/match
+              value: Host(`${BACKEND_DOMAIN}`) && PathRegexp(`(?i)^/(?:\.(?:env|git|svn|hg|aws|ssh)(?:$|[./])|\.DS_Store$|\.npmrc$|\.ht(?:access|passwd)$|wp-(?:admin|login|content|includes)(?:/|\.php|$)|xmlrpc\.php$|phpmyadmin(?:/|$)|pma(?:/|$)|adminer(?:\.php)?$|vendor/phpunit(?:/|$)|server-(?:status|info)$|actuator(?:/|$)|cgi-bin(?:/|$)|boaform(?:/|$)|HNAP1$|composer\.(?:json|lock)$|package(?:-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$|static/(?:\.|.*\.map$|staticfiles\.json$|dist/manifest(?:\.[0-9a-f]+)?\.json$|ssr/(?:ssr(?:\.[0-9a-f]+)?\.mjs|solid-islands(?:\.[0-9a-f]+)?\.json)$))`)
+        - target:
             kind: ClusterIssuer
             name: letsencrypt-prod
           patch: |-

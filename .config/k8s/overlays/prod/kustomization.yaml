@@ -7,6 +7,7 @@ resources:
 - ingress.yaml
 - cluster-issuer.yaml
 - middleware-whitelist.yaml
+- middleware-scanner-block.yaml
 
 # In prod, images are managed by Woodpecker CI & Argo CD
 images:

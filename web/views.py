@@ -110,9 +110,13 @@ def favicon(request: HttpRequest):
     return HttpResponsePermanentRedirect(static("favicon.ico"))
 
 
-async def page_not_found(request: HttpRequest, exception: Exception):
-    user = await request.auser()
-    context = {"visitor": (user.get_username() if user.is_authenticated else "visitor")}
+# sync only
+def page_not_found(request: HttpRequest, exception: Exception):
+    user = getattr(request, "user", None)
+    visitor = (
+        user.get_username() if user is not None and user.is_authenticated else "visitor"
+    )
+    context = {"visitor": visitor}
     return TemplateResponse(request, "404.html", context=context, status=404)
 
 
