@@ -17,7 +17,6 @@ metadata:
   name: blog-scanner-block
   namespace: blog
 spec:
-  ingressClassName: traefik
   entryPoints:
     - websecure
   routes:
