@@ -27,13 +27,13 @@ spec:
             - -c
             - |
               import socket, time
-              addr = ('blog-postgres', 5432)
+              addr = ('blog-pgbouncer', 6432)
               while True:
                   try:
                       socket.create_connection(addr, timeout=2)
                       break
                   except Exception:
-                      print('waiting for db...')
+                      print('waiting for pgbouncer...')
                       time.sleep(2)
         - name: wait-for-redis
           image: blog-app:latest
@@ -67,6 +67,15 @@ spec:
                 name: blog-config
             - secretRef:
                 name: blog-secrets
+          env:
+            - name: DATABASE_HOST
+              value: blog-pgbouncer
+            - name: DATABASE_PORT
+              value: "6432"
+            - name: DATABASE_USE_PGBOUNCER
+              value: "True"
+            - name: DATABASE_CONN_MAX_AGE
+              value: "0"
           resources:
             requests:
               memory: "512Mi"

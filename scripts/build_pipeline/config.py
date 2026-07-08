@@ -6,4 +6,5 @@ IMAGES: tuple[tuple[str, str, str | None], ...] = (
         ".config/k8s/containers/model-downloader.Dockerfile",
         None,
     ),
+    ("blog-pgbouncer", ".config/k8s/containers/pgbouncer.Dockerfile", None),
 )

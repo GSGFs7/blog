@@ -149,7 +149,7 @@ class OAuthService:
         expires_in = payload.get("expires_in")
         try:
             parsed_expires_in = int(expires_in) if expires_in is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             parsed_expires_in = None
 
         # re-assemble the data

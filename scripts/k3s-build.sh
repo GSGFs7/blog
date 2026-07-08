@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # k3s component build script
 # Builds and imports all container images for k3s deployment
+# in real prod, use Argo CD
 
 set -e
 
@@ -12,6 +13,7 @@ declare -a IMAGES=(
     ".config/k8s/containers/app.Dockerfile::app"
     ".config/k8s/containers/backup.Dockerfile::backup"
     ".config/k8s/containers/model-downloader.Dockerfile::model-downloader"
+    ".config/k8s/containers/pgbouncer.Dockerfile::pgbouncer"
 )
 
 # Detect available container builder (podman preferred)

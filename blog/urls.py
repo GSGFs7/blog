@@ -49,9 +49,9 @@ if settings.DEBUG:
     urlpatterns += [path("__debug__/500/", server_error)]
 
     # django-debug-toolbar
-    try:
-        from debug_toolbar.toolbar import debug_toolbar_urls
-
-        urlpatterns += debug_toolbar_urls()
-    except ImportError:
-        pass
+    # try:
+    #     from debug_toolbar.toolbar import debug_toolbar_urls
+    #
+    #     urlpatterns += debug_toolbar_urls()
+    # except ImportError:
+    #     pass

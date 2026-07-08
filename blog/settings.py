@@ -26,13 +26,27 @@ def _split_csv(env_str: str) -> List[str]:
     return [x.strip() for x in env_str.split(",") if x and x.strip()]
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return int(value)
+
+
 def is_docker_env() -> bool:
-    return os.environ.get("DOCKER_ENV", "False").lower() in ("1", "true", "yes")
+    return _env_bool("DOCKER_ENV")
 
 
 def is_k8s_env() -> bool:
     """Check if running in Kubernetes environment"""
-    return os.environ.get("K8S_ENV", "False").lower() in ("1", "true", "yes")
+    return _env_bool("K8S_ENV")
 
 
 # Quick-start development settings - unsuitable for production
@@ -220,7 +234,9 @@ else:
                 else os.getenv("DATABASE_HOST", "127.0.0.1")
             ),
             "PORT": os.getenv("DATABASE_PORT", 5432),
-            "CONN_MAX_AGE": 100,
+            "CONN_MAX_AGE": _env_int("DATABASE_CONN_MAX_AGE", 0),
+            "CONN_HEALTH_CHECKS": _env_bool("DATABASE_CONN_HEALTH_CHECKS", True),
+            "DISABLE_SERVER_SIDE_CURSORS": _env_bool("DATABASE_USE_PGBOUNCER"),
         }
     }
 
@@ -419,20 +435,20 @@ TEST_RUNNER = "api.tests.runner.QuietTestRunner"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 
 # DEBUG settings
-if DEBUG:
-    try:
-        import debug_toolbar  # noqa
-    except ImportError:
-        pass
-    else:
-        # django-debug-toolbar
-        INSTALLED_APPS.append(
-            "debug_toolbar",
-        )
-        MIDDLEWARE.insert(
-            MIDDLEWARE.index("web.middleware.HtmxMiddleware"),
-            "debug_toolbar.middleware.DebugToolbarMiddleware",
-        )
-        INTERNAL_IPS = [
-            "127.0.0.1",
-        ]
+# if DEBUG:
+#     try:
+#         import debug_toolbar  # noqa
+#     except ImportError:
+#         pass
+#     else:
+#         # django-debug-toolbar
+#         INSTALLED_APPS.append(
+#             "debug_toolbar",
+#         )
+#         MIDDLEWARE.insert(
+#             MIDDLEWARE.index("web.middleware.HtmxMiddleware"),
+#             "debug_toolbar.middleware.DebugToolbarMiddleware",
+#         )
+#         INTERNAL_IPS = [
+#             "127.0.0.1",
+#         ]

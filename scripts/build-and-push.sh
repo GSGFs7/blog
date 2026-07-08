@@ -19,6 +19,7 @@ declare -a IMAGES=(
     ".config/k8s/containers/app.Dockerfile::app"
     ".config/k8s/containers/backup.Dockerfile::backup"
     ".config/k8s/containers/model-downloader.Dockerfile::model-downloader"
+    ".config/k8s/containers/pgbouncer.Dockerfile::pgbouncer"
 )
 
 function write_secret_file() {

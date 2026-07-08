@@ -7,7 +7,7 @@ Asynchronous Django + Django-Ninja + pgvector + Celery + HTMX + solid.js + uv/ru
 ## CLI Workflow
 
 ```bash
-# Setup: podman-compose up -d blog-postgres blog-redis
+# Setup: podman-compose up -d blog-postgres blog-redis blog-pgbouncer
 uv run manage.py migrate                # Database migrations
 uv run manage.py test                   # Run tests
 ruff check --fix && ruff format .       # Lint and format
@@ -27,11 +27,15 @@ ruff check --fix && ruff format .       # Lint and format
 
 ## Frontend Expectations
 
-- **Progressive Enhancement**: Build frontend features so core content and flows work without JavaScript.
-- **No-JS Baseline**: Pages must remain navigable and usable in no-JS environments; JavaScript should enhance, not gate, functionality.
+- **Progressive Enhancement**: Ensure the main body/core content of pages is fully accessible and readable without JavaScript.
+- **No-JS Baseline**: Page reading and basic navigation must remain functional in no-JS environments. Non-essential interactive features (such as comments, rich widgets, etc.) are not required to work without JavaScript.
 
 ## Documentation & Comments
 
 - **Minimize Comments**: Write self-documenting code. Avoid adding new comments unless the logic is extremely complex.
 - **Preserve Existing**: Do not modify or remove existing comments unless the underlying logic has changed and the comment is now incorrect.
 - **No Docstrings**: Avoid adding new docstrings for internal methods or straightforward API endpoints.
+
+## Troubleshooting
+
+- **Sandbox Environment Check**: If you cannot connect to the database, Redis, or other local services, first check if you are running in a restricted sandbox environment (e.g., a terminal sandbox that blocks network or host access) and request necessary permissions (e.g., `unsandboxed` command action) or run the commands accordingly.

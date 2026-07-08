@@ -266,6 +266,6 @@ async def _take_oauth_flow(request: HttpRequest, state: str) -> dict | None:
     try:
         if int(time.time()) - int(flow["created_at"]) > OAUTH_FLOW_TTL:
             return None
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
     return flow

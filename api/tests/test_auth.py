@@ -1,5 +1,3 @@
-import json
-
 from django.test import AsyncClient, TestCase, override_settings
 
 from api.auth import TimeBaseAuth
@@ -19,9 +17,8 @@ class TestAuth(TestCase):
             "/api/auth/me",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
-        self.assertContains(
-            response, json.dumps({"client_id": "test_client_114"}), status_code=200
-        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"client_id": "test_client_114"})
 
     async def test_async_auth(self):
         async_client = AsyncClient()

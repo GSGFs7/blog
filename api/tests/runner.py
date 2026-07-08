@@ -52,7 +52,7 @@ class QuietTestRunner(DiscoverRunner):
             # jieba may have setLogLevel attribute
             if hasattr(jieba, "setLogLevel"):
                 jieba.setLogLevel(logging.WARNING)
-        except (ImportError, AttributeError):
+        except ImportError, AttributeError:
             # jieba is optional or may not support setLogLevel;
             # ignore if configuration fails.
             logging.getLogger(__name__).debug(

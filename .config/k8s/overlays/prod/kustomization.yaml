@@ -20,3 +20,6 @@ images:
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
   newTag: 19f0dbe0cec386f2b72936c51b31b96c1e37cfe8
+- name: blog-pgbouncer
+  newName: registry.gsgfs.sh/blog-pgbouncer
+  newTag: 99b7ea91a28efcb3c9312b5e7d36143e4f0ee566

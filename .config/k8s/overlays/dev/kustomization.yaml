@@ -21,9 +21,28 @@ images:
   - name: blog-model-downloader
     newName: localhost/blog-model-downloader
     newTag: latest
+  - name: blog-pgbouncer
+    newName: localhost/blog-pgbouncer
+    newTag: latest
 
 # Force local image pulling in dev (one patch per resource for precise targeting)
 patches:
+  # blog-pgbouncer Deployment
+  - target:
+      kind: Deployment
+      name: blog-pgbouncer
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: blog-pgbouncer
+      spec:
+        template:
+          spec:
+            containers:
+              - name: blog-pgbouncer
+                imagePullPolicy: Never
+
   # blog-django Deployment
   - target:
       kind: Deployment

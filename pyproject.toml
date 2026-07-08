@@ -22,6 +22,7 @@ dependencies = [
     "jieba @ git+https://github.com/GSGFs7/jieba.git@master",
     "markdown-it-rs-py @ git+https://github.com/GSGFs7/markdown-it-rs.git#subdirectory=bindings/python",
     "nh3>=0.3.6",
+    "orjson>=3.11.9",
     "pgvector>=0.4.1",
     "pillow>=11.3.0",
     "psycopg[binary]>=3.3.3",

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # k3s deployment script
 # Usage: ./k3s-deploy.sh [dev|prod]
+# in real prod, use Argo CD
 
 set -e
 
