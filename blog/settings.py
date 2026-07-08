@@ -228,10 +228,9 @@ else:
             "NAME": os.getenv("DATABASE_NAME"),
             "USER": os.getenv("DATABASE_USER"),
             "PASSWORD": os.getenv("DATABASE_PASSWORD"),
-            "HOST": (
-                "blog-postgres"  # 写死在 docker 配置中的
-                if is_docker_env()
-                else os.getenv("DATABASE_HOST", "127.0.0.1")
+            "HOST": os.getenv(
+                "DATABASE_HOST",
+                "blog-postgres" if is_docker_env() else "127.0.0.1",
             ),
             "PORT": os.getenv("DATABASE_PORT", 5432),
             "CONN_MAX_AGE": _env_int("DATABASE_CONN_MAX_AGE", 0),
