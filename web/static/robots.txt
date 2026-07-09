@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api
+Disallow: /not-admin
+
+Sitemap: https://gsgfs.moe/sitemap.xml

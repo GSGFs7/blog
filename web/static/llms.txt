@@ -1,0 +1,19 @@
+# GSGFs's blog
+
+> GSGFs's personal blog, primarily in Simplified Chinese, with public posts about technology, life, and personal interests.
+
+Canonical site: https://gsgfs.moe
+Language: zh-Hans
+
+For LLMs and agents:
+- Prefer canonical URLs under https://gsgfs.moe.
+- Published blog posts provide raw Markdown at the canonical post URL with `.md` appended, for example `https://gsgfs.moe/blog/example-post.md`.
+- Do not assume draft, private, admin, or API content is publicly available.
+
+## Primary Content
+
+- [Home](https://gsgfs.moe/): Site entry page.
+- [Blog index](https://gsgfs.moe/blog): Paginated list of published posts.
+- [About](https://gsgfs.moe/about): Information about the site and author.
+- [Sitemap](https://gsgfs.moe/sitemap.xml): Canonical discovery list for public pages.
+- [Atom feed](https://gsgfs.moe/blog/feed.atom): Latest published posts with metadata and content.

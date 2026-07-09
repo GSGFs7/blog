@@ -23,6 +23,20 @@ spec:
                 name: blog-django
                 port:
                   name: static
+          - path: /robots.txt
+            pathType: Exact
+            backend:
+              service:
+                name: blog-django
+                port:
+                  name: static
+          - path: /llms.txt
+            pathType: Exact
+            backend:
+              service:
+                name: blog-django
+                port:
+                  name: static
           - path: /static
             pathType: Prefix
             backend:

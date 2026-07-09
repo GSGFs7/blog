@@ -141,6 +141,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",  # 验证框架和默认模型
+    "django.contrib.sitemaps",
     "django.contrib.contenttypes",  # 内容类型框架
     "django.contrib.sessions",
     "django.contrib.messages",

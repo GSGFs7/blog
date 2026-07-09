@@ -1,5 +1,5 @@
 from django.core.paginator import AsyncPaginator
-from django.http import HttpRequest, HttpResponsePermanentRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponsePermanentRedirect
 from django.shortcuts import aget_object_or_404, redirect, render
 from django.template.response import TemplateResponse
 from django.templatetags.static import static
@@ -97,6 +97,21 @@ async def blog_post_slug(request: HttpRequest, post_slug: str):
         "slug": post.slug,
     }
     return TemplateResponse(request, "web/pages/blog_post.html", context=context)
+
+
+@require_GET
+async def blog_post_markdown(request: HttpRequest, post_slug: str):
+    post = await aget_object_or_404(
+        Post.objects.only("slug", "content"),
+        slug=post_slug,
+        status="published",
+    )
+    response = HttpResponse(
+        post.content,
+        content_type="text/markdown; charset=utf-8",
+    )
+    response["Content-Disposition"] = f'inline; filename="{post.slug}.md"'
+    return response
 
 
 @require_GET
