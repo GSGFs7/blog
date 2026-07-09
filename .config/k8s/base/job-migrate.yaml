@@ -25,11 +25,12 @@ spec:
               import socket, time
               addr = ('blog-postgres', 5432)
               while True:
-                  try: 
-                      socket.create_connection(addr, timeout=2)
+                  try:
+                      with socket.create_connection(addr, timeout=2):
+                          pass
                       break
-                  except: 
-                      print('waiting for postgres...')
+                  except OSError as exc:
+                      print(f'waiting for postgres: {exc}', flush=True)
                       time.sleep(2)
       volumes:
         - name: staticfiles

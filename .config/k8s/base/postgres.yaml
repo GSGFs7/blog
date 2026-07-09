@@ -59,6 +59,10 @@ spec:
             - -c
             - config_file=/etc/postgresql/postgresql.conf
           env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef:
@@ -87,7 +91,7 @@ spec:
               command:
                 - sh
                 - -c
-                - pg_isready -U "$POSTGRES_USER"
+                - pg_isready -h "$POD_IP" -U "$POSTGRES_USER"
             initialDelaySeconds: 5
             periodSeconds: 5
 
@@ -111,6 +115,7 @@ metadata:
   name: blog-postgres-config
 data:
   postgresql.conf: |
+    listen_addresses = '*'
     shared_buffers = 256MB
     max_connections = 200
     maintenance_work_mem = 64MB
