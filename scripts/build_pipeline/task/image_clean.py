@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 from typing import TypedDict
 
-from .cert import Config
 from .image_base import BaseImageTask
+from .registry_cert import Config
 
 MANIFEST_ACCEPT = ", ".join(
     (
@@ -20,7 +20,7 @@ COMMIT_TAG_RE = re.compile(r"^[0-9a-f]{40}$")
 
 class TagResponse(TypedDict):
     name: str
-    tags: list[str]
+    tags: list[str] | None
 
 
 class CleanImageTask(BaseImageTask):
@@ -32,11 +32,13 @@ class CleanImageTask(BaseImageTask):
             self.config = config
 
     def collect_keep_tags(self) -> set[str]:
+        registry_retain_commits = os.getenv("REGISTRY_RETAIN_COMMITS", "2")
+
         keep_tags = {"latest"}
 
         # from git history
         output = self.runner.run(
-            ["git", "rev-list", "--max-count=2", "HEAD"],
+            ["git", "rev-list", f"--max-count={registry_retain_commits}", "HEAD"],
             capture=True,
         ).stdout
         for line in output.splitlines():
@@ -73,11 +75,9 @@ class CleanImageTask(BaseImageTask):
         # fmt: on
 
         cert_dir = self.config.cert_dir
-        if self.config.ca_cert:
-            cmd.extend(["--cacert", str(cert_dir / "ca.crt")])
+        cmd.extend(["--cacert", str(self.config.curl_ca_bundle)])
         if self.config.client_cert:
             cmd.extend(["--cert", str(cert_dir / "client.cert")])
-        if self.config.client_key:
             cmd.extend(["--key", str(cert_dir / "client.key")])
         if self.config.ip:
             cmd.extend(["--resolve", f"{self.config.domain}:443:{self.config.ip}"])
@@ -87,15 +87,14 @@ class CleanImageTask(BaseImageTask):
         return self.runner.run(cmd, capture=True, check=check).stdout
 
     def get_image_tags(self, name: str) -> list[str]:
-        try:
-            res_str = self.curl(f"/v2/{name}/tags/list")
-            res: TagResponse = json.loads(res_str)
-            tags = res.get("tags")
-            if isinstance(tags, list):
-                return [t for t in tags if t]
-        except Exception:
-            pass
-        return []
+        res_str = self.curl(f"/v2/{name}/tags/list")
+        res: TagResponse = json.loads(res_str)
+        tags = res.get("tags")
+        if tags is None:
+            return []
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise ValueError(f"Invalid tags response for {name}")
+        return [tag for tag in tags if tag]
 
     def get_manifest_digest(self, name: str, tag: str) -> str:
         headers = self.curl(
@@ -132,12 +131,7 @@ class CleanImageTask(BaseImageTask):
             digest_tags: dict[str, list[str]] = {}
             keep_digests: set[str] = set()
             for tag in all_tags:
-                try:
-                    digest = self.get_manifest_digest(name, tag)
-                except Exception as e:
-                    print(f"Failed to get digest for {name}:{tag} - {e}")
-                    continue
-
+                digest = self.get_manifest_digest(name, tag)
                 digest_tags.setdefault(digest, []).append(tag)
                 if tag in keep_tags or not COMMIT_TAG_RE.match(tag):
                     keep_digests.add(digest)
@@ -155,10 +149,7 @@ class CleanImageTask(BaseImageTask):
                 if dry_run:
                     continue
 
-                try:
-                    self.delete_image_digest(name, digest)
-                    deleted_count += 1
-                except Exception as e:
-                    print(f"Failed to delete digest {digest} for {name} - {e}")
+                self.delete_image_digest(name, digest)
+                deleted_count += 1
 
             print(f"Deleted {deleted_count} stale manifest(s) for {name}")

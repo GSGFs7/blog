@@ -10,6 +10,7 @@ class BuildImageTask(BaseImageTask):
             "-f", config.dockerfile,
             # name
             "-t", f"localhost/{config.name}:latest",
+            ".",
         ]
         # fmt: on
         if config.target is not None:

@@ -36,14 +36,14 @@ steps:
       #  from_secret: REGISTRY_PASSWORD
       HUGGINGFACE_HUB_TOKEN:
         from_secret: HUGGINGFACE_HUB_TOKEN
-      REGISTRY_RETAIN_COMMITS: "20"
-      REGISTRY_CLEANUP_ENABLED: "true"
-      REGISTRY_CLEANUP_REQUIRED: "true"
+      REGISTRY_RETAIN_COMMITS: "2"
+      REGISTRY_CLEANUP_ENABLED: "true"   # needs registry cleanup?
+      REGISTRY_CLEANUP_REQUIRED: "true"  # interrupt CI when cleanup failed?
       STORAGE_DRIVER: overlay
     commands:
       - |
         # 1. Install necessary tools
-        pacman -Sy --noconfirm podman skopeo fuse-overlayfs curl jq ca-certificates
+        pacman -Sy --noconfirm podman skopeo fuse-overlayfs curl jq ca-certificates python
 
         # 2. Register private CA in system trust store
         if [ -n "$REGISTRY_CA_CERT" ]; then
@@ -68,4 +68,5 @@ steps:
         export TMPDIR="$BUILD_TMPDIR"
 
         # 4. Execute build script
-        ./scripts/build-and-push.sh
+        #./scripts/build-and-push.sh
+        python -m scripts.build_pipeline
