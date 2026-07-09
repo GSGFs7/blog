@@ -53,17 +53,18 @@ def main() -> int:
             BuildImageTask(runner, IMAGES),
             PushImageTask(runner, IMAGES, registry_config),
         ]
-        if env_bool("REGISTRY_CLEANUP_ENABLED", True):
-            try:
-                tasks.append(CleanImageTask(runner, IMAGES, registry_config))
-            except Exception as e:
-                if env_bool("REGISTRY_CLEANUP_REQUIRED", True):
-                    raise e
-                print("Warning: registry cleanup failed", e)
 
         os.chdir(ROOT)
         pipeline = Pipeline(tasks)
         pipeline.execute()
+
+        if env_bool("REGISTRY_CLEANUP_ENABLED", True):
+            try:
+                CleanImageTask(runner, IMAGES, registry_config).execute()
+            except Exception as e:
+                if env_bool("REGISTRY_CLEANUP_REQUIRED", True):
+                    raise
+                print("Warning: registry cleanup failed", e)
     except subprocess.CalledProcessError:
         return 1
     except Exception as e:
