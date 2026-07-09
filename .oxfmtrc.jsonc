@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": false,
+  "semi": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "sortImports": true,
+  "sortTailwindcss": true,
+  "sortPackageJson": true,
+  "overrides": [
+    {
+      "files": ["*.json", "*.jsonc"],
+      "options": {
+        "trailingComma": "none"
+      }
+    }
+  ],
+  "ignorePatterns": ["**/templates/**/*.html", "web/static/*"]
+}

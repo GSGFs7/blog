@@ -2,9 +2,9 @@ name: codeql-analysis.yml
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   security-events: write

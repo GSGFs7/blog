@@ -3,7 +3,7 @@ import logging
 from ninja import Router
 
 from api.auth import AsyncTimeBaseAuth
-from api.models import Comment, Guest, Post
+from api.models import Comment, OAuthIdentity, Post
 from api.schemas import (
     CommentIdsSchema,
     CommentResponse,
@@ -15,6 +15,7 @@ from api.schemas import (
 from api.tasks import mail_admins_task
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 # get comment from id
@@ -28,7 +29,7 @@ async def get_comment(request, comment_id: int):
     except Comment.DoesNotExist:
         return 404, {"message": "Not found"}
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return 500, {"message": "Internal Server Error"}
 
 
@@ -49,7 +50,7 @@ async def get_comment_ids_from_post(request, post_id: int):
         ]
         return 200, {"ids": comment_ids}
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return 500, {"message": "Internal Server Error"}
 
 
@@ -75,7 +76,7 @@ async def get_all_comment_from_post(request, post_id: int):
         ]
         return 200, {"comments": comments}
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return 500, {"message": "Internal Server Error"}
 
 
@@ -87,10 +88,13 @@ async def get_all_comment_from_post(request, post_id: int):
 async def new_comment(request, body: NewCommentSchema):
     try:
         post = await Post.objects.aget(pk=body.post_id)
-        guest = await Guest.objects.aget(unique_id=body.unique_id)
+        identity = await OAuthIdentity.objects.select_related("guest").aget(
+            provider__provider_key=body.provider_key,
+            user_id=body.user_id,
+        )
 
         comment = await Comment.objects.acreate(
-            content=body.content, post=post, guest=guest
+            content=body.content, post=post, guest=identity.guest
         )
         if body.metadata is not None:
             comment.OS = body.metadata.OS
@@ -108,8 +112,8 @@ async def new_comment(request, body: NewCommentSchema):
         return 200, {"id": comment.pk}  # pk = id
     except Post.DoesNotExist:
         return 404, {"message": "Post not found"}
-    except Guest.DoesNotExist:
+    except OAuthIdentity.DoesNotExist:
         return 404, {"message": "Guest not found"}
     except Exception as e:
-        logging.error(e)
-        return 500, {"message", "Internal Server Error"}
+        logger.error(e)
+        return 500, {"message": "Internal Server Error"}

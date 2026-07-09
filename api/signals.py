@@ -1,21 +1,22 @@
 import logging
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .jikan import query_anime
-from .markdown import markdown_to_html_frontend
+from .markdown import Markdown, markdown_to_html_frontend
+from .markdown.post_processors import sanitize_html
 from .models import Anime, Gal, Post
-from .tasks import generate_post_chunks_embedding_task
-from .vndb import query_vn
 
 logger = logging.getLogger(__name__)
 
 
 @receiver(pre_save, sender=Gal)
 def sync_with_vndb(sender, instance, **kwargs):
+    from .vndb import query_vn
+
     def find_cn_title(titles):
         for title in titles:
             if title["lang"] == "zh-Hans":
@@ -49,6 +50,8 @@ def sync_with_vndb(sender, instance, **kwargs):
 
 @receiver(pre_save, sender=Anime)
 def sync_with_jikan(sender, instance, **kwargs):
+    from .jikan import query_anime
+
     if not instance.mal_id:
         return
 
@@ -75,8 +78,11 @@ def sync_with_jikan(sender, instance, **kwargs):
 @receiver(post_save, sender=Gal)
 def convert_gal_markdown_to_html(sender, instance, **kwargs):
     try:
-        res = markdown_to_html_frontend(instance.review)
-        instance.review_html = res.html
+        if settings.DEBUG:
+            html = Markdown().render(instance.review)
+        else:
+            html = sanitize_html(markdown_to_html_frontend(instance.review).html)
+        instance.review_html = html
         # Disconnect signal, avoid infinite loop
         post_save.disconnect(convert_gal_markdown_to_html, sender=Gal)
         instance.save(update_fields=["review_html"])
@@ -90,10 +96,17 @@ def convert_gal_markdown_to_html(sender, instance, **kwargs):
 @receiver(post_save, sender=Post)
 def convert_post_markdown_to_html(sender, instance, **kwargs):
     try:
-        res = markdown_to_html_frontend(instance.content)
+        if settings.DEBUG:
+            html, toc = Markdown().render_with_toc(instance.content)
+        else:
+            res = markdown_to_html_frontend(instance.content)
+            html = sanitize_html(res.html)
+            _, toc = Markdown().render_with_toc(instance.content)
+
         post_save.disconnect(convert_post_markdown_to_html, sender=Post)
-        instance.content_html = res.html
-        instance.save(update_fields=["content_html"])
+        instance.content_html = html
+        instance.toc = toc
+        instance.save(update_fields=["content_html", "toc"])
         post_save.connect(convert_post_markdown_to_html, sender=Post)
     except Exception as e:
         logger.error(f"Markdown conversion failed: {e}")
@@ -118,6 +131,8 @@ def update_content_update_at(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Post)
 def generate_post_embedding_async(sender, instance, created, **kwargs):
+    from .tasks import generate_post_chunks_embedding_task
+
     """
     Trigger Celery task to generate embedding for post asynchronously.
     This runs after the post is saved to the database.

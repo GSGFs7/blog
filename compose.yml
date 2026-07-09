@@ -1,8 +1,11 @@
+# this file used in local dev only
+# use `podman-compose up -d "blog-redis" "blog-postgres" "blog-pgbouncer"` start dependent services quickly
+
 services:
   blog-django:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .config/docker/Dockerfile
       secrets:
         - hf_token
       args:
@@ -16,9 +19,12 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - blog-postgres
-      - blog-redis
-      - blog-litellm
+      blog-pgbouncer:
+        condition: service_healthy
+      blog-redis:
+        condition: service_started
+      blog-litellm:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -30,10 +36,47 @@ services:
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_HOST: ${DATABASE_HOST}
-      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_HOST: blog-pgbouncer
+      DATABASE_PORT: 6432
+      DATABASE_CONN_MAX_AGE: 0
+      DATABASE_USE_PGBOUNCER: "True"
     networks:
       - blog-network
+
+  blog-pgbouncer:
+    build:
+      context: .
+      dockerfile: .config/k8s/containers/pgbouncer.Dockerfile
+    container_name: blog-pgbouncer
+    environment:
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      PGBOUNCER_BACKEND_HOST: blog-postgres
+      PGBOUNCER_BACKEND_PORT: 5432
+      PGBOUNCER_POOL_MODE: ${PGBOUNCER_POOL_MODE:-transaction}
+      PGBOUNCER_MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-500}
+      PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
+      PGBOUNCER_RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      PGBOUNCER_MAX_DB_CONNECTIONS: ${PGBOUNCER_MAX_DB_CONNECTIONS:-40}
+      PGBOUNCER_QUERY_WAIT_TIMEOUT: ${PGBOUNCER_QUERY_WAIT_TIMEOUT:-30}
+    depends_on:
+      blog-postgres:
+        condition: service_healthy
+    ports:
+      - "6432:6432"
+    networks:
+      - blog-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "PGPASSWORD=$${DATABASE_PASSWORD} pg_isready -h 127.0.0.1 -p 6432 -U $${DATABASE_USER} -d $${DATABASE_NAME}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_interval: 5s
 
   blog-postgres:
     image: pgvector/pgvector:pg18-trixie
@@ -51,7 +94,7 @@ services:
     networks:
       - blog-network
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,7 +110,7 @@ services:
     networks:
       - blog-network
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -97,7 +140,7 @@ services:
     container_name: blog-litellm
     volumes:
       - ./.config/litellm/config.yaml:/app/config.yaml
-    command: [ "--config", "/app/config.yaml", "--port", "4000", "--debug" ]
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--debug"]
     ports:
       - "4000:4000"
     depends_on:

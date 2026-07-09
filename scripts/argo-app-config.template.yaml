@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/GSGFs7/GSGFs-blog-backend.git
+    repoURL: https://github.com/GSGFs7/blog.git
     targetRevision: HEAD
     path: .config/k8s/overlays/prod
     kustomize:
@@ -14,6 +14,26 @@ spec:
         - target:
             kind: Ingress
             name: blog-ingress
+          patch: |-
+            - op: replace
+              path: /spec/rules/0/host
+              value: ${BACKEND_DOMAIN}
+            - op: replace
+              path: /spec/tls/0/hosts/0
+              value: ${BACKEND_DOMAIN}
+        - target:
+            kind: Ingress
+            name: blog-static-ingress
+          patch: |-
+            - op: replace
+              path: /spec/rules/0/host
+              value: ${BACKEND_DOMAIN}
+            - op: replace
+              path: /spec/tls/0/hosts/0
+              value: ${BACKEND_DOMAIN}
+        - target:
+            kind: Ingress
+            name: blog-litellm-ingress
           patch: |-
             - op: replace
               path: /spec/rules/0/host
@@ -34,6 +54,13 @@ spec:
                 - hosts:
                     - ${BACKEND_DOMAIN}
                   secretName: blog-django-tls-secret
+        - target:
+            kind: IngressRoute
+            name: blog-scanner-block
+          patch: |-
+            - op: replace
+              path: /spec/routes/0/match
+              value: Host(`${BACKEND_DOMAIN}`) && PathRegexp(`(?i)^/(?:\.(?:env|git|svn|hg|aws|ssh)(?:$|[./])|\.DS_Store$|\.npmrc$|\.ht(?:access|passwd)$|wp-(?:admin|login|content|includes)(?:/|\.php|$)|xmlrpc\.php$|phpmyadmin(?:/|$)|pma(?:/|$)|adminer(?:\.php)?$|vendor/phpunit(?:/|$)|server-(?:status|info)$|actuator(?:/|$)|cgi-bin(?:/|$)|boaform(?:/|$)|HNAP1$|composer\.(?:json|lock)$|package(?:-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$|static/(?:\.|.*\.map$|staticfiles\.json$|dist/manifest(?:\.[0-9a-f]+)?\.json$|ssr/(?:ssr(?:\.[0-9a-f]+)?\.mjs|solid-islands(?:\.[0-9a-f]+)?\.json)$))`)
         - target:
             kind: ClusterIssuer
             name: letsencrypt-prod

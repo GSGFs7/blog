@@ -1,0 +1,73 @@
+{% extends "web/layout/base.html" %}
+
+{% block title %}404 Not Found{% endblock %}
+
+{% block extra_head %}
+  <style>
+  @keyframes terminal-404-fade-in {
+    from {
+      opacity: 0;
+      transform: translateX(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  .terminal-404-block {
+    opacity: 0;
+    animation: terminal-404-fade-in 0.05s ease-in forwards;
+  }
+  @keyframes cursor-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  .terminal-404-done::after {
+    content: "█";
+    margin-left: 0.25rem;
+    animation: cursor-blink 1s steps(1) infinite;
+  }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <section class="mx-auto flex min-h-[70vh] max-w-4xl items-center px-6 font-mono">
+    <div>
+      <pre>
+<span class="text-sky-400">{{ visitor }}</span>@<span class="text-sky-400">GSGFs-blog:~></span> <span class="text-emerald-400 uppercase">HTTP_{{ request.method }}</span> {{ request.path }}
+<span class="text-rose-500">404: RESOURCE NOT FOUND</span>
+
+The requested page does not exist,
+or it may have been moved somewhere else.
+
+Press any <span class="text-amber-500">key</span> to continue...
+
+<span class="terminal-404-block" style="animation-delay: 1s;">Runing: `<span class="text-emerald-400">cat</span> ~/.something_extremely_secretive/the_key.asc` ...</span>
+<span class="terminal-404-block" style="animation-delay: 2s;"><a href="/">
+     ******####
+  ***+=====+++*###
+  ***+...::---*###
+**+..:--+##+::---*##
+**+:::--+##+::-==*##
+**+::---+##+::=++###
+  ###*---::=++####
+  ###*++=::=**####
+     ###+::+###
+  ######+::+###
+###*****+--+###
+ ##+++++=--+###
+    ####*--+###
+  ####**+--+###
+  ####++=--+###
+     ###*++*###
+     ####**####
+        ####
+</a></span>
+<span class="terminal-404-block terminal-404-done" style="animation-delay: 2.25s;">Done.</span>
+      </pre>
+    </div>
+  </section>
+{% endblock %}
+
+{# about the key, https://terraria.wiki.gg/wiki/Golden_Key #}

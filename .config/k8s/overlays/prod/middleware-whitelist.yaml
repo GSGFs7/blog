@@ -4,7 +4,12 @@ metadata:
   name: prometheus-whitelist
   namespace: blog
 spec:
-  ipWhiteList:
+  ipAllowList:
+    # Public requests arrive through the Kubernetes load balancer, so Traefik sees
+    # an internal hop as RemoteAddr. Check X-Forwarded-For instead, otherwise the
+    # private CIDR whitelist below also allows public clients through the LB.
+    ipStrategy:
+      depth: 1
     sourceRange:
       - 127.0.0.1/32
       - 10.0.0.0/8

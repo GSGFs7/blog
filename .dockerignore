@@ -1,45 +1,62 @@
 # git
 .git
 .gitignore
+.gitattributes
 
 # docker
 .dockerignore
-dockerfile
+Dockerfile
 docker-compose.yml
+compose.yml
+django.tar.zst
 
 # python
 __pycache__/
+*.py[cod]
+*$py.class
+.python-version
 
-# IDE
+# IDE & Editor
 .vscode/
-.idea
+.idea/
+.editorconfig
+.jbeval/
+*.http
 
-# 虚拟环境
+# virtual env & tool cache
 .venv/
+.uv-cache/
+.ruff_cache/
 
-# 数据库
+# database
 *.sqlite3
+db.sqlite3
+backups/
 
-# 数据库备份
-backups
-
-# 测试
-testapp/
-.ssh
-
-# docker镜像导出
-django.tar.zst
-
-# 开发环境
+# env file
 .env
-.env.example
+.env.*
+!.env.example
+hf_token.txt
+keys/
 .codex
 
-# ci/cd
-.github
+# CI/CD
+.github/
+.woodpecker/
+vercel.json
 
-# model
-sentence_transformers_models
+# test & generated file
+testapp/
+.ssh/
+media/
+staticfiles/
+web/static/dist/
+web/static/ssr/
+web/static/katex/
 
-# config
-.config/
+# model file
+sentence_transformers_models/
+
+# npm
+node_modules/

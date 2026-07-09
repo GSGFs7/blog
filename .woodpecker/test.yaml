@@ -1,7 +1,8 @@
-# TODO: labels
+labels:
+  scaner: "true"
 
 when:
-  - event: [ push, pull_request, manual ]
+  - event: [push, pull_request, manual]
     branch:
       - main
       - woodpecker-test
@@ -31,16 +32,34 @@ steps:
       DATABASE_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      SENTENCE_TRANSFORMERS_HOME: sentence_transformers_models
-      MODEL_NAME: google/embeddinggemma-300m
-      HUGGINGFACE_HUB_TOKEN:
-        from_secret: HUGGINGFACE_HUB_TOKEN
+      USE_REMOTE_EMBEDDING: "True"
+      REMOTE_EMBEDDING_API_BASE:
+        from_secret: EMBEDDING_API_BASE
+      REMOTE_EMBEDDING_API_KEY:
+        from_secret: EMBEDDING_API_KEY
+      REMOTE_EMBEDDING_MODEL_NAME: embeddinggemma-300m
       API_KEY: woodpecker_test_api_key
+      UV_VENV_COPY: "1"
+      UV_LINK_MODE: "copy"
     commands:
-      - pacman -Sy --noconfirm
-      - pacman -S uv git python perl-image-exiftool --noconfirm
+      - pacman -Sy base-devel uv git python perl-image-exiftool nodejs pnpm --noconfirm
       # fix exiftool path
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool
-      - uv sync
-      - uv run scripts/download-model.py
-      - uv run manage.py test -v 2
+      - pnpm install --frozen-lockfile
+      - pnpm run build:all
+      - pnpm run test --coverage
+      - uv sync --frozen
+      - uv run coverage run manage.py test -v 2
+      - uv run coverage xml -i
+
+  - name: scan
+    image: sonarsource/sonar-scanner-cli:latest
+    environment:
+      SONAR_TOKEN:
+        from_secret: SONAR_TOKEN
+      SONAR_HOST_URL: https://sonarqube.gsgfs.sh
+    commands:
+      - sonar-scanner -Dproject.settings=.config/sonar/sonar-project.properties
+    when:
+      - branch: [main]
+        event: [push, pull_request, manual]

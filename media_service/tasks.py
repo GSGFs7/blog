@@ -1,3 +1,4 @@
+import base64
 import logging
 from io import BytesIO
 
@@ -11,17 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task
-def process_image(image_resource_id: int):
+def process_image(image_resource_id: int, force: bool = False):
     """Generate optimized versions (WebP, AVIF) and thumbnail for an image."""
     try:
         image_res_obj = ImageResource.objects.get(id=image_resource_id)
 
-        if image_res_obj.is_processed:
+        if not force and image_res_obj.is_processed:
             return
 
         with PILImage.open(image_res_obj.file) as img:
             # AVIF
-            if not image_res_obj.avif_file:
+            if force or not image_res_obj.avif_file:
                 try:
                     buffer = BytesIO()  # in memory
                     img.save(buffer, format="AVIF", quality=80)
@@ -41,7 +42,7 @@ def process_image(image_resource_id: int):
                     )
 
             # WebP
-            if not image_res_obj.webp_file:
+            if force or not image_res_obj.webp_file:
                 try:
                     buffer = BytesIO()
                     img.save(buffer, format="WEBP", quality=80)
@@ -60,7 +61,7 @@ def process_image(image_resource_id: int):
                     )
 
             # Thumbnail, AVIF default
-            if not image_res_obj.thumbnail:
+            if force or not image_res_obj.thumbnail:
                 try:
                     thumb_img = img.copy()
                     thumb_img.thumbnail((300, 300))
@@ -80,6 +81,22 @@ def process_image(image_resource_id: int):
                 except Exception as e:
                     logger.warning(
                         f"Failed to generate thumbnail for {image_resource_id}: {e}"
+                    )
+
+            if force or not image_res_obj.placeholder:
+                try:
+                    placeholder = img.copy()
+                    placeholder.thumbnail((32, 32))
+
+                    buffer = BytesIO()
+                    placeholder.save(buffer, format="WEBP", quality=30)
+
+                    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+                    encoded_img = f"data:image/webp;base64,{encoded}"
+                    image_res_obj.placeholder = encoded_img
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate placeholder for {image_resource_id}: {e}"
                     )
 
             image_res_obj.is_processed = True

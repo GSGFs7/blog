@@ -8,7 +8,7 @@ labels:
   #  WOODPECKER_AGENT_LABELS: type=builder
 
 when:
-  - event: [ push, manual ]
+  - event: [push, manual]
     branch:
       - main
       - woodpecker-test
@@ -24,6 +24,7 @@ steps:
       REGISTRY_IP:
         from_secret: REGISTRY_IP
       REGISTRY_CA_CERT:
+        # it will case an error when too large
         from_secret: REGISTRY_CA_CERT
       REGISTRY_CLIENT_CERT:
         from_secret: REGISTRY_CLIENT_CERT
@@ -35,9 +36,37 @@ steps:
       #  from_secret: REGISTRY_PASSWORD
       HUGGINGFACE_HUB_TOKEN:
         from_secret: HUGGINGFACE_HUB_TOKEN
-      STORAGE_DRIVERL: overlayfs
+      REGISTRY_RETAIN_COMMITS: "2"
+      REGISTRY_CLEANUP_ENABLED: "true"   # needs registry cleanup?
+      REGISTRY_CLEANUP_REQUIRED: "true"  # interrupt CI when cleanup failed?
+      STORAGE_DRIVER: overlay
     commands:
-      - pacman -Sy podman fuse-overlayfs --noconfirm  # overlayfs storage driver in user space
-      # bypass CF CDN
-      - echo "$REGISTRY_IP $REGISTRY_DOMAIN" >> /etc/hosts
-      - ./scripts/build-and-push.sh
+      - |
+        # 1. Install necessary tools
+        pacman -Sy --noconfirm podman skopeo fuse-overlayfs curl jq ca-certificates python
+
+        # 2. Register private CA in system trust store
+        if [ -n "$REGISTRY_CA_CERT" ]; then
+          mkdir -p /etc/ca-certificates/trust-source/anchors
+          printf '%s\n' "$REGISTRY_CA_CERT" > /etc/ca-certificates/trust-source/anchors/registry-ca.crt
+          update-ca-trust
+          echo "System trust store updated with private CA."
+        fi
+
+        # 3. Setup DNS bypass for registry
+        if [ -n "$REGISTRY_IP" ] && [ -n "$REGISTRY_DOMAIN" ]; then
+          echo "$REGISTRY_IP $REGISTRY_DOMAIN" >> /etc/hosts
+          echo "::1 $REGISTRY_DOMAIN" >> /etc/hosts
+          echo "DNS bypass configured for $REGISTRY_DOMAIN."
+        fi
+
+        # 3.5. fix overlay on the overlay
+        # bug: https://github.com/podman-container-tools/buildah/issues/6892
+        BUILD_TMPDIR="/woodpecker/src/.buildah-tmp-${CI_PIPELINE_NUMBER:-unknown}-$$"
+        mkdir -p "$BUILD_TMPDIR"
+        trap 'rm -rf -- "$BUILD_TMPDIR"' EXIT
+        export TMPDIR="$BUILD_TMPDIR"
+
+        # 4. Execute build script
+        #./scripts/build-and-push.sh
+        python -m scripts.build_pipeline

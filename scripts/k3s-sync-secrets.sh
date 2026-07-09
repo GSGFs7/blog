@@ -34,16 +34,19 @@ kubectl create secret generic blog-secrets \
     --from-literal=DJANGO_ALLOWED_HOSTS="${DJANGO_ALLOWED_HOSTS}" \
     --from-literal=DJANGO_CSRF_TRUSTED_ORIGINS="${DJANGO_CSRF_TRUSTED_ORIGINS}" \
     --from-literal=DJANGO_SECRET_KEY="${DJANGO_SECRET_KEY}" \
+    --from-literal=FERNET_KEY="${FERNET_KEY}" \
+    --from-literal=FERNET_OLD_KEYS="${FERNET_OLD_KEYS}" \
     --from-literal=FRONTEND_URL="${FRONTEND_URL}" \
     --from-literal=HUGGINGFACE_HUB_TOKEN="${HUGGINGFACE_HUB_TOKEN}" \
+    --from-literal=LITELLM_API_KEY="${REMOTE_EMBEDDING_API_KEY}" \
+    --from-literal=REMOTE_EMBEDDING_API_KEY="${REMOTE_EMBEDDING_API_KEY}" \
     --from-literal=RESEND_API_KEY="${RESEND_API_KEY}" \
-    --from-literal=S3_ENDPOINT_URL="${S3_ENDPOINT_URL}" \
     --from-literal=S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID}" \
-    --from-literal=S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY}" \
     --from-literal=S3_BUCKET_NAME="${S3_BUCKET_NAME}" \
+    --from-literal=S3_ENDPOINT_URL="${S3_ENDPOINT_URL}" \
     --from-literal=S3_PUBLIC_DOMAIN="${S3_PUBLIC_DOMAIN}" \
+    --from-literal=S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY}" \
     --from-literal=SERVER_NAME="${SERVER_NAME}" \
-    --from-literal=LITELLM_API_KEY="${LITELLM_API_KEY}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
 echo ""

@@ -1,0 +1,24 @@
+{% extends "web/layout/base.html" %}
+
+{# TODO: 500 page should keep minimize #}
+
+{% block title %}500 Internal Server Error{% endblock %}
+
+{% block content %}
+  <section class="mx-auto flex min-h-[70vh] max-w-4xl items-center px-6 font-mono">
+    <div>
+      <pre>
+<span><span class="text-emerald-400">[    0.000000]</span> Booting GSGFs-blog kernel...</span>
+<span><span class="text-emerald-400">[    0.000721]</span> Comm: Insmod "{{ request.path }}"</span>
+<span><span class="text-emerald-400">[    0.001442]</span> Bug: unable to handle server exception</span>
+<span><span class="text-emerald-400">[    0.002884]</span> State: <span class="text-rose-500">500 Internal Server Error</span></span>
+<span><span class="text-emerald-400">[    0.005768]</span> Process terminated unexpectedly</span>
+<span><span class="text-emerald-400">[    0.011536]</span> Call trace unavailable</span>
+<span><span class="text-emerald-400">[    0.023072]</span> Kernel panic - not syncing: fatal exception in web process</span>
+<span><span class="text-emerald-400">[    0.046144]</span> The server encountered an unexpected condition. Please retry later.</span>
+
+<span><span>Reboot? </span><a href="/">Y</a> / <a href="{{ request.path }}">N</a></span>
+      </pre>
+    </div>
+  </section>
+{% endblock %}

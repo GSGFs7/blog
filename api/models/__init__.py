@@ -1,9 +1,11 @@
 from .anime import Anime
+from .api_client import ApiClient
 from .base import BaseModel
 from .category import Category
 from .comment import Comment
 from .gal import Gal
 from .guest import Guest
+from .oauth import OAuthIdentity, OAuthProvider
 from .page import Page
 from .post import Post, PostChunk
 from .tag import Tag
@@ -28,4 +30,9 @@ __all__ = [
     "Anime",
     # gal
     "Gal",
+    # api client (downstream)
+    "ApiClient",
+    # OAuth
+    "OAuthIdentity",
+    "OAuthProvider",
 ]

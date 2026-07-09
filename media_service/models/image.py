@@ -17,17 +17,11 @@ from core.hash import calculate_blake3_hash
 from media_service.constants import IMAGE_ALLOWED_FORMAT
 from media_service.exiftool import AsyncExifTool, SyncExifTool
 
+from .base import BaseModel
+
 # Create your models here.
 
 logger = logging.getLogger(__name__)
-
-
-class BaseModel(models.Model):
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        abstract = True
 
 
 # image resource upload path. do not make any changes.
@@ -81,7 +75,6 @@ class ImageResource(BaseModel):
     # checksum
     checksum = models.CharField(max_length=64, unique=True)
 
-    # TODO: s3
     # files
     file = models.ImageField(upload_to=image_raw_upload_path, null=False, blank=False)
     # other files auto generate by django signal & celery task
@@ -95,6 +88,9 @@ class ImageResource(BaseModel):
         upload_to=image_thumbnail_upload_path, null=True, blank=True
     )
 
+    # low quality image placeholder, base64 encoded text
+    placeholder = models.TextField(blank=True, default="")
+
     # attribute
     width = models.PositiveIntegerField()
     height = models.PositiveIntegerField()
@@ -102,6 +98,18 @@ class ImageResource(BaseModel):
     mime_type = models.CharField(max_length=50)
 
     is_processed = models.BooleanField(default=False)
+
+    @property
+    def avif_url(self) -> str | None:
+        return self.avif_file.url if self.avif_file else None
+
+    @property
+    def webp_url(self) -> str | None:
+        return self.webp_file.url if self.webp_file else None
+
+    @property
+    def thumbnail_url(self) -> str | None:
+        return self.thumbnail.url if self.thumbnail else None
 
     class Meta:
         indexes = [models.Index(fields=["checksum"])]

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "Bundler",
+    "outDir": "web/static/dist",
+    "rootDir": "web/typescript",
+    "strict": true,
+    "sourceMap": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "esModuleInterop": true,
+    "noEmit": true,
+    "types": ["vitest/globals", "vite/client"]
+  },
+  "include": ["web/typescript/**/*.ts", "web/typescript/**/*.tsx", "web/typescript/**/*.d.ts"]
+}

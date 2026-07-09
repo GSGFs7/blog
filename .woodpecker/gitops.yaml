@@ -2,8 +2,8 @@ depends_on:
   - build
 
 when:
-  - event: [ push, manual ]
-    branch: [ main, woodpecker-test ]
+  - event: [push, manual]
+    branch: [main, woodpecker-test]
 
 steps:
   - name: update-kustomize
@@ -24,14 +24,13 @@ steps:
       # set git config
       - git config --global user.email "woodpecker-bot@local"
       - git config --global user.name "Woodpecker CI"
-      - git remote set-url origin git@codeberg.org:GSGFs7/GSGFs-blog-backend.git
+      - git remote set-url origin git@codeberg.org:GSGFs7/blog.git
       # update kustomize
       - cd .config/k8s/overlays/prod
-      - kustomize edit set image blog-django=$REGISTRY_DOMAIN/blog-django:${CI_COMMIT_SHA}
-      - kustomize edit set image blog-celery-worker=$REGISTRY_DOMAIN/blog-celery-worker:${CI_COMMIT_SHA}
-      - kustomize edit set image blog-celery-beat=$REGISTRY_DOMAIN/blog-celery-beat:${CI_COMMIT_SHA}
-      - kustomize edit set image blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}
+      - kustomize edit set image blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}
       - kustomize edit set image blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}
+      - kustomize edit set image blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}
+      - kustomize edit set image blog-pgbouncer=$REGISTRY_DOMAIN/blog-pgbouncer:${CI_COMMIT_SHA}
       # commit and push
       - git add kustomization.yaml
       - |

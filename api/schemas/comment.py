@@ -49,7 +49,8 @@ class NewCommentMetadataSchema(Schema):
 
 
 class NewCommentSchema(Schema):
-    unique_id: str
+    provider_key: str
+    user_id: str
     content: str
     post_id: int
     metadata: Optional[NewCommentMetadataSchema]

@@ -1,14 +1,11 @@
 import copy
 import hashlib
-import inspect
 import re
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 import yaml
 from django.utils.text import Truncator
-from jieba import analyse as jieba_analyse
-from pypinyin import Style, lazy_pinyin
 
 
 class MetadataResult(TypedDict):
@@ -20,6 +17,7 @@ class MetadataResult(TypedDict):
     category: Optional[str]
     cover_image: Optional[str]
     header_image: Optional[str]
+    layout: Optional[str]
 
 
 def remove_html_tags(text: str) -> str:
@@ -98,7 +96,7 @@ def remove_markdown(text: str) -> str:
     # Handle nested emphasis by removing markers from outside in
     text = re.sub(r"(\*\*\*|___)(.*?)\1", r"\2", text, flags=re.DOTALL)  # bold+italic
     text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text, flags=re.DOTALL)  # bold
-    text = re.sub(r"(\*|_)(.*?)\1", r"\2", text, flags=re.DOTALL)  # italic
+    text = re.sub(r"([*_])(.*?)\1", r"\2", text, flags=re.DOTALL)  # italic
     text = re.sub(r"~~(.*?)~~", r"\1", text, flags=re.DOTALL)  # strikethrough
 
     # Remove inline code (keep content)
@@ -146,21 +144,6 @@ def remove_code_blocks(text: str) -> str:
     return text.strip()
 
 
-# TODO: optimize chunking
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50):
-    text = remove_code_blocks(text)
-    text = remove_markdown(text)
-    text = remove_html_tags(text)
-
-    chunk = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunk.append(text[start:end])
-        start += chunk_size - overlap
-    return chunk
-
-
 def extract_front_matter(text: str) -> Dict[str, Any]:
     """
     Extract front matter from a string.
@@ -172,6 +155,7 @@ def extract_front_matter(text: str) -> Dict[str, Any]:
         Dict[str, Any]: The extracted front matter as a dictionary,
                         or empty dict if no valid front matter found.
     """
+
     front_matter_pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
     matched = front_matter_pattern.match(text)
 
@@ -222,6 +206,8 @@ def extract_first_image(text: str) -> Optional[str]:
 
 
 def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
+    from jieba import analyse as jieba_analyse
+
     """
     Extracts metadata from a given text,
     including keywords, tags, category, title, slug, cover image, and header image.
@@ -336,6 +322,9 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
     # === description ===
     description = Truncator(text).chars(150)
 
+    # === layout ===
+    layout = front_matter.get("layout")
+
     # Return the most common words as a comma-separated string
     return {
         "keywords": ",".join(keywords_list[:num_keywords]),
@@ -346,10 +335,13 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
         "cover_image": cover_image,
         "header_image": header_image,
         "description": description,
+        "layout": layout,
     }
 
 
 def chinese_slugify(title: str, max_length: int = 50) -> str:
+    from pypinyin import Style, lazy_pinyin
+
     """
     Generates a URL-friendly slug from a given title,
     supporting Chinese and English text.
@@ -397,6 +389,7 @@ def chinese_slugify(title: str, max_length: int = 50) -> str:
     return slug or "untitled"
 
 
+# TODO: refactor this, Cognitive Complexity 117
 def _openapi_convert(spec: Dict[str, Any]) -> Dict[str, Any]:
     """
     convert django-ninja openapi 3.1 -> openapi 3.0
@@ -522,14 +515,6 @@ def convert_openapi(func):
         return _openapi_convert(spec)
 
     return wrapper
-
-
-def is_async(func: Callable):
-    is_async_function = inspect.iscoroutinefunction(func)
-    is_async_callable_object = inspect.iscoroutinefunction(
-        getattr(func, "__call__", None)
-    )
-    return is_async_function or is_async_callable_object
 
 
 if __name__ == "__main__":

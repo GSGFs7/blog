@@ -4,7 +4,7 @@ from typing import Callable
 from django.core.cache import cache
 from django.http import HttpRequest
 
-from api.utils import is_async
+from core.inspect import is_async
 
 __all__ = ["rate_limit"]
 

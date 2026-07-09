@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import List
 
+from django.utils.csp import CSP
 from dotenv import load_dotenv
 
 
@@ -25,13 +26,27 @@ def _split_csv(env_str: str) -> List[str]:
     return [x.strip() for x in env_str.split(",") if x and x.strip()]
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return int(value)
+
+
 def is_docker_env() -> bool:
-    return os.environ.get("DOCKER_ENV", "False").lower() in ("1", "true", "yes")
+    return _env_bool("DOCKER_ENV")
 
 
 def is_k8s_env() -> bool:
     """Check if running in Kubernetes environment"""
-    return os.environ.get("K8S_ENV", "False").lower() in ("1", "true", "yes")
+    return _env_bool("K8S_ENV")
 
 
 # Quick-start development settings - unsuitable for production
@@ -86,12 +101,47 @@ else:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
 
+# CSP
+_static_src = "https://static.gsgfs.moe"
+_img_src = "https://img.gsgfs.moe"
+_vite_src = "http://localhost:5173"
+_vite_ws_src = "ws://localhost:5173"
+CSP_POLICY = {
+    "default-src": [CSP.SELF, _img_src],  # prefetch imgs
+    "base-uri": [CSP.NONE],
+    "object-src": [CSP.NONE],
+    "frame-src": [CSP.NONE],
+    "frame-ancestors": [CSP.NONE],
+    "form-action": [CSP.SELF],
+    "script-src": [CSP.SELF, CSP.WASM_UNSAFE_EVAL, _static_src],
+    "script-src-attr": [CSP.NONE],
+    # xterm.js needs inline style
+    "style-src": [CSP.SELF, CSP.UNSAFE_INLINE],
+    "style-src-attr": [CSP.UNSAFE_INLINE],
+    "img-src": [CSP.SELF, "data:", "blob:", _img_src],
+    "font-src": [CSP.SELF, "data:"],
+    "connect-src": [CSP.SELF, _static_src],
+    "worker-src": [CSP.SELF, "blob:", _static_src],
+    "media-src": [CSP.SELF],
+    "manifest-src": [CSP.SELF],
+}
+if DEBUG:
+    CSP_POLICY["script-src"].append(_vite_src)
+    CSP_POLICY["style-src"].append(_vite_src)
+    CSP_POLICY["font-src"].append(_vite_src)
+    CSP_POLICY["connect-src"].extend([_vite_src, _vite_ws_src])
+else:
+    CSP_POLICY["upgrade-insecure-requests"] = True
+
+SECURE_CSP_REPORT_ONLY = CSP_POLICY
+
 # Application definition
 
 INSTALLED_APPS = [
     "django.contrib.postgres",
     "django.contrib.admin",
     "django.contrib.auth",  # 验证框架和默认模型
+    "django.contrib.sitemaps",
     "django.contrib.contenttypes",  # 内容类型框架
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -100,21 +150,18 @@ INSTALLED_APPS = [
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
-    # "django_otp.plugins.otp_email",  # <- if you want email capability.
     "two_factor",
-    # "two_factor.plugins.phonenumber",  # <- if you want phone number capability.
-    # "two_factor.plugins.email",  # <- if you want email capability.
-    # "two_factor.plugins.yubikey",  # <- for yubikey capability.
-    "debug_toolbar",  # debug包
     "django_celery_beat",  # Celery 定时任务
     "django_prometheus",  # 监控
     "api.apps.ApiConfig",
     "media_service.apps.MediaServiceConfig",
+    "web.apps.WebConfig",
 ]
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -122,8 +169,8 @@ MIDDLEWARE = [
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",  # 提供静态文件
-    "debug_toolbar.middleware.DebugToolbarMiddleware",  # 一个debug包的中间件
+    "web.middleware.HtmxMiddleware",
+    "web.middleware.HeadersMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
@@ -133,13 +180,25 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [BASE_DIR / "templates"],  # 设置模板的搜索路径
-        "APP_DIRS": True,
+        "APP_DIRS": not DEBUG,
         "OPTIONS": {
+            # disable template cache in DEBUG
+            **(
+                {
+                    "loaders": [
+                        "django.template.loaders.filesystem.Loader",
+                        "django.template.loaders.app_directories.Loader",
+                    ]
+                }
+                if DEBUG
+                else {}
+            ),
             "context_processors": [
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "web.context_processors.site_meta",
             ],
         },
     },
@@ -147,7 +206,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "blog.wsgi.application"
 ASGI_APPLICATION = "blog.asgi.application"
-
 
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
@@ -171,13 +229,14 @@ else:
             "NAME": os.getenv("DATABASE_NAME"),
             "USER": os.getenv("DATABASE_USER"),
             "PASSWORD": os.getenv("DATABASE_PASSWORD"),
-            "HOST": (
-                "blog-postgres"  # 写死在 docker 配置中的
-                if is_docker_env()
-                else os.getenv("DATABASE_HOST", "127.0.0.1")
+            "HOST": os.getenv(
+                "DATABASE_HOST",
+                "blog-postgres" if is_docker_env() else "127.0.0.1",
             ),
             "PORT": os.getenv("DATABASE_PORT", 5432),
-            "CONN_MAX_AGE": 100,
+            "CONN_MAX_AGE": _env_int("DATABASE_CONN_MAX_AGE", 0),
+            "CONN_HEALTH_CHECKS": _env_bool("DATABASE_CONN_HEALTH_CHECKS", True),
+            "DISABLE_SERVER_SIDE_CURSORS": _env_bool("DATABASE_USE_PGBOUNCER"),
         }
     }
 
@@ -223,7 +282,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
@@ -235,11 +293,10 @@ USE_I18N = True
 
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 # python manage.py collectstatic --noinput 收集静态文件
 
@@ -283,28 +340,27 @@ def _storage_backend():
     }
 
 
+IMAGE_UPLOAD_MAX_SIZE = 20971520  # 20MiB
+
 STORAGES = {
-    # whitenoise的压缩和缓存支持
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
     },
     "default": _storage_backend(),
 }
-
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# debug包所需的内部ip列表
-INTERNAL_IPS = [
-    "127.0.0.1",
-]
-
 API_KEY = os.getenv("API_KEY")
 if API_KEY is None:
     logging.warning("API_KEY is not set in environment variables.")
+FERNET_KEY = os.getenv("FERNET_KEY")
+if FERNET_KEY is None:
+    logging.warning("FERNET_KEY is not set in environment variables.")
+FERNET_OLD_KEYS = _split_csv(os.getenv("FERNET_OLD_KEYS", ""))
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 
@@ -345,17 +401,23 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # Django-ninja
 NINJA_PAGINATION_CLASS = "api.pagination.Pagination"
 
-IMAGE_UPLOAD_MAX_SIZE = 20971520  # 20MiB
-
 # vector search
 MODEL_NAME = os.environ.get("MODEL_NAME")
 SENTENCE_TRANSFORMERS_HOME = os.environ.get("SENTENCE_TRANSFORMERS_HOME")
 
 # LiteLLM
-LITELLM_API_BASE = os.environ.get("LITELLM_API_BASE", "http://blog-litellm:4000/v1")
-LITELLM_API_KEY = os.environ.get("LITELLM_API_KEY", "sk-1234")
-LITELLM_MODEL_NAME = os.environ.get("LITELLM_MODEL_NAME", "embeddinggemma-300m")
-USE_LITELLM = os.environ.get("USE_LITELLM", "False").lower() in ("1", "true", "yes")
+REMOTE_EMBEDDING_API_BASE = os.environ.get(
+    "REMOTE_EMBEDDING_API_BASE", "http://blog-litellm:4000/v1"
+)
+REMOTE_EMBEDDING_API_KEY = os.environ.get("REMOTE_EMBEDDING_API_KEY", "sk-1234")
+REMOTE_EMBEDDING_MODEL_NAME = os.environ.get(
+    "REMOTE_EMBEDDING_MODEL_NAME", "embeddinggemma-300m"
+)
+USE_REMOTE_EMBEDDING = os.environ.get("USE_REMOTE_EMBEDDING", "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # supervisord may use root permissions
 # PermissionError: [Errno 13] Permission denied: '/root/.cache/huggingface/token'
@@ -371,3 +433,22 @@ if SENTENCE_TRANSFORMERS_HOME:
 TEST_RUNNER = "api.tests.runner.QuietTestRunner"
 # Disable hugging face process bar
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+# DEBUG settings
+# if DEBUG:
+#     try:
+#         import debug_toolbar  # noqa
+#     except ImportError:
+#         pass
+#     else:
+#         # django-debug-toolbar
+#         INSTALLED_APPS.append(
+#             "debug_toolbar",
+#         )
+#         MIDDLEWARE.insert(
+#             MIDDLEWARE.index("web.middleware.HtmxMiddleware"),
+#             "debug_toolbar.middleware.DebugToolbarMiddleware",
+#         )
+#         INTERNAL_IPS = [
+#             "127.0.0.1",
+#         ]

@@ -1,9 +1,13 @@
-import os
+import shutil
+import tempfile
 import time
 from io import BytesIO
+from unittest import skipIf
+from unittest.mock import patch
 
 import blake3
 import requests
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from PIL import Image as PILImage
@@ -15,18 +19,41 @@ from media_service.models import Image
 
 # TODO: more test cases
 
+TEST_STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+
+class BaseImageUploadTest(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.media_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+        self.override = override_settings(
+            MEDIA_ROOT=self.media_root,
+            STORAGES=TEST_STORAGES,
+        )
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+
+        self.process_image_delay = patch("media_service.signals.process_image.delay")
+        self.mock_process_image_delay = self.process_image_delay.start()
+        self.addCleanup(self.process_image_delay.stop)
+
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class ImageUploadTest(TestCase):
+class ImageUploadTest(BaseImageUploadTest):
     def setUp(self):
+        super().setUp()
         self.client = Client()
         self.guest = Guest.objects.create(
             name="tester",
-            unique_id="myself-1",
             email="tester@gsgfs.moe",
-            password="secret",
-            provider=Guest.Providers.myself,
-            provider_id=1,
             avatar="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png",
         )
 
@@ -66,17 +93,14 @@ class ImageUploadTest(TestCase):
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class ImageDeduplicationTest(TestCase):
+class ImageDeduplicationTest(BaseImageUploadTest):
     def setUp(self):
+        super().setUp()
         self.client = Client()
         self.guest = Guest.objects.create(
             name="tester",
-            unique_id="myself-2",
             email="tester2@example.com",
-            password="secret",
-            provider=Guest.Providers.myself,
-            provider_id=2,
-            avatar="https://example.com/avatar-2.png",
+            avatar="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png",
         )
 
     @staticmethod
@@ -87,6 +111,7 @@ class ImageDeduplicationTest(TestCase):
         file.seek(0)
         return SimpleUploadedFile(name, file.read(), content_type="image/png")
 
+    @skipIf(settings.USE_S3, "Duplicate storage assertions are skipped for S3")
     def test_duplicate_file_not_stored_twice(self):
         """Test that uploading the same image twice doesn't create duplicate files."""
         file1 = self.generate_test_image(name="first.png")
@@ -104,9 +129,9 @@ class ImageDeduplicationTest(TestCase):
         )
         self.assertEqual(response1.status_code, 201)
 
-        # Get the file path of first upload
+        # Get the storage name of first upload
         image1 = Image.objects.get(id=response1.json()["id"])
-        file_path_1 = image1.resource.file.path
+        file_name_1 = image1.resource.file.name
 
         # Second upload with same content but different name
         file2 = self.generate_test_image(name="second.png")
@@ -123,30 +148,31 @@ class ImageDeduplicationTest(TestCase):
         )
         self.assertEqual(response2.status_code, 201)
 
-        # Get the file path of second upload
+        # Get the storage name of second upload
         image2 = Image.objects.get(id=response2.json()["id"])
-        file_path_2 = image2.resource.file.path
+        file_name_2 = image2.resource.file.name
 
-        # Both should reference the same file
-        self.assertEqual(file_path_1, file_path_2)
+        # TODO: better way to test it?
+        # Both should reference the same stored resource
+        self.assertEqual(image1.resource_id, image2.resource_id)
+        self.assertEqual(image1.resource.checksum, image2.resource.checksum)
+        self.assertEqual(file_name_1, file_name_2)
 
-        # Check that the file exists
-        self.assertTrue(os.path.exists(file_path_1))
+        # Check that the file exists in the configured storage backend
+        self.assertTrue(image1.resource.file.storage.exists(file_name_1))
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class WebImageUploadTest(TestCase):
+class WebImageUploadTest(BaseImageUploadTest):
     def setUp(self):
+        super().setUp()
         self.client = Client()
         self.guest = Guest.objects.create(
             name="tester",
-            unique_id="myself-3",
             email="tester3@example.com",
-            password="secret",
-            provider=Guest.Providers.myself,
-            provider_id=3,
-            avatar="https://example.com/avatar-3.png",
+            avatar="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png",
         )
+        # NOTE: it a PNG file actually
         self.image_src = (
             "https://img.gsgfs.moe/img/1b987606005d9dc83312b987bad854a6.jpg"
         )
@@ -159,7 +185,6 @@ class WebImageUploadTest(TestCase):
             self.skipTest(f"Failed to fetch image: {e}")
 
     def test_image_upload(self):
-        # PNG???
         file = SimpleUploadedFile("test_image.png", self.image_content, "image/png")
         token = TimeBaseAuth.create_token(f"test_{time.time()}")
         response = self.client.post(

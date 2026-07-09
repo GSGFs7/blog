@@ -1,0 +1,45 @@
+<article class="group mt-4 h-64 overflow-hidden rounded-lg border border-gray-500/70 md:mt-4 md:h-72">
+  <a href="{% url 'blog_post_slug' post.slug %}" preload="mouseover">
+    <div
+      class="relative z-10 h-44 w-full overflow-hidden transition-all duration-500 group-hover:scale-[1.65] md:h-56">
+      <img
+        alt="post cover"
+        class="scale-100 object-cover object-center"
+        loading="lazy"
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+        src="{{ post.cover_image|default:'https://img.gsgfs.moe/images/webp/ff/87/ff87dd4044f5fb6614d80f11b1d336a279c5d3640faa1b1cb3221566321865ba.webp' }}"
+      >
+    </div>
+
+    <h3
+      class="absolute text-xl px-2 py-1 z-20 translate-3 -translate-y-14 rounded-md bg-gray-500/30 text-white backdrop-blur-sm">
+      {{ post.title }}
+    </h3>
+    {% with info_class="flex items-center px-1" %}
+      <section class="flex w-full flex-row flex-wrap px-2 py-1">
+        <p class="{{ info_class }}">
+          <span>发布于:</span>
+          <time>{{ post.published_at|date:"Y-m-d" }}</time>
+        </p>
+        <p class="{{ info_class }}">
+          <span>更新于:</span>
+          <time>{{ post.content_update_at|date:"Y-m-d" }}</time>
+        </p>
+        <p class="{{ info_class }}">
+          <span>{{ post.category|default:"未分类" }}</span>
+        </p>
+        <p class="flex flex-nowrap items-center px-1 text-nowrap">
+          {% if post.tags.count %}
+            <span class="flex">
+              {% for t in post.tags.all %}
+                <span>{{ t.name }}</span>{% if not forloop.last %}|{% endif %}
+              {% endfor %}
+            </span>
+          {% else %}
+            <span>无标签</span>
+          {% endif %}
+        </p>
+      </section>
+    {% endwith %}
+  </a>
+</article>

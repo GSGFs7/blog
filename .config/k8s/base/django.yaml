@@ -9,8 +9,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: blog-django
@@ -23,25 +23,38 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+      volumes:
+        - name: staticfiles
+          emptyDir: {}
+        - name: nginx-config
+          configMap:
+            name: blog-nginx-staticfiles-config
       initContainers:
+        - name: copy-staticfiles
+          image: blog-app:latest
+          command: ["sh", "-c"]
+          args: ["cp -R /app/staticfiles/. /staticfiles/"]
+          volumeMounts:
+            - name: staticfiles
+              mountPath: /staticfiles
         - name: wait-for-db
-          image: blog-django:latest
+          image: blog-app:latest
           command:
             - python
             - -c
             - |
               import socket, time
-              addr = ('blog-postgres', 5432)
+              addr = ('blog-pgbouncer', 6432)
               while True:
                   try:
                       socket.create_connection(addr, timeout=2)
                       break
                   except Exception:
-                      print('waiting for db...')
+                      print('waiting for pgbouncer...')
                       time.sleep(2)
       containers:
         - name: blog-django
-          image: blog-django:latest
+          image: blog-app:latest
           ports:
             - name: http
               containerPort: 8000
@@ -50,13 +63,27 @@ spec:
                 name: blog-config
             - secretRef:
                 name: blog-secrets
+          env:
+            - name: DATABASE_HOST
+              value: blog-pgbouncer
+            - name: DATABASE_PORT
+              value: "6432"
+            - name: DATABASE_USE_PGBOUNCER
+              value: "True"
+            - name: DATABASE_CONN_MAX_AGE
+              value: "0"
+          command:
+            - gunicorn
+            - -c
+            - .config/gunicorn/gunicorn.conf.py
+            - blog.asgi:application
           resources:
             requests:
-              memory: "1Gi"
-              cpu: "100m"
+              memory: "512Mi"
+              cpu: "250m"
             limits:
-              memory: "2Gi"
-              cpu: "1000m"
+              memory: "1Gi"
+              cpu: "500m"
           livenessProbe:
             httpGet:
               port: 8000
@@ -73,9 +100,38 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 10
+        - name: staticfiles-service
+          image: nginxinc/nginx-unprivileged:alpine
+          ports:
+            - name: static
+              containerPort: 8080
+          volumeMounts:
+            - name: staticfiles
+              mountPath: /usr/share/nginx/html/static
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
 
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -84,12 +140,15 @@ spec:
   selector:
     app: blog-django
   ports:
-    - port: 8000
-      targetPort: 8000
+    - name: http
+      port: 8000
+      targetPort: http
+    - name: static
+      port: 8080
+      targetPort: static
   type: ClusterIP
 
 ---
-
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -114,3 +173,75 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blog-nginx-staticfiles-config
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name localhost;
+
+        gzip on;
+        gzip_min_length 256;
+        gzip_proxied any;
+        gzip_comp_level 5;
+        gzip_types
+            text/plain
+            text/css
+            application/json
+            application/javascript
+            application/x-javascript
+            text/xml
+            application/xml
+            application/xml+rss
+            text/javascript
+            image/svg+xml;
+        gzip_vary on;
+
+        location /static/ {
+            alias /usr/share/nginx/html/static/;
+
+            expires max;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+
+            add_header Access-Control-Allow-Origin "*";
+        }
+
+        location = /favicon.ico {
+            alias /usr/share/nginx/html/static/favicon.ico;
+
+            expires 1d;
+            add_header Cache-Control "public, max-age=86400";
+
+            add_header Access-Control-Allow-Origin "*";
+        }
+
+        location = /robots.txt {
+            alias /usr/share/nginx/html/static/robots.txt;
+
+            expires 1h;
+            add_header Cache-Control "public, max-age=3600";
+
+            add_header Access-Control-Allow-Origin "*";
+        }
+
+        location = /llms.txt {
+            alias /usr/share/nginx/html/static/llms.txt;
+            default_type text/plain;
+
+            expires 1h;
+            add_header Cache-Control "public, max-age=3600";
+
+            add_header Access-Control-Allow-Origin "*";
+        }
+
+        location /nginx_status {
+            stub_status;
+            allow 127.0.0.1;
+            deny all;
+        }
+    }

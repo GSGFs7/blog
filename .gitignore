@@ -1,6 +1,15 @@
 __pycache__
 .venv/
 *.pyc
+node_modules
+web/static/dist/
+web/static/ssr/
+web/static/katex/
+coverage/
+.coverage
+coverage.xml
+bundle-report.html
+.gemini/
 
 .vscode/
 .idea/

@@ -15,10 +15,10 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from debug_toolbar.toolbar import debug_toolbar_urls
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import Http404
 from django.urls import include, path
 from django_prometheus import urls as prometheus_url
 from two_factor.urls import urlpatterns as tf_urls
@@ -28,9 +28,30 @@ from api.urls import api
 urlpatterns = [
     path("not-admin/", admin.site.urls),
     path("api/", api.urls),
+    path("", include("web.urls")),
     path("prometheus/", include(prometheus_url)),
     path("", include(tf_urls)),
-] + debug_toolbar_urls()
+]
+
+handler404 = "web.views.page_not_found"
+handler500 = "web.views.server_error"
 
 if settings.DEBUG:
+    from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+
+    from web.views import page_not_found, server_error
+
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # provider static files in runasgi command
+    urlpatterns += staticfiles_urlpatterns()
+    # debug for 404 page
+    urlpatterns += [path("__debug__/404/", page_not_found, {"exception": Http404()})]
+    urlpatterns += [path("__debug__/500/", server_error)]
+
+    # django-debug-toolbar
+    # try:
+    #     from debug_toolbar.toolbar import debug_toolbar_urls
+    #
+    #     urlpatterns += debug_toolbar_urls()
+    # except ImportError:
+    #     pass

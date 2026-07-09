@@ -6,6 +6,11 @@ metadata:
   labels:
     app: blog-celery-worker
 spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: blog-celery-worker
@@ -20,22 +25,22 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: wait-for-db
-          image: blog-celery-worker:latest
+          image: blog-app:latest
           command:
             - python
             - -c
             - |
               import socket, time
-              addr = ('blog-postgres', 5432)
+              addr = ('blog-pgbouncer', 6432)
               while True:
                   try:
                       socket.create_connection(addr, timeout=2)
                       break
                   except Exception:
-                      print('waiting for db...')
+                      print('waiting for pgbouncer...')
                       time.sleep(2)
         - name: wait-for-redis
-          image: blog-celery-worker:latest
+          image: blog-app:latest
           command:
             - python
             - -c
@@ -49,34 +54,37 @@ spec:
                   except Exception:
                       print('waiting for redis...')
                       time.sleep(2)
-        - name: download-model
-          image: blog-model-downloader:latest
-          command:
-            - python
-            - /app/scripts/download-model.py
-          envFrom:
-            - configMapRef:
-                name: blog-config
-            - secretRef:
-                name: blog-secrets
-          volumeMounts:
-            - name: model-cache
-              mountPath: /models
       containers:
         - name: blog-celery-worker
-          image: blog-celery-worker:latest
+          image: blog-app:latest
+          command:
+            - celery
+            - -A
+            - blog
+            - worker
+            - --loglevel=info
+            - --concurrency=1
           envFrom:
             - configMapRef:
                 name: blog-config
             - secretRef:
                 name: blog-secrets
+          env:
+            - name: DATABASE_HOST
+              value: blog-pgbouncer
+            - name: DATABASE_PORT
+              value: "6432"
+            - name: DATABASE_USE_PGBOUNCER
+              value: "True"
+            - name: DATABASE_CONN_MAX_AGE
+              value: "0"
           resources:
             requests:
               memory: "1800Mi"
               cpu: "300m"
             limits:
               memory: "2Gi"
-              cpu: "1000m"
+              cpu: "500m"
           livenessProbe:
             exec:
               command:
@@ -107,7 +115,6 @@ spec:
             claimName: blog-model-pvc
 
 ---
-
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

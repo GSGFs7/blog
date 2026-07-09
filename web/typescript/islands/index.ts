@@ -1,0 +1,9 @@
+import type { Component as SolidComponent } from "solid-js";
+
+import type { ComponentProps } from "../types";
+
+// use dynamic import. avoid js size too large
+export const COMPONENTS: Record<string, () => Promise<SolidComponent<ComponentProps>>> = {
+  Counter: async () => (await import("./Counter")).default,
+  PythonREPL: async () => (await import("./PythonREPL")).default,
+} as const;

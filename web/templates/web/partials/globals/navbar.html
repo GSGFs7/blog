@@ -1,0 +1,144 @@
+<nav class="site-navbar">
+  <div class="site-navbar__shell">
+    <div class="site-navbar__inner">
+      {# Logo #}
+      <a
+        class="site-navbar__brand"
+        href="/"
+        preload="mouseover"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          class="lucide lucide-lollipop-icon lucide-lollipop relative translate-y-[-0.15rem] text-2xl"
+        >
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+          <path d="M11 11a2 2 0 0 0 4 0 4 4 0 0 0-8 0 6 6 0 0 0 12 0"></path>
+        </svg>
+        <span class="site-navbar__brand-text">{{ SITE_TITLE }}</span>
+      </a>
+
+      {# Item #}
+      <div class="site-navbar__links-wrap">
+        <ul class="site-navbar__links">
+          {% for item in SITE_NAV_ITEM %}
+            <li class="site-navbar__item">
+              <a
+                href="{{ item.href }}"
+                class="site-navbar__link"
+                preload="mouseover"
+              >
+                {{ item.label }}
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      {# Avatar #}
+      <div class="site-navbar__avatar-wrap">
+        <a
+          class="site-navbar__avatar-link"
+          href="/user"
+          preload="mouseover"
+        >
+          {# TODO #}
+          <img
+            alt="user's avatar"
+            width="40"
+            height="40"
+            class="site-navbar__avatar"
+            src="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png"
+          >
+        </a>
+      </div>
+
+      <button
+        type="button"
+        class="site-navbar__menu-button"
+        aria-label="打开导航菜单"
+        popovertarget="mobile-menu"
+      >
+        <svg
+          aria-hidden="true"
+          class="site-navbar__menu-icon"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M4 6h16M4 12h16M4 18h16"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+          ></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div
+    id="mobile-menu"
+    class="site-mobile-menu"
+    {# firefox >= 125, chrome >= 116 #}
+    {# the oldest in browserslist config: chrome >= 118 #}
+    popover
+  >
+    <div class="site-mobile-menu__inner">
+      {# top #}
+      <div class="site-mobile-menu__header">
+        <a
+          class="site-navbar__brand"
+          href="/"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="lucide lucide-lollipop-icon lucide-lollipop relative translate-y-[-0.15rem] text-2xl"
+          >
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="m21 21-4.3-4.3"></path>
+            <path d="M11 11a2 2 0 0 0 4 0 4 4 0 0 0-8 0 6 6 0 0 0 12 0"></path>
+          </svg>
+          <span class="site-navbar__brand-text">{{ SITE_TITLE }}</span>
+        </a>
+
+        <button
+          type="button"
+          class="site-mobile-menu__close-button"
+          aria-label="关闭导航菜单"
+          popovertarget="mobile-menu"
+          popovertargetaction="hide"
+        >
+          <svg
+            aria-hidden="true"
+            class="site-mobile-menu__close-icon"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M6 18L18 6M6 6l12 12"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+            ></path>
+          </svg>
+        </button>
+      </div>
+
+      {# item #}
+      <div class="site-mobile-menu__links">
+        {% for item in SITE_NAV_ITEM %}
+          <a
+            class="site-mobile-menu__link"
+            href="{{ item.href }}"
+          >
+            {{ item.label }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</nav>

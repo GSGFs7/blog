@@ -14,6 +14,7 @@ POST_RESERVED_SLUGS: set[str] = {
     "contact",
     "draft",
     "drafts",
+    "feed.atom",
     "feed",
     "gal",
     "galgame",

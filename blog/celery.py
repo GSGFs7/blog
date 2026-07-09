@@ -29,9 +29,9 @@ def preload_ml_model(sender, **kwargs):
     logger.info("Worker process initializing, preloading ML model...")
     try:
         # Import inside signal handler to avoid loading model when importing celery.py
-        from api.ml_model import get_sentence_transformer_model
+        from api.ml_model import get_ml_model
 
-        model = get_sentence_transformer_model()
+        model = get_ml_model()
         if model:
             logger.info("ML model preloaded successfully.")
         else:

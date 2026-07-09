@@ -12,24 +12,37 @@ generatorOptions:
 
 # In dev, we use local images
 images:
-  - name: blog-django
-    newName: localhost/blog-django
-    newTag: latest
-  - name: blog-celery-worker
-    newName: localhost/blog-celery-worker
-    newTag: latest
-  - name: blog-celery-beat
-    newName: localhost/blog-celery-beat
-    newTag: latest
-  - name: blog-model-downloader
-    newName: localhost/blog-model-downloader
+  - name: blog-app
+    newName: localhost/blog-app
     newTag: latest
   - name: blog-backup
     newName: localhost/blog-backup
     newTag: latest
+  - name: blog-model-downloader
+    newName: localhost/blog-model-downloader
+    newTag: latest
+  - name: blog-pgbouncer
+    newName: localhost/blog-pgbouncer
+    newTag: latest
 
 # Force local image pulling in dev (one patch per resource for precise targeting)
 patches:
+  # blog-pgbouncer Deployment
+  - target:
+      kind: Deployment
+      name: blog-pgbouncer
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: blog-pgbouncer
+      spec:
+        template:
+          spec:
+            containers:
+              - name: blog-pgbouncer
+                imagePullPolicy: Never
+
   # blog-django Deployment
   - target:
       kind: Deployment
@@ -65,8 +78,6 @@ patches:
               - name: wait-for-db
                 imagePullPolicy: Never
               - name: wait-for-redis
-                imagePullPolicy: Never
-              - name: download-model
                 imagePullPolicy: Never
             containers:
               - name: blog-celery-worker
@@ -111,3 +122,37 @@ patches:
             containers:
               - name: blog-django-migrate
                 imagePullPolicy: Never
+
+  # blog-llama-cpp Deployment
+  - target:
+      kind: Deployment
+      name: blog-llama-cpp
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: blog-llama-cpp
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: download-model
+                imagePullPolicy: Never
+
+  # blog-postgres-db-backup CronJob
+  - target:
+      kind: CronJob
+      name: blog-postgres-db-backup
+    patch: |-
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: blog-postgres-db-backup
+      spec:
+        jobTemplate:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: blog-postgres-backup
+                    imagePullPolicy: Never

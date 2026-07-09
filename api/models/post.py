@@ -1,8 +1,9 @@
-import jieba
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
+from django.utils.translation import gettext_lazy
 from pgvector.django import HnswIndex, VectorField
 
 from api.constants import POST_RESERVED_SLUGS
@@ -14,14 +15,24 @@ from .tag import Tag
 
 
 class Post(BaseModel):
+    class LayoutTypes(models.TextChoices):
+        article = "article", gettext_lazy("文章")
+        poem = "poem", gettext_lazy("诗")
+
     # 基础信息
     title = models.CharField(
         max_length=50, unique=True, db_index=True, null=False, blank=True
     )
     content = models.TextField(blank=False, null=False, help_text="文章正文, 必填")
+    layout = models.CharField(
+        max_length=20,
+        choices=LayoutTypes,
+        default="article",
+    )
 
     # 渲染后的内容
     content_html = models.TextField(null=True, blank=True, help_text="自动生成")
+    toc = models.JSONField(null=True, blank=True, help_text="文章目录")
 
     # 图片相关
     cover_image = models.URLField(
@@ -94,6 +105,7 @@ class Post(BaseModel):
     content_update_at = models.DateTimeField(
         null=False, blank=True, help_text="文章正文最后更新时间"
     )
+    published_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(BaseModel.Meta):
         ordering = ["-order", "-created_at"]
@@ -123,6 +135,8 @@ class Post(BaseModel):
             raise ValidationError(
                 f"Slug '{self.slug}' is a reserved keyword and cannot be used."
             )
+        if self.slug.isdigit():
+            raise ValidationError(f"Slug '{self.slug}' cannot be purely numeric.")
 
         # === description ===
         if not self.meta_description:
@@ -141,10 +155,23 @@ class Post(BaseModel):
         # === category ===
         if not self.category and post_metadata.get("category"):
             category = post_metadata.get("category")
-            category, created = Category.objects.get_or_create(name=category)
+            category, _ = Category.objects.get_or_create(name=category)
             self.category = category
 
+        # === layout ===
+        if layout := post_metadata.get("layout"):
+            for value, label in self.LayoutTypes.choices:
+                if layout == value or layout == label:
+                    self.layout = value
+                    break
+
+        # === published time ===
+        if self.status == "published" and self.published_at is None:
+            self.published_at = timezone.now()
+
         # === tokenize (PG FTS) ===
+        import jieba
+
         self.tokenized_content = " ".join(jieba.lcut(self.content, cut_all=True))
 
         # === vector ===
@@ -163,7 +190,7 @@ class Post(BaseModel):
             tags_to_set = []
             tag_list = post_metadata["tags"]
             for tag_name in tag_list:
-                tag_obj, created = Tag.objects.get_or_create(name=tag_name)
+                tag_obj, _ = Tag.objects.get_or_create(name=tag_name)
                 tags_to_set.append(tag_obj)
             self.tags.set(tags_to_set)
 

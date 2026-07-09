@@ -12,7 +12,6 @@ spec:
   storageClassName: local-path # k3s local storage
 
 ---
-
 apiVersion: apps/v1
 kind: StatefulSet # PostgreSQL is a stateful service
 metadata:
@@ -28,25 +27,37 @@ spec:
       labels:
         app: blog-postgres
     spec:
-      volumes: # associate PVC with Pod
+      volumes:
+        # associate PVC with Pod
         - name: blog-postgres-storage
           persistentVolumeClaim:
             claimName: blog-postgres-pvc
+        - name: blog-postgres-config
+          configMap:
+            name: blog-postgres-config
       containers:
         - name: blog-postgres
           image: pgvector/pgvector:pg18-trixie
           ports:
             - containerPort: 5432
-          volumeMounts: # mount the PVC
+          volumeMounts:
+            # mount the PVC
             - name: blog-postgres-storage
               mountPath: /var/lib/postgresql
+            - name: blog-postgres-config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
           resources:
             requests:
-              memory: "256Mi"
+              memory: "768Mi"
               cpu: "250m" # 1000m == 1 cpu core
             limits:
               memory: "1Gi"
-              cpu: "500m"
+              cpu: "1000m"
+          args:
+            - postgres
+            - -c
+            - config_file=/etc/postgresql/postgresql.conf
           env:
             - name: POSTGRES_DB
               valueFrom:
@@ -81,7 +92,6 @@ spec:
             periodSeconds: 5
 
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -93,3 +103,26 @@ spec:
     - port: 5432 # expose by service
       targetPort: 5432 # Pod's port
   type: ClusterIP # accessible only within the cluster
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blog-postgres-config
+data:
+  postgresql.conf: |
+    shared_buffers = 256MB
+    max_connections = 200
+    maintenance_work_mem = 64MB
+    checkpoint_completion_target = 0.9
+    effective_cache_size = 768MB
+    wal_buffers = 7864kB
+    default_statistics_target = 100
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    work_mem = 1260kB
+    huge_pages = off
+    min_wal_size = 1GB
+    max_wal_size = 4GB
+    log_timezone = 'Asia/Shanghai'
+    timezone = 'Asia/Shanghai'

@@ -1,0 +1,151 @@
+{% extends "web/layout/base.html" %}
+
+{% block title %}Posts{% endblock %}
+
+{% block extra_head %}
+  <meta name="114514" content="1919810">
+{% endblock %}
+
+{% block content %}
+  <div class="flex flex-col items-center justify-center gap-4 py-4">
+    <div class="inline-block w-full max-w-5xl justify-center text-left">
+      <div class="flex flex-col items-center justify-center">
+        {# top card #}
+        <div class="flex w-full flex-col gap-6 sm:mb-4 sm:flex-row">
+          <div
+            data-blog-header
+            class="relative flex h-52 w-full flex-col items-center justify-center overflow-hidden rounded-lg border dark:border-white/30 sm:flex-9 md:h-80"
+          >
+            <div
+              class="absolute z-20 flex -translate-y-4 flex-col flex-wrap items-center justify-center gap-4 dark:text-white"
+            >
+              <h2 class="text-4xl">Blog</h2>
+              <p class="hidden max-w-lg text-center text-xl sm:block">
+                <span>光标位置:</span>
+                <span data-blog-pointer-x>0.00</span>
+                <span data-blog-pointer-y>0.00</span>
+              </p>
+            </div>
+            {# bg img #}
+            <picture class="absolute inset-0">
+              <source
+                srcset="https://img.gsgfs.moe/images/avif/54/0f/540f78d0502e4afa4468660e0464d4e79dfdf685f9897eca6109214484a1ef12.avif"
+                type="image/avif"
+              >
+              <source
+                srcset="https://img.gsgfs.moe/images/webp/54/0f/540f78d0502e4afa4468660e0464d4e79dfdf685f9897eca6109214484a1ef12.webp"
+                type="image/webp"
+              >
+              <img
+                alt="blog post page top card"
+                data-blog-header-image
+                class="h-full w-full object-cover dark:brightness-85"
+                style="transform: scale(1.1) translateX(0px);"
+                src="https://img.gsgfs.moe/images/raw/54/0f/540f78d0502e4afa4468660e0464d4e79dfdf685f9897eca6109214484a1ef12.jpg"
+                loading="eager"
+              >
+            </picture>
+          </div>
+
+          {# right #}
+          <div
+            class="relative flex h-16 w-full flex-col items-center overflow-hidden rounded-lg border border-white/30 sm:h-52 sm:flex-4 md:h-80"
+          >
+            <a
+              class="relative flex h-full w-full cursor-pointer items-center justify-center"
+              href="{% url 'blog_random_post' %}"
+            >
+              <span class="absolute top-2 rounded-md px-2 py-1 text-3xl dark:text-gray-300 transition-all">
+                随机一篇
+              </span>
+              <picture
+                class="absolute bottom-0 hidden translate-y-8 transition-all hover:translate-y-0 sm:block"
+              >
+                <source
+                  srcset="https://img.gsgfs.moe/images/avif/e7/6d/e76ddbc44702d3a34233660c77ce375122778121efcee9fd4cc7f7c669580949.avif"
+                  type="image/avif"
+                >
+                <source
+                  srcset="https://img.gsgfs.moe/images/webp/e7/6d/e76ddbc44702d3a34233660c77ce375122778121efcee9fd4cc7f7c669580949.webp"
+                  type="image/webp"
+                >
+                <img
+                  alt="blog top card"
+                  class="dark:brightness-90"
+                  src="https://img.gsgfs.moe/images/raw/e7/6d/e76ddbc44702d3a34233660c77ce375122778121efcee9fd4cc7f7c669580949.png"
+                  loading="eager"
+                >
+              </picture>
+            </a>
+          </div>
+        </div>
+
+        {# post list #}
+        <div class="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2 sm:gap-10 sm:pt-6">
+          {% for post in post_list %}
+            {% include "web/partials/blog/post_list_item.html" with post=post only %}
+          {% endfor %}
+        </div>
+
+        <div class="flex h-16 pt-8">
+          <a 
+            aria-label="上一页"
+            class="flex h-full cursor-pointer items-center justify-center aria-disabled:text-gray-600 aria-disabled:cursor-not-allowed"
+            title="上一页"
+            preload="mouseover"
+            {% if has_previous %}
+            href="?page={{ previous_page_number }}"
+            {% else %}
+            aria-disabled="true"
+            {% endif %}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-chevron-left-icon lucide-chevron-left"
+            >
+              <path d="m15 18-6-6 6-6"></path>
+            </svg>
+
+          </a>
+          <div class="mx-2 rounded-md border border-blue-700 px-1 py-1">
+            <span class="px-1.5">{{ page_number }}</span>
+          </div>
+          <a
+            aria-label="下一页"
+            class="flex h-full cursor-pointer items-center justify-center aria-disabled:text-gray-600 aria-disabled:cursor-not-allowed"
+            title="下一页"
+            preload="mouseover"
+            {% if has_next %}
+            href="?page={{ next_page_number }}"
+            {% else %}
+            aria-disabled="true"
+            {% endif %}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="lucide lucide-chevron-right-icon lucide-chevron-right"
+            >
+              <path d="m9 18 6-6-6-6"></path>
+            </svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

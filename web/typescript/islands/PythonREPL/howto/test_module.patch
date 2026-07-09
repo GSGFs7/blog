@@ -1,0 +1,42 @@
+diff --git a/Modules/test_module.c b/Modules/test_module.c
+new file mode 100644
+index 00000000000..08553c5f5e5
+--- /dev/null
++++ b/Modules/test_module.c
+@@ -0,0 +1,36 @@
++#define PY_SSIZE_T_CLEAN
++#include <Python.h>
++
++static PyObject *hello(struct _object *self, PyObject *args) {
++    char *name;
++    if (!PyArg_ParseTuple(args, "s", &name)) {
++        return NULL;
++    }
++
++    PySys_WriteStdout("Hello, %s\n", name);
++    Py_RETURN_NONE;
++}
++
++static PyMethodDef methods[] = {
++    {"hello_world", hello, METH_VARARGS, "Print hello message."},
++    {NULL,NULL, 0, NULL}
++};
++
++static struct PyModuleDef test_module = {
++    PyModuleDef_HEAD_INIT,
++    "test_module",
++    "GSGFs's lazy import test module",
++    -1,
++    methods,
++};
++
++PyMODINIT_FUNC PyInit_test_module(void) {
++    PyObject *module =  PyModule_Create(&test_module);
++    if (module == NULL) {
++        return NULL;
++    }
++
++    PySys_WriteStdout("'test_module' imported\n");
++
++    return module;
++}

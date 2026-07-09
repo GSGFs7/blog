@@ -1,33 +1,16 @@
-"""Authentication and Guest schemas."""
-
-from typing import Optional
-
-from ninja.schema import Schema
+from ninja import Schema
 
 
-class LoginSchema(Schema):
+class OAuthProviderSchema(Schema):
+    provider_key: str
+    name: str
+
+
+class OAuthSessionSchema(Schema):
+    identity_id: int
+    guest_id: int
+    provider_key: str
+    user_id: str
+    name: str
     email: str
-    provider: str
-    username: str
-    password: str
-
-
-class TokenSchema(Schema):
-    token: str
-    token_type: str = "bearer"
-
-
-class GuestSchema(Schema):
-    id: int
-    name: str
-    provider: str
-    provider_id: int
-    unique_id: str
-    email: Optional[str]
-
-
-class GuestLoginSchema(Schema):
-    name: str
-    provider: str
-    provider_id: int
     avatar: str

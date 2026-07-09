@@ -1,0 +1,14 @@
+diff --git a/Platforms/emscripten/web_example/python.worker.mjs b/Platforms/emscripten/web_example/python.worker.mjs
+--- a/Platforms/emscripten/web_example/python.worker.mjs
++++ b/Platforms/emscripten/web_example/python.worker.mjs
+@@ -76,7 +76,9 @@ const emscriptenSettings = {
+     // Prevent complaints about not finding exec-prefix by making a lib-dynload directory
+     Module.FS.mkdirTree(`/lib/python${major}.${minor}/lib-dynload/`);
+     Module.addRunDependency("install-stdlib");
+-    const resp = await fetch(`python${major}.${minor}.zip`);
++    const resp = await fetch(
++      new URL(`python${major}.${minor}.zip`, import.meta.url),
++    );
+     const stdlibBuffer = await resp.arrayBuffer();
+     Module.FS.writeFile(
+       `/lib/python${major}${minor}.zip`,

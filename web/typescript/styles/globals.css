@@ -1,0 +1,14 @@
+@import "tailwindcss" source(none);
+
+@import "./base.css";
+@import "./navbar.css";
+@import "./footer.css";
+
+@source "../../../templates/";
+@source "../../templates/";
+@source "../";
+
+@theme {
+  --font-sans: "LXGW WenKai Screen", sans-serif;
+  --font-mono: "Maple Mono", monospace;
+}

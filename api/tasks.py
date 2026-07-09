@@ -5,9 +5,9 @@ from django.core.mail import mail_admins
 from django.db import transaction
 from django.utils import timezone
 
-from .ml_model import get_sentence_transformer_model
+from .ml_model import get_ml_model
 from .models import Gal, Post, PostChunk
-from .utils import chunk_text
+from .text_chunking import chunk_text
 from .vndb import query_vn
 
 logger = logging.getLogger(__name__)
@@ -73,16 +73,20 @@ def mail_admins_task(subject: str, message: str):
 @transaction.atomic
 def generate_post_chunks_embedding_task(post_id: int):
     post = Post.objects.get(id=post_id)
-    model = get_sentence_transformer_model()
 
     # clean old chunk
     post.chunks.all().delete()
 
-    text_chunk = chunk_text(post.content)
+    text_chunks = chunk_text(post.content)
+
+    if not text_chunks:
+        return
+
+    model = get_ml_model()
+    vectors = model.embed_documents(text_chunks)
 
     new_chunks = []
-    for i, content in enumerate(text_chunk):
-        vector = model.encode_document(content)
+    for i, (content, vector) in enumerate(zip(text_chunks, vectors, strict=True)):
         new_chunks.append(
             PostChunk(
                 post=post,
@@ -101,9 +105,8 @@ def generate_search_embedding_task(query: str):
     Celery task to generate embedding for search query.
     """
     try:
-        model = get_sentence_transformer_model()
-        embedding = model.encode_query(query)
-        return embedding.tolist()
+        model = get_ml_model()
+        return model.embed_query(query)
     except Exception as e:
         logger.error(f"生成搜索 embedding 失败: {query[:50]}, 错误: {e}")
         raise

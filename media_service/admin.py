@@ -8,6 +8,7 @@ from django.utils.safestring import mark_safe
 
 from media_service.constants import IMAGE_ALLOWED_FORMAT
 from media_service.models import Image
+from media_service.tasks import process_image
 
 
 # Register your models here.
@@ -77,6 +78,7 @@ class ImageAdminForm(forms.ModelForm):
 
 class ImageAdmin(admin.ModelAdmin):
     form = ImageAdminForm
+    actions = ["trigger_image_processing"]
     readonly_fields = [
         "preview_large",
         "copyable_url",
@@ -178,6 +180,19 @@ class ImageAdmin(admin.ModelAdmin):
             # if admin miss, set it again
             obj.uploader = request.user
         super().save_model(request, obj, form, change)
+
+    @admin.action(description="Trigger image processing")
+    def trigger_image_processing(self, request, queryset):
+        resource_ids = {
+            image.resource_id for image in queryset if image.resource_id is not None
+        }
+
+        for resource_id in resource_ids:
+            process_image.delay(resource_id, force=True)
+
+        self.message_user(
+            request, f"Triggered image processing for {len(resource_ids)} resources."
+        )
 
     @admin.display(description="size")
     def size_formatted(self, obj: Image):

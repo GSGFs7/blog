@@ -17,7 +17,7 @@ spec:
       restartPolicy: OnFailure
       initContainers:
         - name: wait-for-postgres
-          image: blog-django:latest
+          image: blog-app:latest
           command:
             - python
             - -c
@@ -36,7 +36,7 @@ spec:
           emptyDir: {}
       containers:
         - name: blog-django-migrate
-          image: blog-django:latest
+          image: blog-app:latest
           command:
             - python
             - manage.py
@@ -48,4 +48,5 @@ spec:
             - secretRef:
                 name: blog-secrets
   backoffLimit: 4
+  activeDeadlineSeconds: 600
   ttlSecondsAfterFinished: 60 # 1min

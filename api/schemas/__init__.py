@@ -10,14 +10,7 @@ from .anime import (
     AnimeIds,
     AnimeSchema,
 )
-
-# Auth and Guest schemas
-from .auth import (
-    GuestLoginSchema,
-    GuestSchema,
-    LoginSchema,
-    TokenSchema,
-)
+from .auth import OAuthProviderSchema, OAuthSessionSchema
 
 # Base schemas
 from .base import (
@@ -81,6 +74,8 @@ __all__ = [
     "IdsSchema",
     # Auth
     "ClientIdSchema",
+    "OAuthProviderSchema",
+    "OAuthSessionSchema",
     # Category & Tags
     "CategorySchema",
     "TagsSchema",
@@ -99,11 +94,6 @@ __all__ = [
     "PostRenderedSchema",
     "PostCardWithSimilarity",
     "PostCardsWithSimilaritySchema",
-    # Auth
-    "LoginSchema",
-    "TokenSchema",
-    "GuestSchema",
-    "GuestLoginSchema",
     # Sitemap
     "PostSitemapSchema",
     "PostIdsForSitemap",

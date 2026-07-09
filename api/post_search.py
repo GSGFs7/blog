@@ -1,7 +1,6 @@
 import logging
 from typing import Dict, List, Optional, TypedDict
 
-import jieba
 from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import F, Min
 from pgvector.django import CosineDistance
@@ -29,6 +28,8 @@ class SearchResult(TypedDict):
 
 
 def perform_full_text_search(query: str) -> List[ScoreItem]:
+    import jieba
+
     # tokenize query
     tokenized_query = " ".join(jieba.lcut(query, cut_all=True))
     search_query = SearchQuery(tokenized_query, config="simple")

@@ -1,10 +1,12 @@
+# deprecated. use woodpecker CI
+
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch: # manual triggering
 
 permissions:
@@ -53,7 +55,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --extra ml
 
       - name: Wait for database
         run: uv run scripts/wait_for_db.py
@@ -195,8 +197,8 @@ jobs:
 
   mirror:
     runs-on: ubuntu-latest
-    needs: [ update-manifests ]
-    if: always() && (needs.update-manifests.result == 'success' || needs.update-manifests.result == 'skipped') # && (needs.test.result == 'success')
+    needs: [update-manifests]
+    if: false # always() && (needs.update-manifests.result == 'success' || needs.update-manifests.result == 'skipped') # && (needs.test.result == 'success')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -207,7 +209,7 @@ jobs:
       - name: Mirror to Codeberg
         uses: pixta-dev/repository-mirroring-action@v1
         with:
-          target_repo_url: git@codeberg.org:GSGFs7/GSGFs-blog-backend.git
+          target_repo_url: git@codeberg.org:GSGFs7/blog.git
           ssh_private_key: ${{ secrets.CODEBERG_SSH_PRIVATE_KEY }}
 
   deploy:

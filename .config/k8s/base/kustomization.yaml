@@ -8,6 +8,7 @@ resources:
   - namespace.yaml
   - pvc.yaml
   - postgres.yaml
+  - pgbouncer.yaml
   - redis.yaml
   - django.yaml
   - celery-worker.yaml

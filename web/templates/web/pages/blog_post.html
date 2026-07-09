@@ -1,0 +1,22 @@
+{% extends "web/layout/base.html" %}
+
+{% load vite static %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/markdown.css' %}">
+  <link rel="stylesheet" href="{% static 'katex/katex.min.css' %}">
+  <link rel="canonical" href="{{ SITE_CANONICAL }}{% url 'blog_post_slug' slug %}">
+  <link rel="alternate" type="text/markdown" href="{{ SITE_CANONICAL }}{% url 'blog_post_markdown' slug %}">
+{% endblock %}
+
+{% block content %}
+  {% with current_layout=layout|default:'article' %}
+    <article
+      class="markdown-body markdown-body--{{ current_layout }}{% if current_layout == 'article' %} is-decorated{% endif %} mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 md:p-8"
+    >
+      {{ content_html|safe }}
+    </article>
+  {% endwith %}
+{% endblock %}

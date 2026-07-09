@@ -16,7 +16,7 @@ spec:
         spec:
           volumes:
             - name: backup-dir
-              emptyDir: { }
+              emptyDir: {}
           containers:
             - name: blog-postgres-backup
               image: blog-backup:latest
@@ -37,17 +37,17 @@ spec:
                     echo "Error: DATABASE_HOST or DATABASE_NAME is not set."
                     exit 1
                   fi
-                  
+
                   TIMESTAMP=$(date +%Y%m%d-%H%M)
                   BACKUP_FILE="/backups/blog-${TIMESTAMP}.sql.gz"
-                  
+
                   export PGPASSWORD=$DATABASE_PASSWORD
                   echo "Starting backup for $DATABASE_NAME on $DATABASE_HOST..."
-                  
+
                   pg_dump -h "$DATABASE_HOST" -p "${DATABASE_PORT:-5432}" -U "$DATABASE_USER" -d "$DATABASE_NAME" | gzip > "$BACKUP_FILE"
-                  
+
                   echo "Backup created: $BACKUP_FILE ($(du -sh $BACKUP_FILE | cut -f1))"
-                  
+
                   echo "Uploading to object storage..."
                   python3 /app/upload.py upload "$BACKUP_FILE" "$BACKUP_BUCKET" backups/
                   echo "Backup and upload completed successfully."

@@ -1,64 +1,68 @@
-# GSGFs-blog-backend
+# GSGFs-blog
 
-[![status-badge](https://woodpecker.gsgfs.sh/api/badges/1/status.svg)](https://woodpecker.gsgfs.sh/repos/1)
+[![status-badge](https://woodpecker.gsgfs.sh/api/badges/1/status.svg)](https://woodpecker.gsgfs.sh/repos/1) [![Quality Gate Status](https://sonarqube.gsgfs.sh/api/project_badges/measure?project=blog&metric=alert_status&token=sqb_0d1b1441c744c4776436ce237e351a089110a9fa)](https://sonarqube.gsgfs.sh/dashboard?id=blog) [![Maintainability Rating](https://sonarqube.gsgfs.sh/api/project_badges/measure?project=blog&metric=software_quality_maintainability_rating&token=sqb_0d1b1441c744c4776436ce237e351a089110a9fa)](https://sonarqube.gsgfs.sh/dashboard?id=blog) [![Technical Debt](https://sonarqube.gsgfs.sh/api/project_badges/measure?project=blog&metric=software_quality_maintainability_remediation_effort&token=sqb_0d1b1441c744c4776436ce237e351a089110a9fa)](https://sonarqube.gsgfs.sh/dashboard?id=blog)
 
-使用 `Django` 和 `Django-ninja` 构建的个人网站后端.
+使用 `Django` 构建的个人网站. (新前端正在重构中)
 
 ## 运行
 
 > [!NOTE]  
 > Django 自带的后台在 `/not-admin` 而不是 `/admin`
 
-`python`版本: `3.14`, 推荐使用 uv 作为包管理器
+`python`版本: `3.14`, 使用 uv 作为包管理器
 
 _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `python`, 例如 `./manage.py runserver`
 应该改为 `python ./manage.py runserver`_
 
 1. 安装所需依赖
 
-   ```bash
-   uv sync
-   ```
+    ```bash
+    uv sync
+    pnpm i
+    ```
 
 2. 激活 Python 虚拟环境 (以 `Linux` 为例)
 
-   ```bash
-   source .venv/bin/activate
-   ```
+    ```bash
+    source .venv/bin/activate
+    ```
 
 3. 将 `.env.example` 复制一份为 `.env` 并填写需要的环境变量
 
-   尖括号中的内容是必填项, 可以使用 `openssl rand -base64 40` 生成所需的随机字符
+    尖括号中的内容是必填项, 可以使用 `openssl rand -hex 40` 生成所需的随机字符
 
 4. 启动数据库和 Redis
 
-   ```bash
-   docker compose up -d "blog-postgres" "blog-redis"
-   ```
+    ```bash
+    docker compose up -d "blog-postgres" "blog-redis"
+    ```
 
 5. 由于搜索功能依赖向量化处理, 需要下载用于生成向量的嵌入模型
 
-   ```bash
-   ./scripts/download-model.py
-   ```
+    ```bash
+    ./scripts/download-model.py
+    ```
 
 6. 迁移数据库
 
-   ```bash
-   ./manage.py makemigrations && ./manage.py migrate
-   ```
+    ```bash
+    ./manage.py makemigrations && ./manage.py migrate
+    ```
 
 7. 创建一个管理员用户 (用于登陆后台)
 
-   ```bash
-   ./manage.py createsuperuser
-   ```
+    ```bash
+    ./manage.py createsuperuser
+    ```
 
 8. 运行开发服务器
 
-   ```bash
-   ./manage.py runserver
-   ```
+    ```bash
+    # 运行 vite
+    ./manage.py vite # 或者 pnpm run dev
+    # 新开一个终端, 运行 Django ASGI 开发服务器
+    ./manage.py runasgi
+    ```
 
 ## 可选依赖
 
@@ -86,6 +90,7 @@ _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `
 ├── blog/           # Django project
 ├── scripts/        # 辅助脚本
 ├── templates/      # Django 模板
+├── web/            # 前端 app
 └── manage.py       # Django cli
 ```
 

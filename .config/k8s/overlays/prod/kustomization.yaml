@@ -7,21 +7,19 @@ resources:
 - ingress.yaml
 - cluster-issuer.yaml
 - middleware-whitelist.yaml
+- middleware-scanner-block.yaml
 
 # In prod, images are managed by Woodpecker CI & Argo CD
 images:
+- name: blog-app
+  newName: registry.gsgfs.sh/blog-app
+  newTag: 8c1586d8a2c726d11a7c4a22bbc7f97312c4478d
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
-  newTag: 878630c898b33dc9171056602d9a3354b73dcb91
-- name: blog-celery-beat
-  newName: registry.gsgfs.sh/blog-celery-beat
-  newTag: 878630c898b33dc9171056602d9a3354b73dcb91
-- name: blog-celery-worker
-  newName: registry.gsgfs.sh/blog-celery-worker
-  newTag: 878630c898b33dc9171056602d9a3354b73dcb91
-- name: blog-django
-  newName: registry.gsgfs.sh/blog-django
-  newTag: 878630c898b33dc9171056602d9a3354b73dcb91
+  newTag: 8c1586d8a2c726d11a7c4a22bbc7f97312c4478d
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
-  newTag: 878630c898b33dc9171056602d9a3354b73dcb91
+  newTag: 8c1586d8a2c726d11a7c4a22bbc7f97312c4478d
+- name: blog-pgbouncer
+  newName: registry.gsgfs.sh/blog-pgbouncer
+  newTag: 8c1586d8a2c726d11a7c4a22bbc7f97312c4478d

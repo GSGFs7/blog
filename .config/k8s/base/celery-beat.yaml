@@ -7,6 +7,11 @@ metadata:
     app: blog-celery-beat
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: blog-celery-beat
@@ -21,22 +26,22 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: wait-for-db
-          image: blog-celery-beat:latest
+          image: blog-app:latest
           command:
             - python
             - -c
             - |
               import socket, time
-              addr = ('blog-postgres', 5432)
+              addr = ('blog-pgbouncer', 6432)
               while True:
                   try:
                       socket.create_connection(addr, timeout=2)
                       break
                   except Exception:
-                      print('waiting for db...')
+                      print('waiting for pgbouncer...')
                       time.sleep(2)
         - name: wait-for-redis
-          image: blog-celery-beat:latest
+          image: blog-app:latest
           command:
             - python
             - -c
@@ -52,7 +57,7 @@ spec:
                       time.sleep(2)
       containers:
         - name: blog-celery-beat
-          image: blog-celery-beat:latest
+          image: blog-app:latest
           command:
             - celery
             - -A
@@ -60,11 +65,22 @@ spec:
             - beat
             - --pidfile=/tmp/celerybeat.pid
             - --loglevel=info
+            - --scheduler
+            - django_celery_beat.schedulers:DatabaseScheduler
           envFrom:
             - configMapRef:
                 name: blog-config
             - secretRef:
                 name: blog-secrets
+          env:
+            - name: DATABASE_HOST
+              value: blog-pgbouncer
+            - name: DATABASE_PORT
+              value: "6432"
+            - name: DATABASE_USE_PGBOUNCER
+              value: "True"
+            - name: DATABASE_CONN_MAX_AGE
+              value: "0"
           resources:
             requests:
               memory: "512Mi"
