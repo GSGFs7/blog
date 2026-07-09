@@ -3,6 +3,8 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: blog-config
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 data:
   DEBUG: "False"
   DJANGO_LOGLEVEL: "info"

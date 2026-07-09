@@ -3,6 +3,8 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: blog-postgres-pvc
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   accessModes:
     - ReadWriteOnce
@@ -16,6 +18,8 @@ apiVersion: apps/v1
 kind: StatefulSet # PostgreSQL is a stateful service
 metadata:
   name: blog-postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   serviceName: blog-postgres
   replicas: 1 # deploy only 1 replica (single-node PostgreSQL)
@@ -58,6 +62,8 @@ spec:
             - postgres
             - -c
             - config_file=/etc/postgresql/postgresql.conf
+            - -c
+            - listen_addresses=*
           env:
             - name: POD_IP
               valueFrom:
@@ -100,6 +106,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: blog-postgres
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   selector:
     app: blog-postgres
@@ -113,9 +121,10 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: blog-postgres-config
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 data:
   postgresql.conf: |
-    listen_addresses = '*'
     shared_buffers = 256MB
     max_connections = 200
     maintenance_work_mem = 64MB
