@@ -1,7 +1,7 @@
 import os
 
-from .cert import Config
 from .image_base import BaseImageTask
+from .registry_cert import Config
 
 
 class PushImageTask(BaseImageTask):
@@ -20,7 +20,7 @@ class PushImageTask(BaseImageTask):
 
     def execute(self) -> None:
         for image in self.images:
-            commit_hash = os.getenv("CI_COMMIT_SHA", "latest")
+            commit_hash = os.environ["CI_COMMIT_SHA"]
             hash_tag = f"{self.config.domain}/{image.name}:{commit_hash}"
             latest_tag = f"{self.config.domain}/{image.name}:latest"
             self.tag(image.name, hash_tag)
