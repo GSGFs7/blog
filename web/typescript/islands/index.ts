@@ -6,4 +6,5 @@ import type { ComponentProps } from "../types";
 export const COMPONENTS: Record<string, () => Promise<SolidComponent<ComponentProps>>> = {
   Counter: async () => (await import("./Counter")).default,
   PythonREPL: async () => (await import("./PythonREPL")).default,
+  Chart: async () => (await import("./Chart")).default,
 } as const;

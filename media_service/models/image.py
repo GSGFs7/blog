@@ -69,6 +69,7 @@ def image_webp_upload_path(instance: "ImageResource", filename: str) -> str:
     )
 
 
+# TODO: responsive images
 class ImageResource(BaseModel):
     """single physical file"""
 

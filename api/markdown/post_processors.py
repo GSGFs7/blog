@@ -24,6 +24,8 @@ MARKDOWN_DIRECTIVE_ISLANDS = {
     "counter": "Counter",
     "python-wasm": "PythonREPL",
     "python-repl": "PythonREPL",
+    "chart": "Chart",
+    "charts": "Chart",
 }
 
 HTML_TAGS = nh3.ALLOWED_TAGS | {
