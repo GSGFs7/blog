@@ -23,3 +23,5 @@ IMAGE_ALLOWED_FORMAT: set[str] = {
     "image/tiff",
     "image/webp",
 }
+
+RESPONSIVE_IMAGE_WIDTHS = (320, 640, 1280, 1920)

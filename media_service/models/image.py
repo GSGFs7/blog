@@ -14,7 +14,7 @@ from django.db import models, transaction
 from PIL import Image as PILImage
 
 from core.hash import calculate_blake3_hash
-from media_service.constants import IMAGE_ALLOWED_FORMAT
+from media_service.constants import IMAGE_ALLOWED_FORMAT, RESPONSIVE_IMAGE_WIDTHS
 from media_service.exiftool import AsyncExifTool, SyncExifTool
 
 from .base import BaseModel
@@ -69,7 +69,8 @@ def image_webp_upload_path(instance: "ImageResource", filename: str) -> str:
     )
 
 
-# TODO: responsive images
+# TODO: add a very fast image tool to check if image size is too large
+#       & generate a suitable size image (writen in Rust?)
 class ImageResource(BaseModel):
     """single physical file"""
 
@@ -99,6 +100,7 @@ class ImageResource(BaseModel):
     mime_type = models.CharField(max_length=50)
 
     is_processed = models.BooleanField(default=False)
+    responsive_variants_enabled = models.BooleanField(default=False)
 
     @property
     def avif_url(self) -> str | None:
@@ -121,6 +123,69 @@ class ImageResource(BaseModel):
         height: int
         size: int
         mime_type: str
+
+    def responsive_srcsets(self) -> dict[str, str]:
+        grouped: dict[str, list[str]] = {
+            ImageVariant.Format.AVIF: [],
+            ImageVariant.Format.WEBP: [],
+        }
+
+        for variant in self.variants.all():
+            if variant.file:
+                grouped[variant.format].append(f"{variant.file.url} {variant.width}w")
+
+        return {
+            image_format: ", ".join(values)
+            for image_format, values in grouped.items()
+            if values
+        }
+
+    def has_complete_responsive_variants(self) -> bool:
+        widths = {min(width, self.width) for width in RESPONSIVE_IMAGE_WIDTHS}
+        expected = {
+            (image_format, width)
+            for image_format in (ImageVariant.Format.AVIF, ImageVariant.Format.WEBP)
+            for width in widths
+        }
+        existing = set(self.variants.exclude(file="").values_list("format", "width"))
+        return expected.issubset(existing)
+
+
+def image_variant_update_path(instance: "ImageVariant", filename: str) -> str:
+    checksum = instance.resource.checksum
+    return (
+        f"images/responsive/{instance.format}/"
+        f"{checksum[:2]}/{checksum[2:4]}/"
+        f"{checksum}-{instance.width}.{instance.format}"
+    )
+
+
+# INFO: about the image variant
+#       this variant used for generate website UI image.
+#       DO NOT use it for those used in blog post. (it maybe unclear)
+class ImageVariant(BaseModel):
+    class Format(models.TextChoices):
+        AVIF = "avif", "AVIF"
+        WEBP = "webp", "WEBP"
+
+    resource = models.ForeignKey(
+        ImageResource, on_delete=models.CASCADE, related_name="variants"
+    )
+    file = models.ImageField(upload_to=image_variant_update_path)
+
+    format = models.CharField(max_length=8, choices=Format)
+    width = models.PositiveIntegerField()
+    height = models.PositiveIntegerField()
+    size = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["format", "width"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["resource", "format", "width"],
+                name="unique_image_responsive_variant",
+            )
+        ]
 
 
 # Create your models here.
@@ -172,7 +237,7 @@ class Image(BaseModel):
         filename: str,
         alt_text: str = "",
         description: str = "",
-        uploader: models.Model = None,
+        uploader: models.Model | None = None,
         metadata: dict | None = None,
     ) -> tuple["Image", ImageResource, bool]:
 
@@ -221,7 +286,7 @@ class Image(BaseModel):
         filename: str,
         alt_text: str = "",
         description: str = "",
-        uploader: models.Model = None,
+        uploader: models.Model | None = None,
         metadata: dict | None = None,
     ) -> tuple["Image", ImageResource, bool]:
         # 0. verify

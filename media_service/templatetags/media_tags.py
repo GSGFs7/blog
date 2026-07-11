@@ -1,7 +1,7 @@
 import re
 
 from django import template
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html, format_html_join
 
 from media_service.models import Image, ImageResource
 
@@ -15,13 +15,14 @@ def render_image(
     class_name: str = "",
     img_class: str = "",
     loading: str = "lazy",
+    sizes: str = "100vw",
 ):
     if not image_input:
         return ""
 
     # find image resource
     resource: ImageResource | None = None
-    alt_text = ""
+    alt_text = alt
     if isinstance(image_input, Image):
         resource = image_input.resource
         alt_text = alt or image_input.alt_text
@@ -38,21 +39,47 @@ def render_image(
         src = image_input if isinstance(image_input, str) else ""
         if not src:
             return ""
-        return mark_safe(
-            f"<img"
-            f' src="{src}"'
-            f' alt="{alt}"'
-            f' class="{img_class or class_name}"'
-            f' loading="{loading}"'
-            f">"
+        return format_html(
+            '<img src="{}" alt="{}" class="{}" loading="{}">',
+            src,
+            alt,
+            img_class or class_name,
+            loading,
         )
 
     # picture source
     sources = []
-    if resource.avif_file:
-        sources.append(f'<source srcset="{resource.avif_url}" type="image/avif">')
-    if resource.webp_file:
-        sources.append(f'<source srcset="{resource.webp_url}" type="image/webp">')
+    responsive_srcsets = resource.responsive_srcsets()
+
+    # avif source
+    avif_srcset = responsive_srcsets.get("avif")
+    if avif_srcset:
+        sources.append(
+            format_html(
+                '<source srcset="{}" sizes="{}" type="image/avif">',
+                avif_srcset,
+                sizes,
+            )
+        )
+    elif resource.avif_file:
+        sources.append(
+            format_html('<source srcset="{}" type="image/avif">', resource.avif_url)
+        )
+
+    # webp source
+    webp_srcset = responsive_srcsets.get("webp")
+    if webp_srcset:
+        sources.append(
+            format_html(
+                '<source srcset="{}" sizes="{}" type="image/webp">',
+                webp_srcset,
+                sizes,
+            )
+        )
+    elif resource.webp_file:
+        sources.append(
+            format_html('<source srcset="{}" type="image/webp">', resource.webp_url)
+        )
 
     # build styles
     style = ""
@@ -61,28 +88,27 @@ def render_image(
             f"background-image: url({resource.placeholder}); background-size: cover;"
         )
 
-    picture_width = f' width="{resource.width}"' if resource.width else ""
-    picture_height = f' height="{resource.height}"' if resource.height else ""
+    dimensions = ""
+    if resource.width and resource.height:
+        dimensions = format_html(
+            ' width="{}" height="{}"', resource.width, resource.height
+        )
 
     # render <picture>
-    picture_html = f'<picture class="{class_name}">'
-    for s in sources:
-        picture_html += s
-    picture_html += (
-        f"<img"
-        f' src="{resource.file.url}"'
-        f' alt="{alt_text}"'
-        f' style="{style}"'
-        f' class="{img_class}"'
-        f' loading="{loading}"'
-        f' decoding="async"'
-        f"{picture_width}"
-        f"{picture_height}"
-        f">"
+    source_html = format_html_join("", "{}", ((source,) for source in sources))
+    return format_html(
+        '<picture class="{}">{}<img src="{}" alt="{}" style="{}" class="{}" '
+        'loading="{}" decoding="async" sizes="{}"{}></picture>',
+        class_name,
+        source_html,
+        resource.file.url,
+        alt_text,
+        style,
+        img_class,
+        loading,
+        sizes,
+        dimensions,
     )
-    picture_html += "</picture>"
-
-    return mark_safe(picture_html)
 
 
 @register.filter

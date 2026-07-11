@@ -1,6 +1,7 @@
 import shutil
 import tempfile
 from io import BytesIO
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -53,3 +54,92 @@ class ImageAdminTest(TestCase):
 
         image = Image.objects.get(original_name="admin-test.png")
         self.assertEqual(image.uploader, self.admin_user)
+
+    def test_admin_upload_can_enable_responsive_variants(self):
+        with (
+            patch("media_service.signals.process_image.delay"),
+            patch("media_service.admin.process_responsive_variants.delay") as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                reverse("admin:media_service_image_add"),
+                {
+                    "file": self.generate_test_image(name="responsive.png"),
+                    "original_name": "responsive.png",
+                    "alt_text": "responsive admin upload",
+                    "description": "",
+                    "responsive_variants_enabled": "on",
+                    "_save": "Save",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        image = Image.objects.get(original_name="responsive.png")
+        self.assertTrue(image.resource.responsive_variants_enabled)
+        delay.assert_called_once_with(image.resource_id)
+
+    def test_admin_change_can_enable_responsive_variants(self):
+        self.client.post(
+            reverse("admin:media_service_image_add"),
+            {
+                "file": self.generate_test_image(name="change-responsive.png"),
+                "original_name": "change-responsive.png",
+                "alt_text": "before change",
+                "description": "",
+                "_save": "Save",
+            },
+        )
+        image = Image.objects.get(original_name="change-responsive.png")
+
+        with (
+            patch("media_service.admin.process_responsive_variants.delay") as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                reverse("admin:media_service_image_change", args=[image.pk]),
+                {
+                    "original_name": image.original_name,
+                    "alt_text": image.alt_text,
+                    "description": image.description,
+                    "responsive_variants_enabled": "on",
+                    "_save": "Save",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        image.resource.refresh_from_db()
+        self.assertTrue(image.resource.responsive_variants_enabled)
+        delay.assert_called_once_with(image.resource_id)
+
+    def test_admin_change_retries_missing_responsive_variants(self):
+        self.client.post(
+            reverse("admin:media_service_image_add"),
+            {
+                "file": self.generate_test_image(name="retry-responsive.png"),
+                "original_name": "retry-responsive.png",
+                "alt_text": "retry variants",
+                "description": "",
+                "_save": "Save",
+            },
+        )
+        image = Image.objects.get(original_name="retry-responsive.png")
+        image.resource.responsive_variants_enabled = True
+        image.resource.save(update_fields=["responsive_variants_enabled"])
+
+        with (
+            patch("media_service.admin.process_responsive_variants.delay") as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                reverse("admin:media_service_image_change", args=[image.pk]),
+                {
+                    "original_name": image.original_name,
+                    "alt_text": image.alt_text,
+                    "description": image.description,
+                    "responsive_variants_enabled": "on",
+                    "_save": "Save",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        delay.assert_called_once_with(image.resource_id)

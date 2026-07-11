@@ -7,7 +7,7 @@ from django.core.files.base import ContentFile
 from django.template import Context, Template
 from django.test import TestCase, override_settings
 
-from media_service.models import Image, ImageResource
+from media_service.models import Image, ImageResource, ImageVariant
 from media_service.templatetags.media_tags import render_image, to_thumbnail
 
 
@@ -84,6 +84,42 @@ class MediaTagsTestCase(TestCase):
         self.assertIn('type="image/webp"', result)
         self.assertIn(f'srcset="{self.resource.avif_url}"', result)
         self.assertIn(f'srcset="{self.resource.webp_url}"', result)
+
+    def test_render_image_with_responsive_variants(self):
+        avif_320 = ImageVariant.objects.create(
+            resource=self.resource,
+            file=ContentFile(b"avif 320", name="test-320.avif"),
+            format=ImageVariant.Format.AVIF,
+            width=320,
+            height=180,
+            size=8,
+        )
+        avif_640 = ImageVariant.objects.create(
+            resource=self.resource,
+            file=ContentFile(b"avif 640", name="test-640.avif"),
+            format=ImageVariant.Format.AVIF,
+            width=640,
+            height=360,
+            size=8,
+        )
+        webp_320 = ImageVariant.objects.create(
+            resource=self.resource,
+            file=ContentFile(b"webp 320", name="test-320.webp"),
+            format=ImageVariant.Format.WEBP,
+            width=320,
+            height=180,
+            size=8,
+        )
+
+        sizes = "(max-width: 768px) 100vw, 768px"
+        result = render_image(self.resource, sizes=sizes)
+
+        self.assertIn(
+            f'srcset="{avif_320.file.url} 320w, {avif_640.file.url} 640w"',
+            result,
+        )
+        self.assertIn(f'srcset="{webp_320.file.url} 320w"', result)
+        self.assertEqual(result.count(f'sizes="{sizes}"'), 3)
 
     def test_to_thumbnail_none(self):
         self.assertEqual(to_thumbnail(None), "")

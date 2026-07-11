@@ -3,23 +3,30 @@ from io import BytesIO
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.http import HttpRequest
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from media_service.constants import IMAGE_ALLOWED_FORMAT
-from media_service.models import Image
-from media_service.tasks import process_image
+from media_service.models import Image, ImageResource
+from media_service.tasks import process_image, process_responsive_variants
 
 
 # Register your models here.
 class ImageAdminForm(forms.ModelForm):
     file = forms.ImageField(required=True, label="image")
+    responsive_variants_enabled = forms.BooleanField(
+        required=False,
+        label="Generate responsive variants",
+        help_text="Generate optimized 320, 640, 1280 and 1920 pixel variants.",
+    )
 
     class Meta:
         model = Image
         fields = ["original_name", "alt_text", "description"]
         help_texts = {
-            "checksum": "blake3 算法得到的哈希值",
+            "checksum": "blake3 hash",
         }
 
     def __init__(self, *args, **kwargs):
@@ -30,6 +37,9 @@ class ImageAdminForm(forms.ModelForm):
         if self.instance.pk is None:
             self.fields["file"] = forms.ImageField(required=True, label="image")
         else:
+            self.fields[
+                "responsive_variants_enabled"
+            ].initial = self.instance.resource.responsive_variants_enabled
             if "file" in self.fields:
                 del self.fields["file"]
 
@@ -78,7 +88,11 @@ class ImageAdminForm(forms.ModelForm):
 
 class ImageAdmin(admin.ModelAdmin):
     form = ImageAdminForm
-    actions = ["trigger_image_processing"]
+    actions = [
+        "trigger_image_processing",
+        "generate_responsive_variants",
+        "disable_responsive_variants",
+    ]
     readonly_fields = [
         "preview_large",
         "copyable_url",
@@ -110,6 +124,7 @@ class ImageAdmin(admin.ModelAdmin):
                             "original_name",
                             "alt_text",
                             "description",
+                            "responsive_variants_enabled",
                         ]
                     },
                 ),
@@ -144,6 +159,7 @@ class ImageAdmin(admin.ModelAdmin):
                             "width_px",
                             "height_px",
                             "checksum",
+                            "responsive_variants_enabled",
                         ],
                     },
                 ),
@@ -158,9 +174,11 @@ class ImageAdmin(admin.ModelAdmin):
         "preview_icon",
         "mime_type",
         "size_formatted",
+        "responsive_variants_status",
         "created_at",
     ]
-    list_filter = ["created_at"]
+    list_filter = ["resource__responsive_variants_enabled", "created_at"]
+    list_select_related = ["resource"]
     search_fields = ["original_name", "alt_text", "description"]
     date_hierarchy = "created_at"
 
@@ -175,11 +193,28 @@ class ImageAdmin(admin.ModelAdmin):
 
         return RequestBoundImageAdminForm
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request: HttpRequest, obj: Image, form, change):
         if getattr(obj, "uploader", None) is None:
             # if admin miss, set it again
             obj.uploader = request.user
         super().save_model(request, obj, form, change)
+
+        enabled = form.cleaned_data.get("responsive_variants_enabled", False)
+        resource = obj.resource
+        enabled_changed = resource.responsive_variants_enabled != enabled
+        if enabled_changed:
+            ImageResource.objects.filter(pk=resource.pk).update(
+                responsive_variants_enabled=enabled
+            )
+            resource.responsive_variants_enabled = enabled
+
+        if enabled and (
+            enabled_changed or not resource.has_complete_responsive_variants()
+        ):
+            resource_id = resource.pk
+            transaction.on_commit(
+                lambda: process_responsive_variants.delay(resource_id)
+            )
 
     @admin.action(description="Trigger image processing")
     def trigger_image_processing(self, request, queryset):
@@ -193,6 +228,43 @@ class ImageAdmin(admin.ModelAdmin):
         self.message_user(
             request, f"Triggered image processing for {len(resource_ids)} resources."
         )
+
+    @admin.action(description="Enable and generate responsive variants")
+    def generate_responsive_variants(self, request, queryset):
+        resource_ids = {
+            image.resource_id for image in queryset if image.resource_id is not None
+        }
+        ImageResource.objects.filter(pk__in=resource_ids).update(
+            responsive_variants_enabled=True
+        )
+
+        for resource_id in resource_ids:
+            process_responsive_variants.delay(resource_id)
+
+        self.message_user(
+            request,
+            "Triggered responsive variant generation for "
+            f"{len(resource_ids)} resources.",
+        )
+
+    @admin.action(description="Disable responsive variant generation")
+    def disable_responsive_variants(self, request, queryset):
+        resource_ids = {
+            image.resource_id for image in queryset if image.resource_id is not None
+        }
+        ImageResource.objects.filter(pk__in=resource_ids).update(
+            responsive_variants_enabled=False
+        )
+        self.message_user(
+            request,
+            "Disabled responsive variant generation for "
+            f"{len(resource_ids)} resources. "
+            "Existing variants were retained.",
+        )
+
+    @admin.display(boolean=True, description="responsive variants")
+    def responsive_variants_status(self, obj: Image):
+        return obj.resource.responsive_variants_enabled
 
     @admin.display(description="size")
     def size_formatted(self, obj: Image):

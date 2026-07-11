@@ -6,7 +6,8 @@ from celery import shared_task
 from django.core.files.base import ContentFile
 from PIL import Image as PILImage
 
-from media_service.models import ImageResource
+from media_service.constants import RESPONSIVE_IMAGE_WIDTHS
+from media_service.models import ImageResource, ImageVariant
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +101,92 @@ def process_image(image_resource_id: int, force: bool = False):
                     )
 
             image_res_obj.is_processed = True
-            image_res_obj.save()
+            # save updated fields only
+            # avoid race conditions
+            image_res_obj.save(
+                update_fields=[
+                    "avif_file",
+                    "webp_file",
+                    "thumbnail",
+                    "placeholder",
+                    "is_processed",
+                    "updated_at",
+                ]
+            )
     except ImageResource.DoesNotExist:
         logger.error(f"Image not found: {image_resource_id}")
     except Exception as e:
         logger.error(f"Error processing image {image_resource_id}: {e}")
+
+
+@shared_task
+def process_responsive_variants(image_resource_id: int):
+    try:
+        resource = ImageResource.objects.get(id=image_resource_id)
+        if not resource.responsive_variants_enabled:
+            return
+
+        with PILImage.open(resource.file) as img:
+            for width in target_widths(img.width):
+                generate_variant(
+                    resource,
+                    img,
+                    width,
+                    ImageVariant.Format.AVIF,
+                    "AVIF",
+                    50,
+                )
+                generate_variant(
+                    resource,
+                    img,
+                    width,
+                    ImageVariant.Format.WEBP,
+                    "WEBP",
+                    80,
+                )
+    except ImageResource.DoesNotExist:
+        logger.error(f"Image not found: {image_resource_id}")
+    except Exception as e:
+        logger.error(
+            f"Error processing responsive variants for {image_resource_id}: {e}"
+        )
+
+
+def target_widths(original_width: int) -> list[int]:
+    return sorted({min(width, original_width) for width in RESPONSIVE_IMAGE_WIDTHS})
+
+
+def generate_variant(
+    resource: ImageResource,
+    source: PILImage.Image,
+    width: int,
+    image_format: str,
+    pil_format: str,
+    quality: int,
+):
+    height = round(source.height * width / source.width)
+    variant, _ = ImageVariant.objects.get_or_create(
+        resource=resource,
+        format=image_format,
+        width=width,
+        defaults={"height": height, "size": 0},
+    )
+    if variant.file:
+        return
+
+    if width == source.width:
+        resized = source.copy()
+    else:
+        resized = source.resize((width, height), PILImage.Resampling.LANCZOS)
+
+    buffer = BytesIO()
+    resized.save(buffer, format=pil_format, quality=quality)
+
+    variant.height = height
+    variant.size = buffer.tell()
+    variant.file.save(
+        f"{resource.checksum}-{width}.{image_format}",
+        ContentFile(buffer.getvalue()),
+        save=False,
+    )
+    variant.save()
