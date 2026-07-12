@@ -11,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.files import File
 from django.db import models, transaction
+from PIL import ExifTags, ImageOps
 from PIL import Image as PILImage
 
 from core.hash import calculate_blake3_hash
@@ -188,6 +189,26 @@ class ImageVariant(BaseModel):
         ]
 
 
+@dataclass(frozen=True, slots=True)
+class ImageInspection:
+    image_format: str
+    mime_type: str
+    width: int
+    height: int
+    orientation: int
+    frame_count: int
+
+    @property
+    def is_animated(self) -> bool:
+        return self.frame_count > 1
+
+    @property
+    def normalized_size(self) -> tuple[int, int]:
+        if self.orientation in {5, 6, 7, 8}:
+            return self.height, self.width
+        return self.width, self.height
+
+
 # Create your models here.
 class Image(BaseModel):
     """logical image file"""
@@ -250,24 +271,49 @@ class Image(BaseModel):
 
         # 0. extract basic info and verify file integrity
         try:
-            width, height, mime_type = cls._process_image_verify(content)
+            inspection = cls._inspect_image(content)
         except Exception:
             raise ValidationError("Unrecognizable image file or file is corrupted")
 
+        # 0.5. normalize orientation
+        try:
+            normalized_io = cls._normalize_static_orientation(content, inspection)
+            content_for_cleaning = normalized_io or content
+        except ValidationError:
+            raise
+        except Exception as e:
+            logger.warning(f"Could not process image: {e}")
+            raise ValidationError("Cloud not normalize image orientation")
+
         # TODO: some photography may needs keep some EXIF
         # 1. clean metadata
+        cleaned_io: BytesIO = None
         try:
-            cleaned_io, size = cls._process_clean_metadata(content, filename)
+            cleaned_io = cls._process_clean_metadata(
+                content_for_cleaning,
+                filename,
+                pillow_cleaned=normalized_io is not None,
+            )
             del content
         except Exception as e:
             logger.warning(f"Could not process image: {e}")
             raise ValidationError("Could not clean image metadata")
+        finally:
+            # close this to reduce peak memory usage
+            if normalized_io is not None and cleaned_io is not normalized_io:
+                normalized_io.close()
 
         # 2. checksum
         checksum = cls._calculate_file_checksum(cleaned_io)
 
         # 3. write to db
-        res_meta = ImageResource.ImageResourceMeta(width, height, size, mime_type)
+        final_inspection = cls._inspect_image(cleaned_io)
+        res_meta = ImageResource.ImageResourceMeta(
+            final_inspection.width,
+            final_inspection.height,
+            cleaned_io.getbuffer().nbytes,
+            final_inspection.mime_type,
+        )
         return cls._create_from_file__write_db(
             cleaned_io=cleaned_io,
             checksum=checksum,
@@ -290,21 +336,50 @@ class Image(BaseModel):
         metadata: dict | None = None,
     ) -> tuple["Image", ImageResource, bool]:
         # 0. verify
-        width, height, mime_type = await cls._aprocess_image_verify(content)
+        try:
+            inspection = await cls._ainspect_image(content)
+        except Exception:
+            raise ValidationError("Unrecognizable image file or file is corrupted")
+
+        # 0.5. normalize orientation
+        try:
+            normalized_io = await cls._anormalize_static_orientation(
+                content, inspection
+            )
+            content_for_cleaning = normalized_io or content
+        except ValidationError:
+            raise
+        except Exception as e:
+            logger.warning(f"Could not process image: {e}")
+            raise ValidationError("Could not clean image metadata")
 
         # 1. clean EXIF data
+        cleaned_io: BytesIO = None
         try:
-            cleaned_io, size = await cls._aprocess_clean_metadata(content, filename)
+            cleaned_io = await cls._aprocess_clean_metadata(
+                content_for_cleaning,
+                filename,
+                pillow_cleaned=normalized_io is not None,
+            )
             del content
         except Exception as e:
             logger.warning(f"Could not process image (async): {e}")
             raise ValidationError("Could not clean image metadata")
+        finally:
+            if normalized_io is not None and cleaned_io is not normalized_io:
+                normalized_io.close()
 
         # 2. checksum
         checksum = await cls._acalculate_file_checksum(cleaned_io)
 
         # 3. write to db
-        res_meta = ImageResource.ImageResourceMeta(width, height, size, mime_type)
+        final_inspection = await cls._ainspect_image(cleaned_io)
+        res_meta = ImageResource.ImageResourceMeta(
+            final_inspection.width,
+            final_inspection.height,
+            cleaned_io.getbuffer().nbytes,
+            final_inspection.mime_type,
+        )
         return await cls._acreate_from_file__write_db(
             cleaned_io=cleaned_io,
             checksum=checksum,
@@ -316,56 +391,164 @@ class Image(BaseModel):
             metadata=metadata,
         )
 
-    # --- verify ---
+    # --- verify & normalize ---
 
     @staticmethod
-    def _process_image_verify(content: IO[bytes]) -> tuple[int, int, str]:
+    def _inspect_image(content: IO[bytes]) -> ImageInspection:
         content.seek(0)
-        with PILImage.open(content) as img:
-            width, height = img.size
-            mime_type = PILImage.MIME.get(img.format)
-            if mime_type not in IMAGE_ALLOWED_FORMAT:
-                raise ValidationError("Not allowed image types")
-            img.verify()
-            return width, height, mime_type
+
+        try:
+            with PILImage.open(content) as source:
+                image_format = source.format
+                mime_type = PILImage.MIME.get(image_format)
+                if image_format is None or mime_type not in IMAGE_ALLOWED_FORMAT:
+                    raise ValidationError("Not allowed image types")
+
+                orientation = source.getexif().get(ExifTags.Base.Orientation, 1)
+                if not isinstance(orientation, int) or orientation not in range(1, 9):
+                    orientation = 1
+
+                inspection = ImageInspection(
+                    image_format=image_format,
+                    mime_type=mime_type,
+                    width=source.width,
+                    height=source.height,
+                    orientation=orientation,
+                    frame_count=getattr(source, "n_frames", 1),
+                )
+
+            # verify
+            content.seek(0)
+            with PILImage.open(content) as source:
+                source.verify()
+
+            return inspection
+        # not catch it
+        finally:
+            content.seek(0)
 
     @classmethod
-    async def _aprocess_image_verify(cls, content: IO[bytes]) -> tuple[int, int, str]:
-        return await asyncio.to_thread(cls._process_image_verify, content)
+    async def _ainspect_image(cls, content: IO[bytes]) -> ImageInspection:
+        return await asyncio.to_thread(cls._inspect_image, content)
+
+    @staticmethod
+    def _normalize_static_orientation(content: IO[bytes], inspection: ImageInspection):
+        if inspection.is_animated:
+            if inspection.orientation != 1:
+                # too complex
+                raise ValidationError(
+                    "Animated images with EXIF orientation are not supported"
+                )
+            return None
+
+        if inspection.orientation == 1:
+            return None
+
+        content.seek(0)
+
+        try:
+            with PILImage.open(content) as source:
+                normalized = ImageOps.exif_transpose(source)
+                normalized_io = BytesIO()
+
+                # the options
+                save_options = {}
+                if inspection.image_format == "JPEG":
+                    save_options = {
+                        "quality": 95,
+                        "subsampling": 0,
+                    }
+                elif inspection.image_format in {"AVIF", "WEBP", "HEIF"}:
+                    save_options = {"quality": 95}
+
+                # normalized orientation
+                try:
+                    normalized.save(
+                        normalized_io,
+                        format=inspection.image_format,
+                        **save_options,
+                    )
+                except Exception:
+                    normalized_io.close()
+                    raise
+                finally:
+                    normalized.close()
+
+                normalized_io.seek(0)
+                return normalized_io
+        finally:
+            content.seek(0)
+
+    @classmethod
+    async def _anormalize_static_orientation(
+        cls, content: IO[bytes], inspection: ImageInspection
+    ):
+        return await asyncio.to_thread(
+            cls._normalize_static_orientation, content, inspection
+        )
 
     # --- clean metadata ---
 
     @staticmethod
-    def _process_clean_metadata_fallback(content: IO[bytes]) -> tuple[BytesIO, int]:
-        img = PILImage.open(content)
-        cleaned_io = BytesIO()
-        img.save(cleaned_io, quality=100, save_all=True, format=img.format)
-        size = cleaned_io.getbuffer().nbytes
-        return cleaned_io, size
+    def _process_clean_metadata_fallback(content: IO[bytes]) -> BytesIO:
+        content.seek(0)
+
+        with PILImage.open(content) as img:
+            cleaned_io = BytesIO()
+            img.save(cleaned_io, quality=100, save_all=True, format=img.format)
+
+        cleaned_io.seek(0)
+        return cleaned_io
 
     @classmethod
     def _process_clean_metadata(
-        cls, content: IO[bytes], filename
-    ) -> tuple[BytesIO, int]:
+        cls,
+        content: IO[bytes],
+        filename: str,
+        *,
+        pillow_cleaned: bool = False,
+    ) -> BytesIO:
         content.seek(0)
+
         if SyncExifTool.is_available():
             # SyncExifTool, no PIL re-encoding, more efficient
             cleaned_io = SyncExifTool().clean(content, filename=filename)
-            size = cleaned_io.getbuffer().nbytes
-            return cleaned_io, size
-        # fallback
-        return cls._process_clean_metadata_fallback(content)
+        elif pillow_cleaned:
+            # reuse pillow cleaned data
+            if not isinstance(content, BytesIO):
+                raise TypeError("Pillow-cleaned content must be BytesIO")
+            cleaned_io = content
+        else:
+            # fallback
+            cleaned_io = cls._process_clean_metadata_fallback(content)
+
+        cleaned_io.seek(0)
+        return cleaned_io
 
     @classmethod
     async def _aprocess_clean_metadata(
-        cls, content: IO[bytes], filename: str
-    ) -> tuple[BytesIO, int]:
+        cls,
+        content: IO[bytes],
+        filename: str,
+        *,
+        pillow_cleaned: bool = False,
+    ) -> BytesIO:
         content.seek(0)
+
         if await AsyncExifTool().is_available():
             cleaned_io = await AsyncExifTool().clean(content, filename)
-            size = cleaned_io.getbuffer().nbytes
-            return cleaned_io, size
-        return await asyncio.to_thread(cls._process_clean_metadata_fallback, content)
+        elif pillow_cleaned:
+            if not isinstance(content, BytesIO):
+                raise TypeError("Pillow-cleaned content must be BytesIO")
+            cleaned_io = content
+        else:
+            cleaned_io = await asyncio.to_thread(
+                cls._process_clean_metadata_fallback,
+                content,
+            )
+
+        cleaned_io.seek(0)
+        return cleaned_io
 
     # --- checksum ---
 
