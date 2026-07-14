@@ -2,6 +2,7 @@ import json
 import re
 from collections.abc import Callable
 from copy import deepcopy
+from html import unescape
 from urllib.parse import urlparse
 
 from django.utils.html import escape
@@ -81,7 +82,16 @@ HTML_ATTRIBUTES.setdefault("source", set()).update({"media", "sizes", "srcset", 
 HTML_ATTRIBUTES.setdefault("span", set()).update(
     {"data-caption", "data-domain", "style", "data-solid-island", "data-props"}
 )
-HTML_ATTRIBUTES.setdefault("div", set()).update({"data-solid-island", "data-props"})
+HTML_ATTRIBUTES.setdefault("div", set()).update(
+    {
+        "data-solid-island",
+        "data-props",
+        "aria-label",
+        # terminal
+        "data-shell",
+        "style",
+    }
+)
 HTML_ATTRIBUTES.setdefault("td", set()).update({"colspan", "rowspan"})
 HTML_ATTRIBUTES.setdefault("th", set()).update({"colspan", "rowspan"})
 HTML_ATTRIBUTES.setdefault("time", set()).add("datetime")
@@ -98,9 +108,25 @@ HTML_STYLE_PROPERTIES = {
     "top",
     "vertical-align",
     "width",
+    # terminal
+    "--terminal-prompt",
 }
 
 HTML_URL_SCHEMES = {"http", "https", "mailto", "tel"}
+
+DEFAULT_PROMPTS = {
+    "bash": "$",
+    "fish": ">",
+    "powershell": "PS>",
+    "pwsh": "PS>",
+    "sh": "$",
+    "zsh": "$",
+    "python": ">>>",
+}
+TERMINAL_SHELL_RE = re.compile(r"^[a-z0-9][a-z0-9_+-]{0,31}$")
+TERMINAL_PROMPT_RE = re.compile(r"^[\w@:/~.+#>$%?❯-]{1,16}$")
+# '❯' is the default prompt in my terminal
+TERMINAL_PROMPT_STYLE_RE = re.compile(r'^--terminal-prompt:"[\w@:/~.+#>$%?❯-]{1,16} "$')
 
 
 def inject_link_domains(html: str) -> str:
@@ -257,13 +283,67 @@ def mount_solid_directives(html: str) -> str:
     return DIRECTIVE_TAG_RE.sub(replace, html)
 
 
+def render_terminal_directives(html: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        if match.group("tag").lower() != "div":
+            return match.group(0)
+
+        # find the directive node
+        attrs = _parse_attrs(match.group("attrs"))
+        classes = set(attrs.get("class", "").split())
+        if not {"directive", "terminal"}.issubset(classes):
+            return match.group(0)
+
+        # :::terminal{shell="bash"}
+        shell = unescape(attrs.get("shell", "bash")).strip().lower()
+        if not TERMINAL_SHELL_RE.fullmatch(shell):
+            shell = "bash"
+
+        # :::terminal{prompt="$"}
+        default_prompt = DEFAULT_PROMPTS.get(shell, "$")
+        prompt = unescape(attrs.get("prompt", default_prompt)).strip()
+        if not TERMINAL_PROMPT_RE.fullmatch(prompt):
+            prompt = default_prompt
+
+        # :::terminal{title="Terminal"}
+        title = unescape(attrs.get("title", "Terminal"))
+        title = " ".join(title.splitlines()).strip()[:100] or "Terminal"
+        wrapper_attrs = _render_attrs(
+            {
+                "class": "terminal",
+                "data-shell": shell,
+                "role": "group",
+                "aria-label": title,
+                "style": f'--terminal-prompt:"{prompt} "',
+            }
+        )
+        return (
+            f"<div {wrapper_attrs}>"
+            f'<div class="terminal-title" aria-hidden="true">{escape(title)}</div>'
+        )
+
+    return DIRECTIVE_TAG_RE.sub(replace, html)
+
+
+def filter_html_attribute(tag: str, attr: str, value: str) -> str | None:
+    if tag == "div" and attr == "style":
+        if not TERMINAL_PROMPT_STYLE_RE.fullmatch(value):
+            return None
+    return value
+
+
 def sanitize_html(html: str) -> str:
     return nh3.clean(
         html,
         tags=HTML_TAGS,
         clean_content_tags={"script", "style"},
         attributes=HTML_ATTRIBUTES,
-        tag_attribute_values={"input": {"type": {"checkbox"}}},
+        attribute_filter=filter_html_attribute,
+        tag_attribute_values={
+            "input": {"type": {"checkbox"}},
+            # terminal
+            "div": {"role": {"group"}},
+        },
         set_tag_attribute_values={"input": {"disabled": ""}},
         filter_style_properties=HTML_STYLE_PROPERTIES,
         url_schemes=HTML_URL_SCHEMES,
@@ -275,6 +355,7 @@ POST_PROCESSORS: tuple[HtmlPostProcessor, ...] = (
     optimize_images,
     wrap_images,
     add_pre_language_attributes,
+    render_terminal_directives,
     mount_solid_directives,
     sanitize_html,
 )

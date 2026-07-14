@@ -431,6 +431,7 @@ class Image(BaseModel):
     async def _ainspect_image(cls, content: IO[bytes]) -> ImageInspection:
         return await asyncio.to_thread(cls._inspect_image, content)
 
+    # REFAC: tooooooo many indent
     @staticmethod
     def _normalize_static_orientation(content: IO[bytes], inspection: ImageInspection):
         if inspection.is_animated:

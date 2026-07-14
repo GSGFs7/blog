@@ -133,6 +133,82 @@ class TestMarkdownPostProcess(SimpleTestCase):
 
         self.assertIn('data-solid-island="PythonREPL"', html)
 
+    def test_terminal_directive_is_rendered(self):
+        markdown_text = """
+:::terminal{title="数据库迁移" shell="bash" prompt="$"}
+```command
+uv run manage.py migrate
+```
+
+```output
+No migrations to apply.
+```
+
+```error
+warning
+```
+:::
+"""
+        html = self.md.render(markdown_text)
+
+        self.assertIn('class="terminal"', html)
+        self.assertIn('data-shell="bash"', html)
+        self.assertIn('role="group"', html)
+        self.assertIn('aria-label="数据库迁移"', html)
+        self.assertIn('style="--terminal-prompt:&quot;$ &quot;"', html)
+        self.assertIn('class="terminal-title"', html)
+        self.assertIn('data-language="command"', html)
+        self.assertIn('data-language="output"', html)
+        self.assertIn('data-language="error"', html)
+        self.assertNotIn('class="directive terminal"', html)
+        self.assertNotIn("data-solid-island", html)
+
+    def test_terminal_invalid_metadata_uses_defaults(self):
+        markdown_text = """
+:::terminal{shell="invalid shell" prompt="x; color: red"}
+```command
+echo hello
+```
+:::
+"""
+        html = self.md.render(markdown_text)
+
+        self.assertIn('data-shell="bash"', html)
+        self.assertIn('style="--terminal-prompt:&quot;$ &quot;"', html)
+        self.assertNotIn("color: red", html)
+
+    def test_terminal_shell_commands_are_highlighted(self):
+        markdown_text = """
+:::terminal{title="Base64" shell="zsh" prompt="❯"}
+```zsh
+echo "hello" | base64
+```
+
+```output
+aGVsbG8K
+```
+:::
+"""
+        html = self.md.render(markdown_text)
+
+        self.assertIn('data-shell="zsh"', html)
+        self.assertIn('style="--terminal-prompt:&quot;❯ &quot;"', html)
+        self.assertIn('data-language="zsh"', html)
+        self.assertRegex(
+            html,
+            r'class="[^"]*syntect-function[^"]*">echo</span>',
+        )
+        self.assertRegex(
+            html,
+            r'class="[^"]*syntect-function[^"]*">base64</span>',
+        )
+
+    def test_non_terminal_div_style_is_removed(self):
+        html = self.md.render('<div style="width: 100%">content</div>')
+
+        self.assertIn("<div>content</div>", html)
+        self.assertNotIn("style=", html)
+
 
 @override_settings(MEDIA_URL="/media/")
 class TestMarkdownImageOptimization(TestCase):

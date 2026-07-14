@@ -28,6 +28,7 @@
   --syn-constant: #0550ae;
   --syn-variable: #953800;
   --syn-punctuation: #1f2328;
+  --terminal-command: #1a7f37;
 
   color-scheme: light dark;
   text-size-adjust: 100%;
@@ -70,6 +71,7 @@
   --syn-constant: #79c0ff;
   --syn-variable: #ffa657;
   --syn-punctuation: #d1d7dd;
+  --terminal-command: #3fb950;
 }
 
 .markdown-body > * {
@@ -677,4 +679,75 @@
   color: var(--md-blockquote-fg);
   text-decoration: line-through;
   text-decoration-color: var(--md-border);
+}
+
+/* terminal */
+.markdown-body .terminal {
+  overflow: hidden;
+  margin-block: 1em;
+  border: 1px solid var(--md-border);
+  border-radius: 8px;
+  background: var(--md-pre-bg);
+}
+
+.markdown-body .terminal-title {
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--md-border);
+  color: var(--syn-comment);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.markdown-body .terminal pre {
+  padding: 0.3rem 1rem;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.markdown-body .terminal pre:first-of-type {
+  padding-top: 1rem;
+}
+
+.markdown-body .terminal pre:last-of-type {
+  padding-bottom: 1rem;
+}
+
+.markdown-body.is-decorated .terminal pre::before,
+.markdown-body.is-decorated .terminal pre::after {
+  display: none;
+  content: none;
+  margin: 0;
+}
+
+.markdown-body.is-decorated
+  .terminal
+  pre:is(
+    [data-language="command"],
+    [data-language="bash"],
+    [data-language="sh"],
+    [data-language="zsh"],
+    [data-language="fish"]
+  )::before {
+  display: inline;
+  content: var(--terminal-prompt, "$ ");
+  color: var(--syn-variable);
+  opacity: 1;
+}
+
+.markdown-body
+  .terminal
+  pre:is(
+    [data-language="bash"],
+    [data-language="sh"],
+    [data-language="zsh"],
+    [data-language="fish"]
+  )
+  .syntect-meta.syntect-function-call
+  > .syntect-function {
+  color: var(--terminal-command);
+}
+
+.markdown-body .terminal pre[data-language="error"] {
+  color: #f87171;
 }
