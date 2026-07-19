@@ -751,3 +751,82 @@
 .markdown-body .terminal pre[data-language="error"] {
   color: #f87171;
 }
+
+/* Code expansion */
+.markdown-body .code-expander {
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 1em;
+  border-radius: 6px;
+  background: var(--md-pre-bg);
+}
+
+.markdown-body .code-expander--terminal {
+  border: 1px solid var(--md-border);
+  border-radius: 8px;
+}
+
+.markdown-body .code-expander__viewport {
+  position: relative;
+}
+
+.markdown-body .code-expander.is-collapsed .code-expander__viewport {
+  overflow: hidden;
+  /* this set by js */
+  max-height: var(--code-preview-height);
+}
+
+.markdown-body .code-expander.is-collapsed .code-expander__viewport::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2.5rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--md-pre-bg));
+}
+
+.markdown-body .code-expander__viewport > pre,
+.markdown-body .code-expander__viewport > .terminal {
+  margin: 0;
+  border-radius: 0;
+}
+
+.markdown-body .code-expander__viewport > .terminal {
+  border: 0;
+}
+
+.markdown-body .code-expander__toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-top: 1px solid var(--md-border);
+  color: var(--md-link);
+  background: var(--md-pre-bg);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.markdown-body .code-expander__toggle::after {
+  content: "↑";
+}
+
+.markdown-body .code-expander.is-collapsed .code-expander__toggle::after {
+  content: "↓";
+}
+
+.markdown-body .code-expander__toggle:hover {
+  background: var(--md-code-bg);
+}
+
+.markdown-body .code-expander__toggle:focus-visible {
+  outline: 2px solid var(--md-link);
+  outline-offset: -2px;
+}
