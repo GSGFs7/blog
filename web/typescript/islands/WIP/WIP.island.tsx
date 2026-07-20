@@ -45,12 +45,12 @@ export function WIP(props: Readonly<Props>) {
 
   onMount(() => {
     if (typeof props.title === "string") {
-      setTitle(title());
+      setTitle(props.title);
     } else {
       setTitle("施工中");
     }
     if (typeof props.message === "string") {
-      setMessage(message());
+      setMessage(props.message);
     } else {
       setMessage("正在努力创建新文件夹");
     }
