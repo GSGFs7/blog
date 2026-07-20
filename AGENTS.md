@@ -25,11 +25,6 @@ ruff check --fix && ruff format .       # Lint and format
 - `web/`: Frontend, powered by django template & HTMX & solid.js
 - `scripts/`: Deployment, backup/restore, model download, embedding regeneration, and env/build helpers.
 
-## Frontend Expectations
-
-- **Progressive Enhancement**: Ensure the main body/core content of pages is fully accessible and readable without JavaScript.
-- **No-JS Baseline**: Page reading and basic navigation must remain functional in no-JS environments. Non-essential interactive features (such as comments, rich widgets, etc.) are not required to work without JavaScript.
-
 ## Documentation & Comments
 
 - **Minimize Comments**: Write self-documenting code. Avoid adding new comments unless the logic is extremely complex.

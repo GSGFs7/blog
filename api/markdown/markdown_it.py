@@ -7,6 +7,9 @@ from .post_processors import post_process_html
 from .utils import extract_toc, parse_frontmatter
 
 
+# REFAC: to rust native impl
+#        add a custom rust crate process markdown
+#        move all of postprocess to native
 class Markdown:
     # rust render engine instance cache (it useless i think)
     _mds: dict[tuple, MarkdownIt] = {}
