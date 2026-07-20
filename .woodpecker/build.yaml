@@ -37,8 +37,8 @@ steps:
       HUGGINGFACE_HUB_TOKEN:
         from_secret: HUGGINGFACE_HUB_TOKEN
       REGISTRY_RETAIN_COMMITS: "2"
-      REGISTRY_CLEANUP_ENABLED: "true"   # needs registry cleanup?
-      REGISTRY_CLEANUP_REQUIRED: "true"  # interrupt CI when cleanup failed?
+      REGISTRY_CLEANUP_ENABLED: "true" # needs registry cleanup?
+      REGISTRY_CLEANUP_REQUIRED: "true" # interrupt CI when cleanup failed?
       STORAGE_DRIVER: overlay
     commands:
       - |

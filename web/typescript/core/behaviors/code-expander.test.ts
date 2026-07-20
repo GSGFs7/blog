@@ -73,9 +73,7 @@ test("collapses a terminal as one unit", () => {
 
   expect(document.querySelectorAll(".code-expander")).toHaveLength(1);
   expect(document.querySelector(".code-expander")).toHaveClass("code-expander--terminal");
-  expect(document.querySelector(".code-expander__toggle")).toHaveTextContent(
-    "expand (15 lines)",
-  );
+  expect(document.querySelector(".code-expander__toggle")).toHaveTextContent("expand (15 lines)");
 });
 
 test("mounts htmx content once and teardown restores the original markup", () => {

@@ -106,6 +106,12 @@ _static_src = "https://static.gsgfs.moe"
 _img_src = "https://img.gsgfs.moe"
 _vite_src = "http://localhost:5173"
 _vite_ws_src = "ws://localhost:5173"
+IMAGE_PICTURE_URL_PREFIXES = {
+    f"{_img_src}/images/raw/": {
+        "avif": f"{_img_src}/images/avif/",
+        "webp": f"{_img_src}/images/webp/",
+    }
+}
 CSP_POLICY = {
     "default-src": [CSP.SELF, _img_src],  # prefetch imgs
     "base-uri": [CSP.NONE],
@@ -341,6 +347,7 @@ def _storage_backend():
 
 
 IMAGE_UPLOAD_MAX_SIZE = 20971520  # 20MiB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20971520  # 20MiB
 
 STORAGES = {
     "staticfiles": {

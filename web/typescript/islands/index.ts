@@ -7,4 +7,5 @@ export const COMPONENTS: Record<string, () => Promise<SolidComponent<ComponentPr
   Counter: async () => (await import("./Counter")).default,
   PythonREPL: async () => (await import("./PythonREPL")).default,
   Chart: async () => (await import("./Chart")).default,
+  WIP: async () => (await import("./WIP")).default,
 } as const;

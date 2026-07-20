@@ -15,5 +15,9 @@
       }
     }
   ],
-  "ignorePatterns": ["**/templates/**/*.html", "web/static/*"]
+  "ignorePatterns": [
+    "**/templates/**/*.html",
+    "web/static/*",
+    ".config/k8s/overlays/prod/kustomization.yaml"
+  ]
 }

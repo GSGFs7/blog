@@ -119,6 +119,26 @@ def about(request: HttpRequest):
     return render(request, "web/pages/about.html")
 
 
+@require_GET
+def entertainment(request: HttpRequest):
+    return render(request, "web/pages/entertainment.html")
+
+
+@require_GET
+def login(request: HttpRequest):
+    return render(request, "web/pages/login.html")
+
+
+@require_GET
+def user(request: HttpRequest):
+    return render(request, "web/pages/user.html")
+
+
+@require_GET
+def privacy(request: HttpRequest):
+    return render(request, "web/pages/privacy.html")
+
+
 # nginx will process this in prod
 @require_GET
 def favicon(request: HttpRequest):

@@ -1,5 +1,7 @@
 {% extends "web/layout/base.html" %}
 
+{% load media_tags %}
+
 {% block title %}Home{% endblock %}
 
 {% block extra_head %}
@@ -80,27 +82,7 @@
 
     {# Right #}
     <div class="relative mt-16 md:mt-16 items-center flex h-fit flex-5 flex-col px-8">
-      <picture
-        class="block w-full aspect-square overflow-hidden rounded-lg shadow-lg transition-all hover:scale-105 bg-neutral-100 dark:bg-neutral-800"
-        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-      >
-        <source
-          srcset="https://img.gsgfs.moe/images/avif/6a/d5/6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.avif"
-          type="image/avif"
-        >
-        <source
-          srcset="https://img.gsgfs.moe/images/webp/6a/d5/6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.webp"
-          type="image/webp"
-        >
-        <img
-          alt="asumi"
-          class="block h-full w-full object-cover"
-          src="https://img.gsgfs.moe/images/raw/6a/d5/6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.webp"
-          decoding="async"
-          loading="eager"
-          fetchpriority="high"
-        >
-      </picture>
+      {% render_image "https://img.gsgfs.moe/images/raw/6a/d5/6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.webp" alt="asumi" class_name="block w-full aspect-square overflow-hidden rounded-lg shadow-lg transition-all hover:scale-105 bg-neutral-100 dark:bg-neutral-800" img_class="block h-full w-full object-cover" loading="eager" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" fetch_priority="high" %}
 
       <details class="relative mt-4 w-full min-h-8">
         <summary

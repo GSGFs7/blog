@@ -53,6 +53,29 @@ class MediaTagsTestCase(TestCase):
         self.assertIn('class="cls"', result)
         self.assertIn('loading="lazy"', result)
 
+    @override_settings(
+        IMAGE_PICTURE_URL_PREFIXES={
+            "https://uploads.example.test/raw/": {
+                "avif": "https://uploads.example.test/avif/",
+                "webp": "https://uploads.example.test/webp/",
+            }
+        }
+    )
+    def test_render_image_url_string_with_known_variants(self):
+        url = "https://uploads.example.test/raw/a1/b2/image.jpeg"
+
+        result = render_image(url, alt="Alt", class_name="picture", img_class="image")
+
+        self.assertIn('<picture class="picture">', result)
+        self.assertIn(
+            'srcset="https://uploads.example.test/avif/a1/b2/image.avif"', result
+        )
+        self.assertIn(
+            'srcset="https://uploads.example.test/webp/a1/b2/image.webp"', result
+        )
+        self.assertIn(f'src="{url}"', result)
+        self.assertIn('class="image"', result)
+
     def test_render_image_resource(self):
         result = render_image(self.resource, class_name="picture-cls")
         self.assertIn("<picture", result)

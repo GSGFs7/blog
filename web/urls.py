@@ -19,6 +19,9 @@ urlpatterns = [
     path("blog/<str:post_slug>", views.blog_post_slug, name="blog_post_slug"),
     path("about", views.about, name="about"),
     path("favicon.ico", views.favicon, name="favicon"),
+    path("entertainment", views.entertainment, name="entertainment"),
+    path("login", view=views.login, name="login"),
+    path("user", view=views.user, name="user"),
     path(
         "sitemap.xml",
         sitemap,

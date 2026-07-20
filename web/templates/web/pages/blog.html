@@ -81,7 +81,7 @@
         </div>
 
         {# post list #}
-        <div class="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2 sm:gap-10 sm:pt-6">
+        <div class="grid w-full grid-cols-1 gap-4 pt-2 sm:grid-cols-2 sm:gap-10 sm:pt-6">
           {% for post in post_list %}
             {% include "web/partials/blog/post_list_item.html" with post=post only %}
           {% endfor %}
