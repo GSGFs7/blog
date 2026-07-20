@@ -32,7 +32,7 @@ class MediaSignalsTest(TestCase):
             patch("media_service.signals.transaction.on_commit") as on_commit,
             patch("media_service.signals.process_image.delay") as delay,
         ):
-            on_commit.side_effect = lambda callback: callback()
+            on_commit.side_effect = lambda callback, **kwargs: callback()
             file, size = self.build_image_resource_content()
 
             ImageResource.objects.create(

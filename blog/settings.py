@@ -264,6 +264,17 @@ CACHES = {
         },
         "KEY_PREFIX": "django",  # eg. django:1:health_check
     },
+    # this alias ignore exceptions
+    "image_metadata": {
+        "BACKEND": "django_prometheus.cache.backends.redis.RedisCache",
+        "LOCATION": _redis_url,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {"max_connections": 100},
+            "IGNORE_EXCEPTIONS": True,
+        },
+        "KEY_PREFIX": "image-metadata",
+    },
 }
 
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"  # 设置session使用缓存

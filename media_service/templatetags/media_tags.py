@@ -4,11 +4,26 @@ from urllib.parse import urlsplit
 
 from django import template
 from django.conf import settings
+from django.forms.utils import flatatt
 from django.utils.html import format_html, format_html_join
 
+from media_service.image_cache import (
+    ImageRenderMetadata,
+    build_image_render_metadata,
+    get_image_render_metadata,
+)
 from media_service.models import Image, ImageResource
 
 register = template.Library()
+
+
+def _render_img_attributes(style: str, data_attributes: dict[str, object]):
+    attributes = {
+        name.replace("_", "-"): value for name, value in data_attributes.items()
+    }
+    if style:
+        attributes["style"] = style
+    return flatatt(attributes)
 
 
 # make sure the URL prefix has img variant
@@ -20,6 +35,8 @@ def _render_known_variant_image(
     loading: str,
     sizes: str,
     fetch_priority: str,
+    style: str,
+    data_attributes: dict[str, object],
 ):
     for source_prefix, variant_prefixes in getattr(
         settings, "IMAGE_PICTURE_URL_PREFIXES", {}
@@ -36,11 +53,12 @@ def _render_known_variant_image(
         if not stem or not extension or not avif_prefix or not webp_prefix:
             return None
 
+        img_attributes = _render_img_attributes(style, data_attributes)
         return format_html(
             '<picture class="{}"><source srcset="{}/{}.avif" type="image/avif">'
             '<source srcset="{}/{}.webp" type="image/webp"><img src="{}" '
             'alt="{}" class="{}" loading="{}" decoding="async" sizes="{}" '
-            'fetchpriority="{}"></picture>',
+            'fetchpriority="{}"{}></picture>',
             class_name,
             avif_prefix.rstrip("/"),
             stem,
@@ -52,6 +70,7 @@ def _render_known_variant_image(
             loading,
             sizes,
             fetch_priority,
+            img_attributes,
         )
 
     return None
@@ -66,26 +85,37 @@ def render_image(
     loading: str = "lazy",
     sizes: str = "100vw",
     fetch_priority: str = "auto",
+    style: str = "",
+    **data_attributes: object,
 ):
+    unexpected_attributes = [
+        name for name in data_attributes if not re.fullmatch(r"data_[a-z0-9_]+", name)
+    ]
+    if unexpected_attributes:
+        unexpected = ", ".join(sorted(unexpected_attributes))
+        raise TypeError(
+            f"render_image() got unexpected keyword arguments: {unexpected}"
+        )
+
     if not image_input:
         return ""
 
     # find image resource
-    resource: ImageResource | None = None
+    metadata: ImageRenderMetadata | None = None
     alt_text = alt
     if isinstance(image_input, Image):
-        resource = image_input.resource
+        metadata = build_image_render_metadata(image_input.resource)
         alt_text = alt or image_input.alt_text
     elif isinstance(image_input, ImageResource):
-        resource = image_input
+        metadata = build_image_render_metadata(image_input)
     elif isinstance(image_input, str):
         match = re.search(r"([a-f0-9]{64})", image_input)
         if match:
             checksum = match.group(1)
-            resource = ImageResource.objects.filter(checksum=checksum).first()
+            metadata = get_image_render_metadata(checksum)
 
     # if not found
-    if not resource:
+    if not metadata:
         src = image_input if isinstance(image_input, str) else ""
         if not src:
             return ""
@@ -99,20 +129,24 @@ def render_image(
             loading,
             sizes,
             fetch_priority,
+            style,
+            data_attributes,
         ):
             return picture
+        img_attributes = _render_img_attributes(style, data_attributes)
         return format_html(
-            '<img src="{}" alt="{}" class="{}" loading="{}" fetchpriority="{}">',
+            '<img src="{}" alt="{}" class="{}" loading="{}" fetchpriority="{}"{}>',
             src,
             alt,
             img_class or class_name,
             loading,
             fetch_priority,
+            img_attributes,
         )
 
     # picture source
     sources = []
-    responsive_srcsets = resource.responsive_srcsets()
+    responsive_srcsets = metadata["responsive_srcsets"]
 
     # avif source
     avif_srcset = responsive_srcsets.get("avif")
@@ -124,9 +158,9 @@ def render_image(
                 sizes,
             )
         )
-    elif resource.avif_file:
+    elif metadata["avif_url"]:
         sources.append(
-            format_html('<source srcset="{}" type="image/avif">', resource.avif_url)
+            format_html('<source srcset="{}" type="image/avif">', metadata["avif_url"])
         )
 
     # webp source
@@ -139,34 +173,38 @@ def render_image(
                 sizes,
             )
         )
-    elif resource.webp_file:
+    elif metadata["webp_url"]:
         sources.append(
-            format_html('<source srcset="{}" type="image/webp">', resource.webp_url)
+            format_html('<source srcset="{}" type="image/webp">', metadata["webp_url"])
         )
 
     # build styles
-    style = ""
-    if resource.placeholder:
-        style = (
-            f"background-image: url({resource.placeholder}); background-size: cover;"
+    style_value = ""
+    if metadata["placeholder"]:
+        style_value = (
+            f"background-image: url({metadata['placeholder']}); background-size: cover;"
         )
+    if style:
+        style_value = f"{style_value} {style}" if style_value else style
 
     dimensions = ""
-    if resource.width and resource.height:
+    if metadata["width"] and metadata["height"]:
         dimensions = format_html(
-            ' width="{}" height="{}"', resource.width, resource.height
+            ' width="{}" height="{}"', metadata["width"], metadata["height"]
         )
+
+    img_attributes = _render_img_attributes(style_value, data_attributes)
 
     # render <picture>
     source_html = format_html_join("", "{}", ((source,) for source in sources))
     return format_html(
-        '<picture class="{}">{}<img src="{}" alt="{}" style="{}" class="{}" '
+        '<picture class="{}">{}<img src="{}" alt="{}"{} class="{}" '
         'loading="{}" decoding="async" sizes="{}" fetchpriority="{}"{}></picture>',
         class_name,
         source_html,
-        resource.file.url,
+        metadata["file_url"],
         alt_text,
-        style,
+        img_attributes,
         img_class,
         loading,
         sizes,
@@ -188,8 +226,8 @@ def to_thumbnail(image_input: Image | ImageResource | str | None):
         match = re.search("([a-f0-9]{64})", image_input)
         if match:
             checksum = match.group(1)
-            resource = ImageResource.objects.filter(checksum=checksum).first()
-            if resource:
-                return resource.thumbnail_url or resource.file.url
+            metadata = get_image_render_metadata(checksum)
+            if metadata:
+                return metadata["thumbnail_url"] or metadata["file_url"]
         return image_input
     return ""

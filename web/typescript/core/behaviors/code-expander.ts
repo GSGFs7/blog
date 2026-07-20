@@ -13,11 +13,11 @@ interface MountedExpander {
   wrapper: HTMLDivElement;
 }
 
-// REFAC: pool performance
-//  in "300+lines code block * 7" real browser tests
+// REFAC: poor performance
+//  in "300+ lines code block * 7" real browser tests
 //  it take 117ms:
-//    UpdateLayoutTree * 6. total 69ms
-//    Layout * 6. total 48ms
+//    UpdateLayoutTree * 6; total 69ms
+//    Layout * 6; total 48ms
 export function createCodeExpanderBehavior(): Behavior {
   const mounted = new WeakSet<HTMLElement>();
   const expanders = new Set<MountedExpander>();

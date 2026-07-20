@@ -53,6 +53,30 @@ class MediaTagsTestCase(TestCase):
         self.assertIn('class="cls"', result)
         self.assertIn('loading="lazy"', result)
 
+    def test_render_image_rejects_unknown_kwargs(self):
+        with self.assertRaisesRegex(TypeError, "unknown"):
+            render_image("/media/test.jpg", unknown="value")
+
+    def test_render_image_escapes_style_and_data_attribute_values(self):
+        template = Template(
+            "{% load media_tags %}"
+            "{% render_image image style=style data_testid=testid %}"
+        )
+        result = template.render(
+            Context(
+                {
+                    "image": "/media/test.jpg",
+                    "style": 'object-fit: cover;" onerror="alert(1)',
+                    "testid": 'hero" onload="alert(1)',
+                }
+            )
+        )
+
+        self.assertIn('style="object-fit: cover;&quot; onerror=&quot;alert(1)"', result)
+        self.assertIn('data-testid="hero&quot; onload=&quot;alert(1)"', result)
+        self.assertNotIn(' onerror="alert(1)"', result)
+        self.assertNotIn(' onload="alert(1)"', result)
+
     @override_settings(
         IMAGE_PICTURE_URL_PREFIXES={
             "https://uploads.example.test/raw/": {
@@ -64,7 +88,16 @@ class MediaTagsTestCase(TestCase):
     def test_render_image_url_string_with_known_variants(self):
         url = "https://uploads.example.test/raw/a1/b2/image.jpeg"
 
-        result = render_image(url, alt="Alt", class_name="picture", img_class="image")
+        result = render_image(
+            url,
+            alt="Alt",
+            class_name="picture",
+            img_class="image",
+            sizes="50vw",
+            fetch_priority="high",
+            style="object-fit: cover;",
+            data_testid="hero",
+        )
 
         self.assertIn('<picture class="picture">', result)
         self.assertIn(
@@ -75,6 +108,10 @@ class MediaTagsTestCase(TestCase):
         )
         self.assertIn(f'src="{url}"', result)
         self.assertIn('class="image"', result)
+        self.assertIn('sizes="50vw"', result)
+        self.assertIn('fetchpriority="high"', result)
+        self.assertIn('style="object-fit: cover;"', result)
+        self.assertIn('data-testid="hero"', result)
 
     def test_render_image_resource(self):
         result = render_image(self.resource, class_name="picture-cls")
@@ -171,8 +208,12 @@ class MediaTagsTestCase(TestCase):
         self.assertEqual(to_thumbnail(self.resource.checksum), self.resource.file.url)
 
     def test_template_integration(self):
-        template = Template('{% load media_tags %}{% render_image res alt="Alt" %}')
+        template = Template(
+            '{% load media_tags %}{% render_image res alt="Alt" '
+            "data_blog_header_image=True %}"
+        )
         context = Context({"res": self.resource})
         rendered = template.render(context)
         self.assertIn("<picture", rendered)
         self.assertIn('src="', rendered)
+        self.assertIn("data-blog-header-image", rendered)
