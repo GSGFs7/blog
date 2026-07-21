@@ -9,7 +9,8 @@ class SubprocessRunner(Runner):
     def __init__(self, cwd: str | Path):
         self.cwd = cwd
 
-    def log_command(self, args: list[str]):
+    @staticmethod
+    def log_command(args: list[str]):
         cmd_str = " ".join(args)
         if sys.stdout.isatty():
             print(f"\033[36m$ {cmd_str}\033[0m", flush=True)

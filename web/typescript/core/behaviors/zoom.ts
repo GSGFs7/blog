@@ -128,7 +128,7 @@ export function createZoomBehavior(): Behavior {
   };
 
   const ensureOverlay = () => {
-    if (!context || overlay) {
+    if (!context || (overlay && context.document.contains(overlay))) {
       return;
     }
 

@@ -69,6 +69,29 @@ test("mounts swapped images once", () => {
   expect(document.getElementById("zoom-overlay")).toHaveClass("is-visible");
 });
 
+test("recreates the overlay after htmx page navigation", () => {
+  document.body.innerHTML = '<article class="markdown-body"><img alt="first"></article>';
+  teardown = setupBehaviors();
+  const initialOverlay = document.getElementById("zoom-overlay");
+
+  document.body.innerHTML = '<article class="markdown-body"><img alt="second"></article>';
+  const image = document.querySelector("img")!;
+  prepareImage(image);
+  document.body.dispatchEvent(
+    new CustomEvent("htmx:load", {
+      bubbles: true,
+      detail: { elt: document.body },
+    }),
+  );
+
+  const replacementOverlay = document.getElementById("zoom-overlay");
+  expect(initialOverlay).not.toBeInTheDocument();
+  expect(replacementOverlay).not.toBe(initialOverlay);
+
+  fireEvent.click(image);
+  expect(replacementOverlay).toHaveClass("is-visible");
+});
+
 test("teardown restores the zoomed image and removes the overlay", () => {
   document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
   const image = document.querySelector("img")!;
