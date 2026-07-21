@@ -41,7 +41,7 @@
 }
 
 @media (max-width: 767px) {
-  /* 18px may too large too mobile device */
+  /* 18px may too large to mobile device */
   .markdown-body {
     --md-font-size: 16px;
   }

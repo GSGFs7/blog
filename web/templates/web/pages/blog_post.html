@@ -11,10 +11,43 @@
   <link rel="alternate" type="text/markdown" href="{{ SITE_CANONICAL }}{% url 'blog_post_markdown' slug %}">
 {% endblock %}
 
+{% block seo_head %}
+  <meta name="description" content="{{ meta_description }}">
+  {% if keywords %}<meta name="keywords" content="{{ keywords }}">{% endif %}
+  <meta property="og:site_name" content="{{ SITE_TITLE }}">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{{ title }}">
+  <meta property="og:description" content="{{ meta_description }}">
+  <meta property="og:url" content="{{ SITE_CANONICAL }}{% url 'blog_post_slug' slug %}">
+  <meta property="og:locale" content="zh_CN">
+  {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
+  {% if published_at %}<meta property="article:published_time" content="{{ published_at|date:'c' }}">{% endif %}
+  {% if content_update_at %}<meta property="article:modified_time" content="{{ content_update_at|date:'c' }}">{% endif %}
+  {% if tag_names %}{% for tag in tag_names %}<meta property="article:tag" content="{{ tag }}">{% endfor %}{% endif %}
+  <meta name="twitter:card" content="{% if og_image %}summary_large_image{% else %}summary{% endif %}">
+  <meta name="twitter:title" content="{{ title }}">
+  <meta name="twitter:description" content="{{ meta_description }}">
+  {% if og_image %}<meta name="twitter:image" content="{{ og_image }}">{% endif %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "{{ title }}",
+    "description": "{{ meta_description }}",
+    "url": "{{ SITE_CANONICAL }}{% url 'blog_post_slug' slug %}",
+    "author": { "@type": "Person", "name": "{{ SITE_AUTHOR }}" }{% if og_image %},
+    "image": "{{ og_image }}"{% endif %}{% if published_at %},
+    "datePublished": "{{ published_at|date:'c' }}"{% endif %}{% if content_update_at %},
+    "dateModified": "{{ content_update_at|date:'c' }}"{% endif %}
+  }
+  </script>
+{% endblock %}
+
 {% block content %}
   {% with current_layout=layout|default:'article' %}
     <article
-      class="markdown-body markdown-body--{{ current_layout }}{% if current_layout == 'article' %} is-decorated{% endif %} mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 md:p-8"
+      class="markdown-body markdown-body--{{ current_layout }}{% if current_layout == 'article' %} is-decorated{% endif %} mx-auto rounded-xl max-w-5xl backdrop-blur-lg md:border-2 md:border-gray-500/50 p-4 md:p-8"
+      {% if current_layout == 'article' %}data-mobile-undecorated{% endif %}
     >
       {{ content_html|safe }}
     </article>

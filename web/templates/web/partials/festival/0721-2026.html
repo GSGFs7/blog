@@ -1,0 +1,79 @@
+{% load static media_tags %}
+
+<div
+  class="flex max-w-5xl h-full min-h-[min(300px,40vh)] w-full flex-col md:translate-y-[10%] md:flex-row lg:translate-y-[20%] xl:translate-y-[30%] mx-auto"
+>
+  {# Left #}
+  <div
+    class="h-fit flex-8"
+  >
+    <div class="flex max-w-xl flex-col justify-center gap-y-6 text-left dark:text-[#dadada] sm:pt-20 px-8">
+      <h1 class="text-6xl drop-shadow-lg sm:text-8xl">Cia!</h1>
+      <h2 class="inline-block text-5xl drop-shadow-lg sm:text-7xl">
+        Ciallo
+        <span
+          class="inline-block bg-linear-to-b dark:from-blue-400 dark:to-[#0072F5] bg-clip-text text-4xl text-transparent sm:text-6xl"
+        >
+          ～(∠・ω< )⌒★
+        </span>
+      </h2>
+      <h2 class="text-3xl drop-shadow-lg sm:mt-4 sm:text-5xl">
+        Ciallo～(∠・ω< )⌒★
+      </h2>
+
+      {# buttons #}
+      <div class="flex gap-3">
+        <a
+          aria-label="访问 osu! 主页"
+          class="flex w-fit cursor-pointer items-center gap-2 rounded-full border dark:border-black/20 dark:bg-[#f0f0f0e6] p-2 transition outline-none hover:scale-105 hover:dark:bg-[#c0c0c0] focus:scale-105 active:scale-105"
+          rel="noopener noreferrer"
+          href="https://osu.ppy.sh/users/36335512"
+          target="_blank"
+        >
+          <img width="32" height="32" alt="osu! icon" type="image/svg" src="{% static 'osu.svg' %}">
+        </a>
+        <a
+          aria-label="访问 Codeberg 主页"
+          class="flex w-fit cursor-pointer items-center gap-2 rounded-full border dark:border-black/20 dark:bg-[#f0f0f0e6] p-2 transition outline-none hover:scale-105 hover:dark:bg-[#c0c0c0] focus:scale-105 active:scale-105"
+          rel="noopener noreferrer"
+          href="https://codeberg.org/GSGFs7"
+          target="_blank"
+        >
+          <img width="32" height="32" alt="Codeberg icon" type="image/svg" src="{% static 'codebreg.svg' %}">
+        </a>
+        <a
+          aria-label="查看 GPG 公钥"
+          class="flex w-fit cursor-pointer items-center gap-2 rounded-full border dark:border-black/20 dark:bg-[#f0f0f0e6] p-2 transition outline-none hover:scale-105 hover:dark:bg-[#c0c0c0] focus:scale-105 active:scale-105"
+          rel="noopener noreferrer"
+          href="{% static 'gpg.asc' %}"
+          target="_blank"
+        >
+          <img width="32" height="32" alt="fingerprint icon" type="image/svg" src="{% static 'fingerprint-fill.svg' %}">
+        </a>
+      </div>
+    </div>
+  </div>
+
+  {# Right #}
+  <div class="relative mt-16 md:mt-16 items-center flex h-fit flex-5 flex-col px-8">
+    {% render_image "https://img.gsgfs.moe/images/raw/f1/34/f1346b9e4cb2ac4bfb5c1a342f30882e028505ade2f884361330dc47ab544a59.jpg" alt="asumi" class_name="block w-full aspect-square overflow-hidden rounded-lg shadow-lg transition-all hover:scale-105 bg-neutral-100 dark:bg-neutral-800" img_class="block h-full w-full object-cover" loading="eager" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" fetch_priority="high" %}
+
+    <details class="relative mt-4 w-full min-h-8">
+      <summary
+        aria-label="显示/隐藏图片信息"
+        class="ml-auto flex h-5 w-5 shrink-0 cursor-pointer list-none items-center justify-center dark:text-[#cccccc] transition-colors hover:dark:text-[#c0c0c0]"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-full w-full">
+          <path
+            d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM11 11V17H13V11H11ZM11 7V9H13V7H11Z"
+          ></path>
+        </svg>
+      </summary>
+      <p
+        class="absolute left-0 right-8 top-0 text-right text-sm leading-6 dark:text-gray-500"
+      >
+        <span>Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★ Ciallo～(∠・ω< )⌒★</span>
+      </p>
+    </details>
+  </div>
+</div>

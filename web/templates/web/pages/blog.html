@@ -3,8 +3,24 @@
 
 {% block title %}Posts{% endblock %}
 
-{% block extra_head %}
-  <meta name="114514" content="1919810">
+{% block seo_head %}
+  <link rel="canonical" href="{{ SITE_CANONICAL }}{% url 'blog' %}{% if page_number > 1 %}?page={{ page_number }}{% endif %}">
+  {% if has_previous %}
+  <link rel="prev" href="{{ SITE_CANONICAL }}{% url 'blog' %}?page={{ previous_page_number }}">
+  {% endif %}
+  {% if has_next %}
+  <link rel="next" href="{{ SITE_CANONICAL }}{% url 'blog' %}?page={{ next_page_number }}">
+  {% endif %}
+  <meta name="description" content="{{ SITE_DESCRIPTION }}">
+  <meta property="og:site_name" content="{{ SITE_TITLE }}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Blog - {{ SITE_TITLE }}">
+  <meta property="og:description" content="{{ SITE_DESCRIPTION }}">
+  <meta property="og:url" content="{{ SITE_CANONICAL }}{% url 'blog' %}{% if page_number > 1 %}?page={{ page_number }}{% endif %}">
+  <meta property="og:locale" content="zh_CN">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Blog - {{ SITE_TITLE }}">
+  <meta name="twitter:description" content="{{ SITE_DESCRIPTION }}">
 {% endblock %}
 
 {% block content %}
@@ -20,7 +36,7 @@
             <div
               class="absolute z-20 flex -translate-y-4 flex-col flex-wrap items-center justify-center gap-4 dark:text-white"
             >
-              <h2 class="text-4xl">Blog</h2>
+              <h1 class="text-4xl">Blog</h1>
               <p class="hidden max-w-lg text-center text-xl sm:block">
                 <span>光标位置:</span>
                 <span data-blog-pointer-x>0.00</span>

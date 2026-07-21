@@ -17,6 +17,18 @@
   <link rel="icon" href="{% static 'favicon.ico' %}" type="image/x-icon">
   {% vite_hmr %}
   {% block extra_head %}{% endblock %}
+  {% block seo_head %}
+  <meta name="description" content="{{ SITE_DESCRIPTION }}">
+  <meta property="og:site_name" content="{{ SITE_TITLE }}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ SITE_TITLE }}">
+  <meta property="og:description" content="{{ SITE_DESCRIPTION }}">
+  <meta property="og:url" content="{{ SITE_CANONICAL }}{{ request.path }}">
+  <meta property="og:locale" content="zh_CN">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{{ SITE_TITLE }}">
+  <meta name="twitter:description" content="{{ SITE_DESCRIPTION }}">
+  {% endblock %}
 </head>
 <body class="site-body" hx-boost="true" hx-ext="head-support, preload">
 <header class="site-header">

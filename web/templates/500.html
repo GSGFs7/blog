@@ -4,6 +4,10 @@
 
 {% block title %}500 Internal Server Error{% endblock %}
 
+{% block extra_head %}
+  <meta name="robots" content="noindex, follow">
+{% endblock %}
+
 {% block content %}
   <section class="mx-auto flex min-h-[70vh] max-w-4xl items-center px-6 font-mono">
     <div>

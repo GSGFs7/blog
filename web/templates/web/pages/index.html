@@ -1,6 +1,6 @@
 {% extends "web/layout/base.html" %}
 
-{% load media_tags %}
+{% load media_tags static %}
 
 {% block title %}Home{% endblock %}
 
@@ -25,7 +25,22 @@
   >
 {% endblock %}
 
+{% block seo_head %}
+  <link rel="canonical" href="{{ SITE_CANONICAL }}/">
+  <meta name="description" content="{{ SITE_DESCRIPTION }}">
+  <meta property="og:site_name" content="{{ SITE_TITLE }}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ SITE_TITLE }}">
+  <meta property="og:description" content="{{ SITE_DESCRIPTION }}">
+  <meta property="og:url" content="{{ SITE_CANONICAL }}/">
+  <meta property="og:locale" content="zh_CN">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{{ SITE_TITLE }}">
+  <meta name="twitter:description" content="{{ SITE_DESCRIPTION }}">
+{% endblock %}
+
 {% block content %}
+  <!--
   <div
     class="flex max-w-5xl h-full min-h-[min(300px,40vh)] w-full flex-col md:translate-y-[10%] md:flex-row lg:translate-y-[20%] xl:translate-y-[30%] mx-auto"
   >
@@ -44,7 +59,7 @@
           </span>
         </h2>
         <h2 class="text-3xl drop-shadow-lg sm:mt-4 sm:text-5xl">
-          A College Student
+          Ciallo～(∠・ω< )⌒★
         </h2>
 
         {# buttons #}
@@ -56,25 +71,25 @@
             href="https://osu.ppy.sh/users/36335512"
             target="_blank"
           >
-            <img width="32" height="32" alt="osu! icon" type="image/svg" src="/static/osu.svg">
+            <img width="32" height="32" alt="osu! icon" type="image/svg" src="{% static 'osu.svg' %}">
           </a>
           <a
-            aria-label="访问 GitHub 主页"
+            aria-label="访问 Codeberg 主页"
             class="flex w-fit cursor-pointer items-center gap-2 rounded-full border dark:border-black/20 dark:bg-[#f0f0f0e6] p-2 transition outline-none hover:scale-105 hover:dark:bg-[#c0c0c0] focus:scale-105 active:scale-105"
             rel="noopener noreferrer"
-            href="https://github.com/GSGFs7"
+            href="https://codeberg.org/GSGFs7"
             target="_blank"
           >
-            <img width="32" height="32" alt="GitHub icon" type="image/svg" src="/static/github-fill.svg">
+            <img width="32" height="32" alt="Codeberg icon" type="image/svg" src="{% static 'codebreg.svg' %}">
           </a>
           <a
             aria-label="查看 GPG 公钥"
             class="flex w-fit cursor-pointer items-center gap-2 rounded-full border dark:border-black/20 dark:bg-[#f0f0f0e6] p-2 transition outline-none hover:scale-105 hover:dark:bg-[#c0c0c0] focus:scale-105 active:scale-105"
             rel="noopener noreferrer"
-            href="/static/gpg.asc"
+            href="{% static 'gpg.asc' %}"
             target="_blank"
           >
-            <img width="32" height="32" alt="fingerprint icon" type="image/svg" src="/static/fingerprint-fill.svg">
+            <img width="32" height="32" alt="fingerprint icon" type="image/svg" src="{% static 'fingerprint-fill.svg' %}">
           </a>
         </div>
       </div>
@@ -82,7 +97,7 @@
 
     {# Right #}
     <div class="relative mt-16 md:mt-16 items-center flex h-fit flex-5 flex-col px-8">
-      {% render_image "https://img.gsgfs.moe/images/raw/6a/d5/6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.webp" alt="asumi" class_name="block w-full aspect-square overflow-hidden rounded-lg shadow-lg transition-all hover:scale-105 bg-neutral-100 dark:bg-neutral-800" img_class="block h-full w-full object-cover" loading="eager" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" fetch_priority="high" %}
+      {% render_image "https://img.gsgfs.moe/images/raw/f1/34/f1346b9e4cb2ac4bfb5c1a342f30882e028505ade2f884361330dc47ab544a59.jpg" alt="asumi" class_name="block w-full aspect-square overflow-hidden rounded-lg shadow-lg transition-all hover:scale-105 bg-neutral-100 dark:bg-neutral-800" img_class="block h-full w-full object-cover" loading="eager" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" fetch_priority="high" %}
 
       <details class="relative mt-4 w-full min-h-8">
         <summary
@@ -103,4 +118,6 @@
       </details>
     </div>
   </div>
+  -->
+  {% include 'web/partials/festival/0721-2026.html' %}
 {% endblock %}

@@ -1,5 +1,6 @@
 import { createBlogHeaderBehavior } from "./blog-header";
 import { createCodeExpanderBehavior } from "./code-expander";
+import { createMobileDecorationBehavior } from "./mobile-decoration";
 import { startBehaviorRuntime } from "./runtime";
 import { createZoomBehavior } from "./zoom";
 
@@ -15,6 +16,7 @@ export function setupBehaviors(document: Document = window.document): () => void
   const stopRuntime = startBehaviorRuntime(document, [
     createBlogHeaderBehavior(),
     createCodeExpanderBehavior(),
+    createMobileDecorationBehavior(),
     createZoomBehavior(),
   ]);
   // tell caller how to clean this

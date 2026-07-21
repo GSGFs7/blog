@@ -87,7 +87,11 @@ async def blog_post_id(request: HttpRequest, post_id: int):
 
 @require_GET
 async def blog_post_slug(request: HttpRequest, post_slug: str):
-    post = await aget_object_or_404(Post, slug=post_slug, status="published")
+    post = await aget_object_or_404(
+        Post.objects.select_related("category").prefetch_related("tags"),
+        slug=post_slug,
+        status="published",
+    )
 
     context = {
         "title": post.title,
@@ -95,6 +99,13 @@ async def blog_post_slug(request: HttpRequest, post_slug: str):
         "toc": post.toc,
         "layout": post.layout,
         "slug": post.slug,
+        "meta_description": post.meta_description,
+        "keywords": post.keywords,
+        "og_image": post.header_image or post.cover_image or "",
+        "published_at": post.published_at,
+        "content_update_at": post.content_update_at,
+        "category_name": post.category.name if post.category_id else "",
+        "tag_names": [t.name for t in post.tags.all()],
     }
     return TemplateResponse(request, "web/pages/blog_post.html", context=context)
 
