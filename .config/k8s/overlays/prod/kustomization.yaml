@@ -13,13 +13,13 @@ resources:
 images:
 - name: blog-app
   newName: registry.gsgfs.sh/blog-app
-  newTag: cbbe14af4dc300224fee7db9b49b079e7a74cbf6
+  newTag: f570def2833a942a6714db98e337f853107afd55
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
-  newTag: cbbe14af4dc300224fee7db9b49b079e7a74cbf6
+  newTag: f570def2833a942a6714db98e337f853107afd55
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
-  newTag: cbbe14af4dc300224fee7db9b49b079e7a74cbf6
+  newTag: f570def2833a942a6714db98e337f853107afd55
 - name: blog-pgbouncer
   newName: registry.gsgfs.sh/blog-pgbouncer
-  newTag: cbbe14af4dc300224fee7db9b49b079e7a74cbf6
+  newTag: f570def2833a942a6714db98e337f853107afd55
