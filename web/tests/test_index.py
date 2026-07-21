@@ -1,3 +1,5 @@
+import re
+
 from django.test import TestCase
 
 
@@ -5,14 +7,16 @@ class IndexViewTestCase(TestCase):
     def test_hero_image_uses_format_variants(self):
         response = self.client.get("/")
 
-        self.assertContains(
-            response,
-            'srcset="https://img.gsgfs.moe/images/avif/6a/d5/'
-            '6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.avif"',
+        self.assertEqual(response.status_code, 200)
+        rendered_html = re.sub(
+            r"<!--.*?-->", "", response.content.decode(), flags=re.DOTALL
         )
-        self.assertContains(
-            response,
-            'srcset="https://img.gsgfs.moe/images/webp/6a/d5/'
-            '6ad5852d8f1048c49a862e400a133d10da1fdb302bf3116fd74b0289b002731e.webp"',
-        )
-        self.assertContains(response, 'fetchpriority="high"')
+        pictures = re.findall(r"<picture\b.*?</picture>", rendered_html, re.DOTALL)
+        hero_pictures = [
+            picture for picture in pictures if 'fetchpriority="high"' in picture
+        ]
+
+        self.assertEqual(len(hero_pictures), 1)
+        self.assertIn('type="image/avif"', hero_pictures[0])
+        self.assertIn('type="image/webp"', hero_pictures[0])
+        self.assertIn('loading="eager"', hero_pictures[0])
