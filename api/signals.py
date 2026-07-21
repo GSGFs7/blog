@@ -1,13 +1,11 @@
 import logging
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .markdown import Markdown, markdown_to_html_frontend
-from .markdown.post_processors import sanitize_html
+from .markdown import Markdown
 from .models import Anime, Gal, Post
 
 logger = logging.getLogger(__name__)
@@ -78,10 +76,7 @@ def sync_with_jikan(sender, instance, **kwargs):
 @receiver(post_save, sender=Gal)
 def convert_gal_markdown_to_html(sender, instance, **kwargs):
     try:
-        if settings.DEBUG:
-            html = Markdown().render(instance.review)
-        else:
-            html = sanitize_html(markdown_to_html_frontend(instance.review).html)
+        html = Markdown().render(instance.review)
         instance.review_html = html
         # Disconnect signal, avoid infinite loop
         post_save.disconnect(convert_gal_markdown_to_html, sender=Gal)
@@ -96,12 +91,7 @@ def convert_gal_markdown_to_html(sender, instance, **kwargs):
 @receiver(post_save, sender=Post)
 def convert_post_markdown_to_html(sender, instance, **kwargs):
     try:
-        if settings.DEBUG:
-            html, toc = Markdown().render_with_toc(instance.content)
-        else:
-            res = markdown_to_html_frontend(instance.content)
-            html = sanitize_html(res.html)
-            _, toc = Markdown().render_with_toc(instance.content)
+        html, toc = Markdown().render_with_toc(instance.content)
 
         post_save.disconnect(convert_post_markdown_to_html, sender=Post)
         instance.content_html = html
