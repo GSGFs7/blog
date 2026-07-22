@@ -106,6 +106,7 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
       globals: true,
       setupFiles: ["./web/typescript/test/setup.ts"],
       coverage: {
+        provider: "istanbul",
         reporter: ["text", "json", "lcov"],
       },
       projects: [
