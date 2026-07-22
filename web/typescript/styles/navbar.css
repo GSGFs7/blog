@@ -12,8 +12,8 @@
   margin: 0 auto;
   border-bottom: 1px solid rgba(156, 163, 175, 0.5);
   background: rgba(28, 27, 34, 0.64);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 .site-navbar__inner {
@@ -138,8 +138,8 @@
   color: inherit;
   background: rgba(28, 27, 34, 0.95);
   border: 0;
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .site-mobile-menu:popover-open {
