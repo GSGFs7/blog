@@ -42,7 +42,7 @@ steps:
       UV_VENV_COPY: "1"
       UV_LINK_MODE: "copy"
     commands:
-      - pacman -Sy base-devel uv git python perl-image-exiftool nodejs pnpm --noconfirm
+      - pacman -Sy base-devel uv git python perl-image-exiftool nodejs pnpm nspr nss alsa-lib libxkbcommon --noconfirm
       # fix exiftool path
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool
       - pnpm install --frozen-lockfile
