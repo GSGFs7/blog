@@ -32,11 +32,11 @@
   {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
-    "headline": "{{ title }}",
-    "description": "{{ meta_description }}",
-    "url": "{{ SITE_CANONICAL }}{% url 'blog_post_slug' slug %}",
-    "author": { "@type": "Person", "name": "{{ SITE_AUTHOR }}" }{% if og_image %},
-    "image": "{{ og_image }}"{% endif %}{% if published_at %},
+    "headline": "{{ title|escapejs }}",
+    "description": "{{ meta_description|escapejs }}",
+    "url": "{{ SITE_CANONICAL|escapejs }}{% url 'blog_post_slug' slug %}",
+    "author": { "@type": "Person", "name": "{{ SITE_AUTHOR|escapejs }}" }{% if og_image %},
+    "image": "{{ og_image|escapejs }}"{% endif %}{% if published_at %},
     "datePublished": "{{ published_at|date:'c' }}"{% endif %}{% if content_update_at %},
     "dateModified": "{{ content_update_at|date:'c' }}"{% endif %}
   }

@@ -1,4 +1,3 @@
-import type { EvalFunction } from "mathjs/number";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 import { ChartCanvas, type TooltipPoint, type Viewport } from "./chart-canvas";
@@ -26,7 +25,6 @@ function toNumber(data: unknown): number | null {
 
 export function ECharts(props: Readonly<Props>) {
   const [source, setSource] = createSignal("sin(x)");
-  const [evaluate, setEvaluate] = createSignal<EvalFunction>(compileExpression(source()));
   // TODO: merge there two to Viewport type
   const [xRange, setXRange] = createSignal([-RANGE_DEFAULT, RANGE_DEFAULT]);
   const [yRange, setYRange] = createSignal([-RANGE_DEFAULT, RANGE_DEFAULT]);
@@ -35,20 +33,24 @@ export function ECharts(props: Readonly<Props>) {
   let container!: HTMLCanvasElement;
   let canvas: ChartCanvas;
 
-  const updateCurve = (viewport: Viewport) => {
+  const showError = (reason: unknown) => {
+    canvas.setData([]);
+    setTooltip(null);
+    setError(reason instanceof Error ? reason.message : "Invalid formula");
+  };
+
+  const updateCurve = (viewport: Viewport, formula = source()) => {
     try {
       const points = sampleExpression(
-        evaluate(),
+        compileExpression(formula),
         viewport.xMin,
         viewport.xMax,
         Math.ceil(container.clientWidth),
       );
       canvas.setData(points);
       setError("");
-    } catch (e) {
-      canvas.setData([]);
-      setTooltip(null);
-      setError(e instanceof Error ? e.message : "Invalid formula");
+    } catch (reason) {
+      showError(reason);
     }
   };
 
@@ -89,15 +91,14 @@ export function ECharts(props: Readonly<Props>) {
 
   createEffect(() => {
     // registry this to solid effect
-    source();
+    const formula = source();
 
     if (!canvas) {
       return;
     }
 
     const viewport = canvas.getViewport();
-    setEvaluate(compileExpression(source()));
-    updateCurve(viewport);
+    updateCurve(viewport, formula);
   });
 
   onCleanup(() => {
