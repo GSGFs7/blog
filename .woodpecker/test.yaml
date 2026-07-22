@@ -46,6 +46,7 @@ steps:
       # fix exiftool path
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool
       - pnpm install --frozen-lockfile
+      - pnpm exec playwright install
       - pnpm run build:all
       - pnpm run test --coverage
       - uv sync --frozen
