@@ -13,7 +13,7 @@ This project is not a single SPA. Django server-renders pages, HTMX progressivel
 ## Directory ownership
 
 | Location                              | Owns                                                      | Change it when                                                       |
-|---------------------------------------|-----------------------------------------------------------|----------------------------------------------------------------------|
+| ------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------- |
 | `web/urls.py`, `web/views.py`         | Page routes, server-side data, and template responses     | Adding a page or changing page data                                  |
 | `web/templates/web/layout/base.html`  | Site shell, Vite entries, HTMX, and shared resources      | Changing the global page shell                                       |
 | `web/templates/web/pages/`            | Server-rendered page bodies                               | Adding or changing readable page content                             |
@@ -55,7 +55,7 @@ Behavior code must not assume it runs only once, and it must not directly mutate
 ## Choose the implementation layer first
 
 | Need                                                                | Preferred location                              | Why                                                             |
-|---------------------------------------------------------------------|-------------------------------------------------|-----------------------------------------------------------------|
+| ------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------- |
 | A new page, article list, article body, or basic link               | Django view and template                        | Keeps it readable, indexable, and functional without JavaScript |
 | A click that replaces content, pagination, or a form response       | Django template fragment and HTMX               | Preserves server rendering and avoids unnecessary client state  |
 | Image zoom, code expansion, or another enhancement to existing HTML | `core/behaviors/`                               | Does not need framework state and remounts after HTMX changes   |

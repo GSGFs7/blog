@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
+import { playwright } from "@vitest/browser-playwright";
 import Sonda from "sonda/vite";
 import type { Plugin } from "vite";
 import solidPlugin from "vite-plugin-solid";
@@ -102,12 +103,36 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
       },
     },
     test: {
-      environment: "jsdom",
       globals: true,
       setupFiles: ["./web/typescript/test/setup.ts"],
       coverage: {
         reporter: ["text", "json", "lcov"],
       },
+      projects: [
+        {
+          extends: true,
+          test: {
+            name: "unit",
+            environment: "jsdom",
+            include: ["web/typescript/**/*.test.{ts,tsx}"],
+            exclude: ["web/typescript/**/*.browser.test.{ts,tsx}"],
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "browser",
+            include: ["web/typescript/**/*.browser.test.{ts,tsx}"],
+            browser: {
+              enabled: true,
+              headless: true,
+              provider: playwright(),
+              instances: [{ browser: "firefox" }, { browser: "chromium" }],
+              trace: "retain-on-failure",
+            },
+          },
+        },
+      ],
     },
   };
 });

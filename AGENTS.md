@@ -7,7 +7,7 @@ Asynchronous Django + Django-Ninja + pgvector + Celery + HTMX + solid.js + uv/ru
 ## CLI Workflow
 
 ```bash
-# Setup: podman-compose up -d blog-postgres blog-redis blog-pgbouncer
+# Setup: podman-compose up -d blog-postgres blog-redis
 uv run manage.py migrate                # Database migrations
 uv run manage.py test                   # Run tests
 ruff check --fix && ruff format .       # Lint and format

@@ -9,7 +9,7 @@ coverage/
 .coverage
 coverage.xml
 bundle-report.html
-.gemini/
+test-results/
 
 .vscode/
 .idea/
@@ -32,5 +32,6 @@ sentence_transformers_models/
 staticfiles/
 media/
 testapp/
+.gemini/
 *.http
 .codex

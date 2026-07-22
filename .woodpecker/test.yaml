@@ -51,6 +51,7 @@ steps:
       - uv sync --frozen
       - uv run coverage run manage.py test -v 2
       - uv run coverage xml -i
+      # TODO: add real browser test to CI
 
   - name: scan
     image: sonarsource/sonar-scanner-cli:latest
