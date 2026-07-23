@@ -12,6 +12,7 @@ bundle-report.html
 test-results/
 .vitest-attachments/
 __screenshots__/
+__traces__/
 
 .vscode/
 .idea/

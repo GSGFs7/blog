@@ -47,11 +47,15 @@ steps:
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool
       - pnpm install --frozen-lockfile
       - pnpm exec playwright install
+      - uv sync --frozen
+      - pnpm run typecheck
+      - pnpm run lint
       - pnpm run build:all
       - pnpm run test --coverage
-      - uv sync --frozen
       - uv run coverage run manage.py test -v 2
       - uv run coverage xml -i
+      - pnpm run test:e2e
+      - pnpm exec playwright test --config=playwright.ssr.config.ts
 
   - name: scan
     image: sonarsource/sonar-scanner-cli:latest

@@ -30,7 +30,7 @@ def _get_solid_wrapper(dev: bool) -> str:
 @register.simple_tag
 def solid_island(name: str, **props):
     # in dev mode, we don't need placeholder
-    if settings.DEBUG:
+    if not settings.SOLID_ISLANDS_SSR:
         tmplt = _get_solid_wrapper(dev=True)
         return format_html(tmplt, name, json.dumps(props, separators=(",", ":")), "")
 

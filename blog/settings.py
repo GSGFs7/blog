@@ -63,6 +63,7 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = bool(os.environ.get("DEBUG", default="False") == "True")
+SOLID_ISLANDS_SSR = _env_bool("SOLID_ISLANDS_SSR", not DEBUG)
 
 # 在 K8s 环境中允许所有 hosts 以支持 Pod IP 健康检查
 if is_k8s_env():

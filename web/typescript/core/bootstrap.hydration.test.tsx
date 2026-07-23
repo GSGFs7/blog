@@ -1,57 +1,80 @@
-import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, beforeEach, expect } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { COMPONENTS } from "../islands";
 import { bootstrap, cleanup, setupIslands } from "./bootstrap";
 
-type HydrationGlobal = typeof globalThis & {
-  _$HY?: {
-    events: unknown[];
-    completed: WeakSet<object>;
-    r: Record<string, unknown>;
-    fe: () => void;
+const solidWeb = vi.hoisted(() => {
+  const dispose = vi.fn();
+  return {
+    dispose,
+    hydrate: vi.fn(() => dispose),
+    render: vi.fn(() => dispose),
   };
-};
+});
 
-const hydrationGlobal = globalThis as HydrationGlobal;
+vi.mock("solid-js/web", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("solid-js/web")>()),
+  hydrate: solidWeb.hydrate,
+  render: solidWeb.render,
+}));
 
-setupIslands(COMPONENTS);
+setupIslands({
+  Example: async () => () => null,
+});
 
 beforeEach(() => {
-  document.body.innerHTML = "";
-
-  // init hydration runtime
-  hydrationGlobal._$HY = {
-    events: [],
-    completed: new WeakSet(),
-    r: {},
-    fe() {},
-  };
+  solidWeb.dispose.mockClear();
+  solidWeb.hydrate.mockReset().mockReturnValue(solidWeb.dispose);
+  solidWeb.render.mockReset().mockReturnValue(solidWeb.dispose);
+  document.body.replaceChildren();
 });
 
 afterEach(() => {
   cleanup(document);
-  document.body.innerHTML = "";
-  delete hydrationGlobal._$HY;
+  document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
-test("hydrates SSR markup without replacing it", async () => {
-  document.body.innerHTML = `<div data-solid-island="Counter" data-solid-ssr data-props='{"initial":1024}'><div data-hk="00"><span>Count: <!--$-->0<!--/--></span><button type="button" class="m-2 rounded-md border border-white/30 bg-gray-500/30 px-2 text-white">+1</button></div></div>`;
+test("uses hydration for server-rendered islands", async () => {
+  document.body.innerHTML = `
+    <div data-solid-island="Example" data-solid-ssr data-props='{"initial":1024}'>
+      <p>server markup</p>
+    </div>
+  `;
 
   const island = document.querySelector<HTMLElement>("[data-solid-island]");
   expect(island).not.toBeNull();
-
-  // save this element
   const ssrRoot = island!.firstElementChild;
 
   bootstrap();
 
-  await waitFor(() => expect(screen.getByText("Count: 1024")).toBeInTheDocument());
+  await vi.waitFor(() => expect(solidWeb.hydrate).toHaveBeenCalledOnce());
 
-  // `hydrate()` should re-use the DOM element
+  expect(solidWeb.hydrate).toHaveBeenCalledWith(expect.any(Function), island);
+  expect(solidWeb.render).not.toHaveBeenCalled();
   expect(island?.firstElementChild).toBe(ssrRoot);
+});
 
-  fireEvent.click(screen.getByRole("button"));
-  expect(screen.getByText("Count: 1025")).toBeInTheDocument();
-  expect(island!.firstElementChild).toBe(ssrRoot);
+test("falls back to client rendering when hydration fails", async () => {
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  solidWeb.hydrate.mockImplementationOnce(() => {
+    throw new Error("hydration failed");
+  });
+  document.body.innerHTML = `
+    <div data-solid-island="Example" data-solid-ssr>
+      <p>server markup</p>
+    </div>
+  `;
+
+  const island = document.querySelector<HTMLElement>("[data-solid-island]");
+  expect(island).not.toBeNull();
+
+  bootstrap();
+
+  await vi.waitFor(() => expect(solidWeb.render).toHaveBeenCalledOnce());
+
+  expect(island).toBeEmptyDOMElement();
+  expect(warning).toHaveBeenCalledWith(
+    "Failed to hydrate Solid island 'Example', falling back to CSR.",
+    expect.any(Error),
+  );
 });

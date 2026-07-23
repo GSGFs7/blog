@@ -129,6 +129,19 @@ Do not trust attributes from article content. The post-processing and `nh3` sani
 
 ## Development and verification
 
+Frontend tests stay next to the code they exercise and use the narrowest runtime that can verify the behavior.
+
+| Pattern                                  | Runtime            | Responsibility                                                   |
+| ---------------------------------------- | ------------------ | ---------------------------------------------------------------- |
+| `web/typescript/**/*.test.ts(x)`         | Vitest with jsdom  | Logic, Solid component behavior, and small DOM enhancements      |
+| `web/typescript/**/*.browser.test.ts(x)` | Vitest Browser     | Canvas, pointer events, layout, and other real browser APIs      |
+| `web/tests/test_*.py`                    | Django test runner | Views, template tags, middleware, and server-rendering contracts |
+| `web/e2e/*.spec.ts`                      | Playwright         | HTMX navigation and critical browser journeys                    |
+| `web/e2e/ssr/*.ssr.spec.ts`              | Playwright         | Built SSR output and real hydration                              |
+| `web/typescript/test/`                   | Shared test code   | Reusable setup and fixtures; no test cases                       |
+
+Do not hand-copy generated SSR markup or assert Solid hydration markers. Keep device and viewport selection in Playwright projects so each E2E test runs only in the environments it needs.
+
 Common development commands:
 
 ```bash
@@ -140,6 +153,8 @@ Choose checks that match the change:
 
 ```bash
 pnpm test
+pnpm test:e2e
+pnpm test:ssr
 pnpm typecheck
 pnpm build:all
 uv run manage.py test web.tests

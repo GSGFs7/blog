@@ -108,6 +108,12 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
       coverage: {
         provider: "istanbul",
         reporter: ["text", "json", "lcov"],
+        include: ["web/typescript/**/*.{ts,tsx}"],
+        exclude: [
+          "web/typescript/**/*.test.{ts,tsx}",
+          "web/typescript/**/*.d.ts",
+          "web/typescript/test/**",
+        ],
       },
       projects: [
         {

@@ -7,34 +7,8 @@ const navigationItems = [
   { label: "About", href: "/about" },
 ] as const;
 
-test.describe("site navbar", () => {
-  test("shows desktop links and keeps the frosted navigation shell", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("/about");
-
-    const navbar = page.locator(".site-navbar");
-    const shell = page.locator(".site-navbar__shell");
-    const desktopLinks = page.locator(".site-navbar__links");
-
-    await expect(navbar).toBeVisible();
-    await expect(navbar).toHaveCSS("position", "sticky");
-    await expect(page.getByRole("button", { name: "打开导航菜单" })).toBeHidden();
-
-    for (const item of navigationItems) {
-      const link = desktopLinks.getByRole("link", { name: item.label, exact: true });
-      await expect(link).toBeVisible();
-      await expect(link).toHaveAttribute("href", item.href);
-    }
-
-    const backdropFilter = await shell.evaluate((element) => {
-      const styles = window.getComputedStyle(element);
-      return styles.backdropFilter || styles.getPropertyValue("-webkit-backdrop-filter");
-    });
-    expect(backdropFilter).toBe("blur(8px)");
-  });
-
-  test("opens and dismisses the mobile navigation menu", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+test.describe("mobile navigation", () => {
+  test("opens and dismisses the menu", async ({ page }) => {
     await page.goto("/about");
 
     const desktopLinks = page.locator(".site-navbar__links");
@@ -64,8 +38,7 @@ test.describe("site navbar", () => {
     await expect(mobileMenu).toBeHidden();
   });
 
-  test("navigates from a mobile menu link", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  test("navigates from a menu link", async ({ page }) => {
     await page.goto("/");
 
     const mobileMenu = page.locator("#mobile-menu");

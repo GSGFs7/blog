@@ -27,4 +27,4 @@ Frontend architecture maybe is a bit complex. Read `../docs/agent-guide/frontend
 
 ## Verification
 
-Run the checks that match the change: `pnpm test`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`.
+Run the checks that match the change: `pnpm test`, `pnpm test:e2e`, `pnpm test:ssr`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`.
