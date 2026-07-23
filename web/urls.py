@@ -22,6 +22,7 @@ urlpatterns = [
     path("entertainment", views.entertainment, name="entertainment"),
     path("login", view=views.login, name="login"),
     path("user", view=views.user, name="user"),
+    path("privacy", views.privacy, name="privacy"),
     path(
         "sitemap.xml",
         sitemap,
