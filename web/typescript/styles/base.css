@@ -34,3 +34,14 @@
   margin-inline: auto;
   padding-top: 6rem;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .site-main {
+    transition: opacity 100ms ease-in-out;
+  }
+
+  .site-body.htmx-swapping .site-main,
+  .site-body.htmx-settling .site-main {
+    opacity: 0;
+  }
+}

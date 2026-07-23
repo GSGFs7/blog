@@ -1,6 +1,12 @@
-import htmx from "htmx.org";
+import htmx, { type HtmxBeforeSwapDetails } from "htmx.org";
 import "htmx-ext-head-support";
 import "htmx-ext-preload";
+
+import {
+  applyHistoryPageTransition,
+  applyPageTransition,
+  type HtmxHistorySwapDetails,
+} from "./page-transition";
 
 // settings
 htmx.config.includeIndicatorStyles = false;
@@ -24,6 +30,18 @@ const getCsrfToken = (): string | null => {
   );
 };
 
+const prefersReducedMotion = (): boolean =>
+  document.defaultView?.matchMedia("(prefers-reduced-motion: reduce)").matches ?? false;
+
+const applyHistoryTransition = (event: Event): void => {
+  const detail = (event as CustomEvent<HtmxHistorySwapDetails>).detail;
+  if (!detail) {
+    return;
+  }
+
+  applyHistoryPageTransition(detail, document.body, prefersReducedMotion());
+};
+
 document.body.addEventListener("htmx:configRequest", (event) => {
   const csrfToken = getCsrfToken();
   if (!csrfToken) {
@@ -33,5 +51,18 @@ document.body.addEventListener("htmx:configRequest", (event) => {
   const detail = (event as CustomEvent).detail;
   detail.headers["X-CSRFToken"] = csrfToken;
 });
+
+// normal nav
+document.body.addEventListener("htmx:beforeSwap", (event) => {
+  const detail = (event as CustomEvent<HtmxBeforeSwapDetails>).detail;
+  if (!detail) {
+    return;
+  }
+
+  applyPageTransition(detail, document.body, prefersReducedMotion());
+});
+// history nav
+document.body.addEventListener("htmx:historyCacheHit", applyHistoryTransition);
+document.body.addEventListener("htmx:historyCacheMissLoad", applyHistoryTransition);
 
 window.htmx = htmx;
