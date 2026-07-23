@@ -5,6 +5,7 @@ from io import BytesIO
 from celery import shared_task
 from django.core.files.base import ContentFile
 from PIL import Image as PILImage
+from PIL import ImageFilter
 
 from media_service.constants import RESPONSIVE_IMAGE_WIDTHS
 from media_service.models import ImageResource, ImageVariant
@@ -88,6 +89,7 @@ def process_image(image_resource_id: int, force: bool = False):
                 try:
                     placeholder = img.copy()
                     placeholder.thumbnail((32, 32))
+                    placeholder = placeholder.filter(ImageFilter.GaussianBlur(radius=2))
 
                     buffer = BytesIO()
                     placeholder.save(buffer, format="WEBP", quality=30)

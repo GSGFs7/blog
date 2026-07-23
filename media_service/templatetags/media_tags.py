@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from posixpath import splitext
 from urllib.parse import urlsplit
 
@@ -14,7 +15,21 @@ from media_service.image_cache import (
 )
 from media_service.models import Image, ImageResource
 
+__all__ = ("render_image", "to_thumbnail")
+
 register = template.Library()
+
+
+@dataclass(frozen=True)
+class _ImageRenderOptions:
+    alt: str
+    class_name: str
+    img_class: str
+    loading: str
+    sizes: str
+    fetch_priority: str
+    style: str
+    data_attributes: dict[str, object]
 
 
 def _render_img_attributes(style: str, data_attributes: dict[str, object]):
@@ -26,17 +41,41 @@ def _render_img_attributes(style: str, data_attributes: dict[str, object]):
     return flatatt(attributes)
 
 
-# make sure the URL prefix has img variant
+def _validate_data_attributes(data_attributes: dict[str, object]) -> None:
+    unexpected_attributes = [
+        name for name in data_attributes if not re.fullmatch(r"data_[a-z0-9_]+", name)
+    ]
+    if unexpected_attributes:
+        unexpected = ", ".join(sorted(unexpected_attributes))
+        raise TypeError(
+            f"render_image() got unexpected keyword arguments: {unexpected}"
+        )
+
+
+def _resolve_image_input(
+    image_input: Image | ImageResource | str,
+    alt: str,
+) -> tuple[ImageRenderMetadata | None, str, str]:
+    # find image resource
+    if isinstance(image_input, Image):
+        return (
+            build_image_render_metadata(image_input.resource),
+            "",
+            alt or image_input.alt_text,
+        )
+    if isinstance(image_input, ImageResource):
+        return build_image_render_metadata(image_input), "", alt
+    if isinstance(image_input, str):
+        match = re.search(r"([a-f0-9]{64})", image_input)
+        metadata = get_image_render_metadata(match.group(1)) if match else None
+        return metadata, image_input, alt
+    return None, "", alt
+
+
+# it make sure the URL prefix has img variant
 def _render_known_variant_image(
     src: str,
-    alt: str,
-    class_name: str,
-    img_class: str,
-    loading: str,
-    sizes: str,
-    fetch_priority: str,
-    style: str,
-    data_attributes: dict[str, object],
+    options: _ImageRenderOptions,
 ):
     for source_prefix, variant_prefixes in getattr(
         settings, "IMAGE_PICTURE_URL_PREFIXES", {}
@@ -53,27 +92,129 @@ def _render_known_variant_image(
         if not stem or not extension or not avif_prefix or not webp_prefix:
             return None
 
-        img_attributes = _render_img_attributes(style, data_attributes)
+        img_attributes = _render_img_attributes(options.style, options.data_attributes)
         return format_html(
             '<picture class="{}"><source srcset="{}/{}.avif" type="image/avif">'
             '<source srcset="{}/{}.webp" type="image/webp"><img src="{}" '
             'alt="{}" class="{}" loading="{}" decoding="async" sizes="{}" '
             'fetchpriority="{}"{}></picture>',
-            class_name,
+            options.class_name,
             avif_prefix.rstrip("/"),
             stem,
             webp_prefix.rstrip("/"),
             stem,
             src,
-            alt,
-            img_class,
-            loading,
-            sizes,
-            fetch_priority,
+            options.alt,
+            options.img_class,
+            options.loading,
+            options.sizes,
+            options.fetch_priority,
             img_attributes,
         )
 
     return None
+
+
+def _render_fallback_image(src: str, options: _ImageRenderOptions):
+    # if not found
+    # try match the prefix
+    # it's safe to generate variant url if matched
+    if picture := _render_known_variant_image(src, options):
+        return picture
+    img_attributes = _render_img_attributes(options.style, options.data_attributes)
+    return format_html(
+        '<img src="{}" alt="{}" class="{}" loading="{}" fetchpriority="{}"{}>',
+        src,
+        options.alt,
+        options.img_class or options.class_name,
+        options.loading,
+        options.fetch_priority,
+        img_attributes,
+    )
+
+
+def _render_picture_source(
+    srcset: str | None,
+    fallback_url: str | None,
+    image_format: str,
+    sizes: str,
+):
+    if srcset:
+        return format_html(
+            '<source srcset="{}" sizes="{}" type="image/{}">',
+            srcset,
+            sizes,
+            image_format,
+        )
+    if fallback_url:
+        return format_html(
+            '<source srcset="{}" type="image/{}">', fallback_url, image_format
+        )
+    return None
+
+
+def _render_picture_sources(metadata: ImageRenderMetadata, sizes: str):
+    # picture source
+    responsive_srcsets = metadata["responsive_srcsets"]
+    sources = []
+
+    # avif source
+    if source := _render_picture_source(
+        responsive_srcsets.get("avif"), metadata["avif_url"], "avif", sizes
+    ):
+        sources.append(source)
+
+    # webp source
+    if source := _render_picture_source(
+        responsive_srcsets.get("webp"), metadata["webp_url"], "webp", sizes
+    ):
+        sources.append(source)
+
+    return format_html_join("", "{}", ((source,) for source in sources))
+
+
+def _build_image_style(metadata: ImageRenderMetadata, style: str) -> str:
+    # build styles
+    placeholder = metadata["placeholder"]
+    if placeholder:
+        placeholder_style = (
+            f"background-image: url({placeholder}); background-size: cover;"
+        )
+        return f"{placeholder_style} {style}" if style else placeholder_style
+    return style
+
+
+def _render_metadata_image(
+    metadata: ImageRenderMetadata,
+    alt_text: str,
+    options: _ImageRenderOptions,
+):
+    source_html = _render_picture_sources(metadata, options.sizes)
+    img_attributes = _render_img_attributes(
+        _build_image_style(metadata, options.style), options.data_attributes
+    )
+
+    dimensions = ""
+    if metadata["width"] and metadata["height"]:
+        dimensions = format_html(
+            ' width="{}" height="{}"', metadata["width"], metadata["height"]
+        )
+
+    # render <picture>
+    return format_html(
+        '<picture class="{}">{}<img src="{}" alt="{}"{} class="{}" '
+        'loading="{}" decoding="async" sizes="{}" fetchpriority="{}"{}></picture>',
+        options.class_name,
+        source_html,
+        metadata["file_url"],
+        alt_text,
+        img_attributes,
+        options.img_class,
+        options.loading,
+        options.sizes,
+        options.fetch_priority,
+        dimensions,
+    )
 
 
 @register.simple_tag
@@ -88,129 +229,26 @@ def render_image(
     style: str = "",
     **data_attributes: object,
 ):
-    unexpected_attributes = [
-        name for name in data_attributes if not re.fullmatch(r"data_[a-z0-9_]+", name)
-    ]
-    if unexpected_attributes:
-        unexpected = ", ".join(sorted(unexpected_attributes))
-        raise TypeError(
-            f"render_image() got unexpected keyword arguments: {unexpected}"
-        )
-
+    _validate_data_attributes(data_attributes)
     if not image_input:
         return ""
 
-    # find image resource
-    metadata: ImageRenderMetadata | None = None
-    alt_text = alt
-    if isinstance(image_input, Image):
-        metadata = build_image_render_metadata(image_input.resource)
-        alt_text = alt or image_input.alt_text
-    elif isinstance(image_input, ImageResource):
-        metadata = build_image_render_metadata(image_input)
-    elif isinstance(image_input, str):
-        match = re.search(r"([a-f0-9]{64})", image_input)
-        if match:
-            checksum = match.group(1)
-            metadata = get_image_render_metadata(checksum)
-
-    # if not found
-    if not metadata:
-        src = image_input if isinstance(image_input, str) else ""
-        if not src:
-            return ""
-        # try match the prefix
-        # it's safe to generate variant url if matched
-        if picture := _render_known_variant_image(
-            src,
-            alt,
-            class_name,
-            img_class,
-            loading,
-            sizes,
-            fetch_priority,
-            style,
-            data_attributes,
-        ):
-            return picture
-        img_attributes = _render_img_attributes(style, data_attributes)
-        return format_html(
-            '<img src="{}" alt="{}" class="{}" loading="{}" fetchpriority="{}"{}>',
-            src,
-            alt,
-            img_class or class_name,
-            loading,
-            fetch_priority,
-            img_attributes,
-        )
-
-    # picture source
-    sources = []
-    responsive_srcsets = metadata["responsive_srcsets"]
-
-    # avif source
-    avif_srcset = responsive_srcsets.get("avif")
-    if avif_srcset:
-        sources.append(
-            format_html(
-                '<source srcset="{}" sizes="{}" type="image/avif">',
-                avif_srcset,
-                sizes,
-            )
-        )
-    elif metadata["avif_url"]:
-        sources.append(
-            format_html('<source srcset="{}" type="image/avif">', metadata["avif_url"])
-        )
-
-    # webp source
-    webp_srcset = responsive_srcsets.get("webp")
-    if webp_srcset:
-        sources.append(
-            format_html(
-                '<source srcset="{}" sizes="{}" type="image/webp">',
-                webp_srcset,
-                sizes,
-            )
-        )
-    elif metadata["webp_url"]:
-        sources.append(
-            format_html('<source srcset="{}" type="image/webp">', metadata["webp_url"])
-        )
-
-    # build styles
-    style_value = ""
-    if metadata["placeholder"]:
-        style_value = (
-            f"background-image: url({metadata['placeholder']}); background-size: cover;"
-        )
-    if style:
-        style_value = f"{style_value} {style}" if style_value else style
-
-    dimensions = ""
-    if metadata["width"] and metadata["height"]:
-        dimensions = format_html(
-            ' width="{}" height="{}"', metadata["width"], metadata["height"]
-        )
-
-    img_attributes = _render_img_attributes(style_value, data_attributes)
-
-    # render <picture>
-    source_html = format_html_join("", "{}", ((source,) for source in sources))
-    return format_html(
-        '<picture class="{}">{}<img src="{}" alt="{}"{} class="{}" '
-        'loading="{}" decoding="async" sizes="{}" fetchpriority="{}"{}></picture>',
-        class_name,
-        source_html,
-        metadata["file_url"],
-        alt_text,
-        img_attributes,
-        img_class,
-        loading,
-        sizes,
-        fetch_priority,
-        dimensions,
+    options = _ImageRenderOptions(
+        alt=alt,
+        class_name=class_name,
+        img_class=img_class,
+        loading=loading,
+        sizes=sizes,
+        fetch_priority=fetch_priority,
+        style=style,
+        data_attributes=data_attributes,
     )
+    metadata, src, alt_text = _resolve_image_input(image_input, alt)
+    if metadata:
+        return _render_metadata_image(metadata, alt_text, options)
+    if src:
+        return _render_fallback_image(src, options)
+    return ""
 
 
 @register.filter

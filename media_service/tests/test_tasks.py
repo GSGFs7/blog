@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from PIL import Image as PILImage
+from PIL import ImageFilter
 
 from media_service.models import ImageResource
 from media_service.tasks import process_image, process_responsive_variants
@@ -44,6 +45,27 @@ class MediaTasksTest(TestCase):
 
         self.assertTrue(image_resource.is_processed)
         self.assertFalse(image_resource.variants.exists())
+
+    def test_process_image_blurs_placeholder(self):
+        file, size = self.build_image_resource_content()
+        image_resource = ImageResource.objects.create(
+            checksum="e" * 64,
+            file=file,
+            width=100,
+            height=100,
+            size=size,
+            mime_type="image/png",
+        )
+
+        with patch(
+            "media_service.tasks.ImageFilter.GaussianBlur",
+            wraps=ImageFilter.GaussianBlur,
+        ) as blur:
+            process_image(image_resource.id)
+
+        blur.assert_called_once_with(radius=2)
+        image_resource.refresh_from_db()
+        self.assertTrue(image_resource.placeholder)
 
     def test_responsive_variants_are_only_generated_when_enabled(self):
         file, size = self.build_image_resource_content()

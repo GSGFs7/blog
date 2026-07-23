@@ -58,5 +58,5 @@
     "last 2 versions",
     "not dead"
   ],
-  "packageManager": "pnpm@11.10.0"
+  "packageManager": "pnpm@11.3.0"
 }
