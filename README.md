@@ -1,8 +1,8 @@
 # GSGFs-blog
 
-[![status-badge](https://woodpecker.gsgfs.sh/api/badges/1/status.svg)](https://woodpecker.gsgfs.sh/repos/1) [![Quality Gate Status](https://sonarqube.gsgfs.sh/api/project_badges/measure?project=blog&metric=alert_status&token=sqb_0d1b1441c744c4776436ce237e351a089110a9fa)](https://sonarqube.gsgfs.sh/dashboard?id=blog) [![Maintainability Rating](https://sonarqube.gsgfs.sh/api/project_badges/measure?project=blog&metric=software_quality_maintainability_rating&token=sqb_0d1b1441c744c4776436ce237e351a089110a9fa)](https://sonarqube.gsgfs.sh/dashboard?id=blog) [![Technical Debt](https://sonarqube.gsgfs.sh/api/project_badges/measure?project=blog&metric=software_quality_maintainability_remediation_effort&token=sqb_0d1b1441c744c4776436ce237e351a089110a9fa)](https://sonarqube.gsgfs.sh/dashboard?id=blog)
+[![status-badge](https://woodpecker.gsgfs.sh/api/badges/1/status.svg)](https://woodpecker.gsgfs.sh/repos/1)
 
-使用 `Django` 构建的个人网站. (新前端正在重构中)
+使用 `Django` 构建的个人网站.
 
 ## 运行
 
@@ -10,9 +10,6 @@
 > Django 自带的后台在 `/not-admin` 而不是 `/admin`
 
 `python`版本: `3.14`, 使用 uv 作为包管理器
-
-_Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `python`, 例如 `./manage.py runserver`
-应该改为 `python ./manage.py runserver`_
 
 1. 安装所需依赖
 
@@ -37,7 +34,7 @@ _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `
     docker compose up -d "blog-postgres" "blog-redis"
     ```
 
-5. 由于搜索功能依赖向量化处理, 需要下载用于生成向量的嵌入模型
+5. (可选) 由于搜索功能依赖向量化处理, 需要下载用于生成向量的嵌入模型
 
     ```bash
     ./scripts/download-model.py
@@ -46,7 +43,7 @@ _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `
 6. 迁移数据库
 
     ```bash
-    ./manage.py makemigrations && ./manage.py migrate
+    ./manage.py migrate
     ```
 
 7. 创建一个管理员用户 (用于登陆后台)
@@ -97,16 +94,6 @@ _Windows 用户在运行 `./xxx.py` 这类命令时可能需要在前面加上 `
 ## 接口文档
 
 `django-ninja` 自带 `swagger-UI`, 启动后访问 `/api/docs`
-
-## 小工具
-
-统一放在 `scripts` 文件夹中
-
-- `backup-db.sh`: 一个简单备份数据库脚本(配合`cron`使用)
-- `download-model.py`: 下载模型
-- `export.sh`: 导出 docker 镜像
-- `upload.py`: 上传文件至 R2 对象存储
-- `regenerate_embeddings.py`: 重新生成文章向量
 
 ## 开源协议
 
