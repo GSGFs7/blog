@@ -13,6 +13,7 @@ test-results/
 .vitest-attachments/
 __screenshots__/
 __traces__/
+target/
 
 .vscode/
 .idea/
