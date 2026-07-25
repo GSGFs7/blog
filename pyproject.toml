@@ -20,7 +20,7 @@ dependencies = [
     "httpx>=0.28.1",
     # Using fork because original fxsjy/jieba is no longer maintained; this fork includes Python 3.13+ compatibility fixes
     "jieba @ git+https://github.com/GSGFs7/jieba.git@master",
-    "markdown-it-rs-py @ git+https://github.com/GSGFs7/markdown-it-rs.git#subdirectory=bindings/python",
+    "markdown-it-rs-py",
     "nh3>=0.3.6",
     "orjson>=3.11.9",
     "pgvector>=0.4.1",
@@ -51,6 +51,7 @@ model-download = ["filelock>=3.25.2", "huggingface-hub>=1.20.1"]
 
 
 [tool.uv.sources]
+markdown-it-rs-py = { path = "native/markdown" }
 torch = { index = "pytorch" }
 
 

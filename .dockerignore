@@ -27,6 +27,9 @@ __pycache__/
 .venv/
 .uv-cache/
 .ruff_cache/
+**/target/
+**/.venv/
+**/.ruff_cache/
 
 # database
 *.sqlite3

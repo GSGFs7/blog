@@ -460,14 +460,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
-name = "markdown"
-version = "0.1.0"
-dependencies = [
- "markdown-it-rs",
- "pyo3",
-]
-
-[[package]]
 name = "markdown-it-rs"
 version = "0.6.2"
 dependencies = [
@@ -485,6 +477,14 @@ dependencies = [
  "stacker",
  "syntect",
  "unicode-general-category",
+]
+
+[[package]]
+name = "markdown-it-rs-py"
+version = "0.1.0"
+dependencies = [
+ "markdown-it-rs",
+ "pyo3",
 ]
 
 [[package]]

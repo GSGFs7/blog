@@ -27,6 +27,7 @@ RUN pacman-key --init && \
 
 # Pre-install Python and frontend dependencies
 COPY --chown=user:user pyproject.toml uv.lock package.json pnpm-lock.yaml /app/
+COPY --chown=user:user native/markdown /app/native/markdown
 COPY --chown=user:user scripts/copy-katex.mjs /app/scripts/
 RUN uv sync --frozen --no-dev --extra ml --no-install-project --no-cache && \
     pnpm install --frozen-lockfile

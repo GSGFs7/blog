@@ -28,6 +28,7 @@ keys/
 backups/
 *.dump
 *.sql.gz
+*.so
 
 db.sqlite3
 django.tar.zst
