@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+markdown-it-rs = { path = "upstream", default-features = false, features = [
+    "linkify",
+    "syntect",
+    "katex",
+] }
+pyo3 = { version = "0.29.0", features = ["extension-module"] }
