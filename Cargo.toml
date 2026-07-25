@@ -1,0 +1,68 @@
+[package]
+name = "markdown-it-rs"
+version = "0.6.2"
+authors = ["Alex Kocharin <alex@kocharin.ru>", "GSGFs7"]
+description = "Rust port of popular markdown-it.js library. Forked from markdown-it-rust/markdown-it"
+documentation = "https://docs.rs/markdown-it-rs"
+homepage = "https://github.com/GSGFs7/markdown-it-rs"
+repository = "https://github.com/GSGFs7/markdown-it-rs"
+readme = "README.md"
+keywords = ["markdown", "commonmark"]
+license = "MIT"
+categories = ["text-processing", "parsing"]
+edition = "2024"
+
+[lib]
+name = "markdown_it"
+path = "src/lib.rs"
+
+[[bin]]
+name = "markdown-it"
+path = "src/bin.rs"
+doc = false
+# need enable the feature
+#  `cargo run -q -p markdown-it-rs --features cli --bin markdown-it -- -v`
+required-features = ["cli"]
+
+[[example]]
+name = "syntect"
+path = "examples/syntect/main.rs"
+required-features = ["syntect"]
+
+[workspace]
+members = [
+    "crates/markdown-it-url",
+    "bindings/kotlin",
+    "bindings/python",
+    "bindings/wasm",
+    "benchmarks",
+]
+
+[features]
+default = ["linkify", "syntect"]
+cli = ["dep:clap"]
+katex = ["dep:katex-rs"]
+syntect = ["dep:syntect"]
+
+[dependencies]
+clap = { version = ">= 4.0.0, < 5", optional = true }
+const_format = ">= 0.1.0, < 0.3"
+derive_more = { version = ">= 0.99.0, < 3", features = ["deref", "deref_mut"] }
+downcast-rs = ">= 1.0.2, < 3"
+entities = ">= 0.1.0, < 2"
+html-escape = ">= 0.1.0, < 0.3"
+linkify = { version = ">= 0.5.0, < 0.12", optional = true }
+katex-rs = { version = "0.2.4", optional = true }
+mdurl = { package = "markdown-it-rs-url", version = "0.1.0", path = "crates/markdown-it-url" }
+once_cell = ">= 1.0.1, < 2"
+readonly = ">= 0.2.0, < 0.3"
+regex = ">= 1.0.0, < 2"
+stacker = ">= 0.1.2, < 0.2"
+syntect = { version = ">= 5.0.0, < 6", optional = true, default-features = false, features = [
+    "default-fancy",
+    "html",
+] }
+unicode-general-category = ">= 0.1.0, < 1.2"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }

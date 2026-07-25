@@ -1,0 +1,110 @@
+from typing import Any, Callable, Literal, TypeAlias, overload
+
+BuiltinPlugin: TypeAlias = Literal[
+    "commonmark",
+    "cmark",
+    "html",
+    "tables",
+    "table",
+    "strikethrough",
+    "mark",
+    "beautify-links",
+    "directives",
+    "directive",
+    "tasklist",
+    "task-list",
+    "footnote",
+    "footnotes",
+    "frontmatter",
+    "front-matter",
+    "heading-anchors",
+    "heading-anchor",
+    "linkify",
+    "math",
+    "smartquotes",
+    "sourcepos",
+    "source-pos",
+    "typographer",
+    "syntect",
+    "syntax-highlighting",
+]
+
+class Ast:
+    @property
+    def root(self) -> Node: ...
+
+class Node:
+    @property
+    def type_name(self) -> str: ...
+    @property
+    def children(self) -> list["Node"]: ...
+    def render(self) -> str: ...
+    def append_text(self, text: str) -> None: ...
+    def append_html(self, html: str) -> None: ...
+    def clear_children(self) -> None: ...
+
+class FrontMatter:
+    @property
+    def kind(self) -> str: ...
+    @property
+    def raw(self) -> str: ...
+    @property
+    def start_line(self) -> int: ...
+    @property
+    def end_line(self) -> int: ...
+
+class MarkdownOutput:
+    @property
+    def html(self) -> str: ...
+    @property
+    def frontmatter(self) -> FrontMatter | None: ...
+
+class MarkdownIt:
+    def __init__(
+        self,
+        *,
+        html: bool = False,
+        linkify: bool = False,
+        math: bool = False,
+        frontmatter: bool = False,
+        typographer: bool = False,
+        sourcepos: bool = False,
+        heading_anchors: bool = False,
+        directives: bool = False,
+        tasklist: bool = False,
+        footnote: bool = False,
+        syntax_highlighting: bool = False,
+        syntax_theme: str | None = None,
+        syntax_classed: bool = False,
+    ) -> None: ...
+    @overload
+    def use(
+        self,
+        plugin: Literal["heading-anchors", "heading-anchor"],
+        *,
+        strategy: Literal["simple", "github"] = "simple",
+        existing_id: Literal["keep", "override"] = "keep",
+        empty_slug: str | None = None,
+        prefix: str | None = None,
+    ) -> "MarkdownIt": ...
+    @overload
+    def use(
+        self,
+        plugin: BuiltinPlugin | str | Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> "MarkdownIt": ...
+    def add_core_rule(self, name: str, callback: Callable[[Node], Any]) -> None: ...
+    def add_postprocessor(
+        self,
+        name: str,
+        callback: Callable[[str], str],
+        after: str | list[str] | None = None,
+    ) -> None: ...
+    def render(self, src: str) -> str: ...
+    def parse(self, src: str) -> Ast: ...
+    def parse_frontmatter(self, src: str) -> FrontMatter | None: ...
+    def render_with_frontmatter(self, src: str) -> MarkdownOutput: ...
+    def syntax_theme_css(self) -> str | None: ...
+
+def available_syntax_themes() -> list[str]: ...
