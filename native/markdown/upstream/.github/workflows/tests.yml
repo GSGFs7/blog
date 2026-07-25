@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  - push
+  - pull_request
+
+permissions: read-all
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_RETRY: "3"
+
+    strategy:
+      matrix:
+        rust:
+          - stable
+
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo test

@@ -1,0 +1,19 @@
+[package]
+name = "markdown-it-rs-py"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "markdown_it_rs_py"
+crate-type = ["cdylib"]
+
+[features]
+default = ["linkify", "syntect", "katex"]
+linkify = ["markdown-it-rs/linkify"]
+syntect = ["markdown-it-rs/syntect"]
+katex = ["markdown-it-rs/katex"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module"] }
+markdown-it-rs = { path = "../..", default-features = false }
