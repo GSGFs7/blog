@@ -304,7 +304,7 @@ class RemoteEmbeddingTest(_EmbeddingModelMixin, SimpleTestCase):
             AsyncClient=CreatedAsyncClient,
         )
 
-        with patch.dict(sys.modules, {"httpx": httpx_module}):
+        with patch.dict(sys.modules, {"httpx2": httpx_module}):
             model = RemoteEmbedding()
 
             client = model._get_client()

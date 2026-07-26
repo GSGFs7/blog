@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 
 if TYPE_CHECKING:
-    from httpx import AsyncClient, Client
+    from httpx2 import AsyncClient, Client
     from sentence_transformers import SentenceTransformer
 
 __all__ = [
@@ -190,17 +190,17 @@ class RemoteEmbedding(EmbeddingProvider):
 
     def _get_client(self) -> Client:
         if self.client is None or self.client.is_closed:
-            import httpx
+            import httpx2
 
-            self.client: Client = httpx.Client(**self._client_options)
+            self.client: Client = httpx2.Client(**self._client_options)
         # noinspection PyTypeChecker
         return self.client
 
     def _get_aclient(self) -> AsyncClient:
         if self.aclient is None or self.aclient.is_closed:
-            import httpx
+            import httpx2
 
-            self.aclient: AsyncClient = httpx.AsyncClient(**self._client_options)
+            self.aclient: AsyncClient = httpx2.AsyncClient(**self._client_options)
         # noinspection PyTypeChecker
         return self.aclient
 

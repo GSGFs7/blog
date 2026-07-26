@@ -1,6 +1,6 @@
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
+import httpx2
 from django.test import TransactionTestCase
 
 from api.models import Guest, OAuthIdentity, OAuthProvider
@@ -43,7 +43,7 @@ class OAuthServiceTest(TransactionTestCase):
         async def handler(request):
             nonlocal user_name
             if request.url.path == "/token":
-                return httpx.Response(
+                return httpx2.Response(
                     200,
                     json={
                         "access_token": "access-token",
@@ -52,7 +52,7 @@ class OAuthServiceTest(TransactionTestCase):
                         "token_type": "Bearer",
                     },
                 )
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "sub": "provider-user-id",
@@ -62,7 +62,9 @@ class OAuthServiceTest(TransactionTestCase):
                 },
             )
 
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(handler)
+        ) as client:
             service = OAuthService(self.provider, client=client)
             identity = await service.login(
                 code="authorization-code",

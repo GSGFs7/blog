@@ -2,7 +2,6 @@ import unittest
 
 from markdown_it_rs_py import MarkdownIt
 
-
 YAML_FRONTMATTER_INPUT = "---\ntitle: Test\n---\n# heading"
 
 

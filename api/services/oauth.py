@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-import httpx
+import httpx2
 from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -53,7 +53,7 @@ class OAuthService:
         self,
         provider: OAuthProvider,
         *,
-        client: httpx.AsyncClient | None = None,
+        client: httpx2.AsyncClient | None = None,
         timeout: float = 10.0,
     ):
         if not provider.is_active:
@@ -70,7 +70,7 @@ class OAuthService:
         cls,
         provider_key: str,
         *,
-        client: httpx.AsyncClient | None = None,
+        client: httpx2.AsyncClient | None = None,
         timeout: float = 10.0,
     ) -> "OAuthService":
         try:
@@ -207,7 +207,7 @@ class OAuthService:
     async def _request_json(self, method: str, url: str, **kwargs) -> dict[str, Any]:
         try:
             if self.client is None:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with httpx2.AsyncClient(timeout=self.timeout) as client:
                     response = await client.request(method, url, **kwargs)
             else:
                 response = await self.client.request(
@@ -217,7 +217,7 @@ class OAuthService:
                 )
             response.raise_for_status()
             payload = response.json()
-        except (httpx.HTTPError, ValueError) as e:
+        except (httpx2.HTTPError, ValueError) as e:
             raise OAuthProviderResponseError("OAuth provider request failed") from e
 
         if not isinstance(payload, dict):

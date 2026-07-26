@@ -65,7 +65,9 @@ class HeadingAnchorTests(unittest.TestCase):
             MarkdownIt().use("heading-anchors", invalid=True)
 
     def test_heading_anchors_rule_update_with_callable(self):
-        """Second .use() with a callable should override the previous builtin strategy."""
+        """
+        Second .use() with a callable should override the previous builtin strategy.
+        """
 
         def my_slugify(s: str) -> str:
             return "".join(
