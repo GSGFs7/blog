@@ -13,6 +13,7 @@ from media_service.models import ImageResource, ImageVariant
 logger = logging.getLogger(__name__)
 
 
+# TODO: animated AVIF & WebP
 @shared_task
 def process_image(image_resource_id: int, force: bool = False):
     """Generate optimized versions (WebP, AVIF) and thumbnail for an image."""
