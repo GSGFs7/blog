@@ -3,23 +3,28 @@ from django.http import HttpRequest, HttpResponse, HttpResponsePermanentRedirect
 from django.shortcuts import aget_object_or_404, redirect, render
 from django.template.response import TemplateResponse
 from django.templatetags.static import static
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_safe
 
 from api.models import Post
+from web.cache import private_page_response, public_page_response
 
 
 # Create your views here.
-@require_GET
+@require_safe
 def index(request: HttpRequest):
-    return render(request, "web/pages/index.html")
+    return public_page_response(
+        render(request, "web/pages/index.html"),
+        edge_max_age=300,
+        max_stale=86400,
+    )
 
 
 @require_GET
 def test(request: HttpRequest):
-    return render(request, "web/pages/test.html")
+    return private_page_response(render(request, "web/pages/test.html"))
 
 
-@require_GET
+@require_safe
 async def blog(request: HttpRequest):
     page = request.GET.get("page", "1")
     page = max(1, int(page)) if page.isdigit() else 1
@@ -48,7 +53,16 @@ async def blog(request: HttpRequest):
         "previous_page_number": previous_page_number,
         "next_page_number": next_page_number,
     }
-    return TemplateResponse(request, "web/pages/blog.html", context=context)
+    response = TemplateResponse(
+        request,
+        "web/pages/blog.html",
+        context=context,
+    )
+    return public_page_response(
+        response,
+        edge_max_age=300,
+        max_stale=86400,
+    )
 
 
 @require_GET
@@ -74,18 +88,20 @@ async def blog_random_post(request: HttpRequest):
         .afirst()
     )
     if post is None:
-        return redirect("blog")
+        return private_page_response(redirect("blog"))
 
-    return redirect("blog_post_slug", post_slug=post.slug)
+    return private_page_response(redirect("blog_post_slug", post_slug=post.slug))
 
 
 @require_GET
 async def blog_post_id(request: HttpRequest, post_id: int):
     post = await aget_object_or_404(Post, id=post_id)
-    return redirect("blog_post_slug", post_slug=post.slug, permanent=True)
+    return private_page_response(
+        redirect("blog_post_slug", post_slug=post.slug, permanent=True)
+    )
 
 
-@require_GET
+@require_safe
 async def blog_post_slug(request: HttpRequest, post_slug: str):
     post = await aget_object_or_404(
         Post.objects.select_related("category").prefetch_related("tags"),
@@ -107,7 +123,16 @@ async def blog_post_slug(request: HttpRequest, post_slug: str):
         "category_name": post.category.name if post.category_id else "",
         "tag_names": [t.name for t in post.tags.all()],
     }
-    return TemplateResponse(request, "web/pages/blog_post.html", context=context)
+    response = TemplateResponse(
+        request,
+        "web/pages/blog_post.html",
+        context=context,
+    )
+    return public_page_response(
+        response,
+        edge_max_age=300,
+        max_stale=86400,
+    )
 
 
 @require_GET
@@ -125,29 +150,46 @@ async def blog_post_markdown(request: HttpRequest, post_slug: str):
     return response
 
 
-@require_GET
+@require_safe
 def about(request: HttpRequest):
-    return render(request, "web/pages/about.html")
+    response = render(request, "web/pages/about.html")
+    return public_page_response(
+        response,
+        edge_max_age=300,
+        max_stale=86400,
+    )
 
 
-@require_GET
+@require_safe
 def entertainment(request: HttpRequest):
-    return render(request, "web/pages/entertainment.html")
+    response = render(request, "web/pages/entertainment.html")
+    return public_page_response(
+        response,
+        edge_max_age=300,
+        max_stale=86400,
+    )
+
+
+@require_safe
+def privacy(request: HttpRequest):
+    response = render(request, "web/pages/privacy.html")
+    return public_page_response(
+        response,
+        edge_max_age=300,
+        max_stale=86400,
+    )
 
 
 @require_GET
 def login(request: HttpRequest):
-    return render(request, "web/pages/login.html")
+    response = render(request, "web/pages/login.html")
+    return private_page_response(response)
 
 
 @require_GET
 def user(request: HttpRequest):
-    return render(request, "web/pages/user.html")
-
-
-@require_GET
-def privacy(request: HttpRequest):
-    return render(request, "web/pages/privacy.html")
+    response = render(request, "web/pages/user.html")
+    return private_page_response(response)
 
 
 # nginx will process this in prod
@@ -163,8 +205,10 @@ def page_not_found(request: HttpRequest, exception: Exception):
         user.get_username() if user is not None and user.is_authenticated else "visitor"
     )
     context = {"visitor": visitor}
-    return TemplateResponse(request, "404.html", context=context, status=404)
+    return private_page_response(
+        TemplateResponse(request, "404.html", context=context, status=404)
+    )
 
 
 def server_error(request: HttpRequest):
-    return render(request, "500.html", status=500)
+    return private_page_response(render(request, "500.html", status=500))
