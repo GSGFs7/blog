@@ -10,28 +10,28 @@ resources:
 - middleware-scanner-block.yaml
 
 patches:
-- target:
-    kind: ConfigMap
-    name: blog-config
-  patch: |-
+- patch: |-
     apiVersion: v1
     kind: ConfigMap
     metadata:
       name: blog-config
     data:
       STATIC_URL: "https://static.gsgfs.moe/static/"
+  target:
+    kind: ConfigMap
+    name: blog-config
 
 # In prod, images are managed by Woodpecker CI & Argo CD
 images:
 - name: blog-app
   newName: registry.gsgfs.sh/blog-app
-  newTag: 83b912c53e80722eb08acefb6c354c7de41c696a
+  newTag: c5195110307d6792860075382a600470048198c3
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
-  newTag: 83b912c53e80722eb08acefb6c354c7de41c696a
+  newTag: c5195110307d6792860075382a600470048198c3
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
-  newTag: 83b912c53e80722eb08acefb6c354c7de41c696a
+  newTag: c5195110307d6792860075382a600470048198c3
 - name: blog-pgbouncer
   newName: registry.gsgfs.sh/blog-pgbouncer
-  newTag: 83b912c53e80722eb08acefb6c354c7de41c696a
+  newTag: c5195110307d6792860075382a600470048198c3
