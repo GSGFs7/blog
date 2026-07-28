@@ -2,14 +2,17 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from botocore.exceptions import ClientError
 
 from scripts.publish_static_assets import (
     IMMUTABLE_CACHE_CONTROL,
+    S3_REGION,
     _content_type,
+    _required_environment,
     collect_asset_paths,
+    create_s3_client,
     object_key,
     public_asset_url,
     publish_static_assets,
@@ -170,6 +173,37 @@ class StaticAssetLocationTest(unittest.TestCase):
             public_asset_url("static/", "dist/entry.js")
 
 
+class StaticAssetConfigurationTest(unittest.TestCase):
+    @patch("scripts.publish_static_assets.boto3.client")
+    def test_uses_r2_signature_configuration(self, boto_client):
+        expected_client = Mock()
+        boto_client.return_value = expected_client
+
+        actual = create_s3_client(
+            endpoint_url="https://account.r2.cloudflarestorage.com",
+            access_key_id="access-key",
+            secret_access_key="secret-key",
+        )
+
+        self.assertIs(actual, expected_client)
+        boto_client.assert_called_once()
+        args, kwargs = boto_client.call_args
+        self.assertEqual(args, ("s3",))
+        self.assertEqual(kwargs["region_name"], S3_REGION)
+        self.assertEqual(kwargs["config"].signature_version, "s3v4")
+
+    @patch(
+        "scripts.publish_static_assets.os.getenv",
+        return_value="  secret-value\n",
+    )
+    def test_strips_environment_whitespace(self, getenv):
+        self.assertEqual(
+            _required_environment("STATIC_ASSET_SECRET_ACCESS_KEY"),
+            "secret-value",
+        )
+        getenv.assert_called_once_with("STATIC_ASSET_SECRET_ACCESS_KEY", "")
+
+
 class StaticAssetPublicationTest(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -262,6 +296,20 @@ class StaticAssetPublicationTest(unittest.TestCase):
                 path=path,
                 relative_path="asset.abc.css",
             )
+
+    def test_reports_signature_configuration_error(self):
+        self.s3_client.put_object = Mock(
+            side_effect=ClientError(
+                {
+                    "Error": {"Code": "SignatureDoesNotMatch"},
+                    "ResponseMetadata": {"HTTPStatusCode": 403},
+                },
+                "PutObject",
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "R2 rejected the S3 signature"):
+            self.publish()
 
     def test_does_not_publish_release_when_public_check_fails(self):
         self.http_client.head.return_value.raise_for_status.side_effect = RuntimeError(

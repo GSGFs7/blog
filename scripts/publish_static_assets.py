@@ -13,11 +13,13 @@ from urllib.parse import quote, urlsplit
 import boto3
 import httpx2
 from blake3 import blake3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 RELEASE_CACHE_CONTROL = "no-store"
 MAX_WORKERS = 16
+S3_REGION = "auto"
 COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SERVER_ONLY_ASSETS = {
     "ssr/solid-islands.json",
@@ -161,6 +163,15 @@ def _is_precondition_failed(error: ClientError) -> bool:
     return status == 412 or code == "PreconditionFailed"
 
 
+def _raise_upload_error(error: ClientError) -> None:
+    if error.response.get("Error", {}).get("Code") == "SignatureDoesNotMatch":
+        raise RuntimeError(
+            "R2 rejected the S3 signature. Verify the R2 S3 endpoint and the "
+            "Access Key ID/Secret Access Key configured in CI."
+        ) from error
+    raise error
+
+
 def _validate_stored_object(
     response,
     *,
@@ -210,7 +221,7 @@ def upload_asset(
             )
     except ClientError as error:
         if not _is_precondition_failed(error):
-            raise
+            _raise_upload_error(error)
         uploaded = False
 
     stored = client.head_object(Bucket=bucket, Key=key)
@@ -291,7 +302,7 @@ def upload_release_manifest(
         )
     except ClientError as error:
         if not _is_precondition_failed(error):
-            raise
+            _raise_upload_error(error)
         uploaded = False
 
     stored = client.head_object(Bucket=bucket, Key=key)
@@ -375,10 +386,26 @@ def publish_static_assets(
 
 
 def _required_environment(name: str) -> str:
-    value = os.getenv(name)
+    value = os.getenv(name, "").strip()
     if not value:
         raise RuntimeError(f"Static asset configuration is missing: {name}")
     return value
+
+
+def create_s3_client(
+    *,
+    endpoint_url: str,
+    access_key_id: str,
+    secret_access_key: str,
+):
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
+        region_name=S3_REGION,
+        config=Config(signature_version="s3v4"),
+    )
 
 
 def main() -> int:
@@ -394,11 +421,10 @@ def main() -> int:
     allowed_origin = _required_environment("STATIC_ASSET_ALLOWED_ORIGIN")
     commit = _required_environment("CI_COMMIT_SHA")
 
-    s3_client = boto3.client(
-        "s3",
+    s3_client = create_s3_client(
         endpoint_url=endpoint_url,
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
     )
     with httpx2.Client(timeout=10) as http_client:
         publish_static_assets(
