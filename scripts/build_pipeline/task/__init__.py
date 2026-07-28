@@ -1,3 +1,4 @@
+from .assets_publish import PublishStaticAssetsTask
 from .image_build import BuildImageTask
 from .image_clean import CleanImageTask
 from .image_push import PushImageTask
@@ -11,5 +12,6 @@ __all__ = [
     "CheckRegistryRouteTask",
     "BuildImageTask",
     "PushImageTask",
+    "PublishStaticAssetsTask",
     "CleanImageTask",
 ]

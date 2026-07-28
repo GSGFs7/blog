@@ -39,6 +39,31 @@ class ViteTemplateTagTests(SimpleTestCase):
 
         self.assertEqual(rendered, "/static/dist/assets/index-abc123.js")
 
+    @override_settings(
+        DEBUG=False,
+        STATIC_URL="https://static.gsgfs.moe/static/",
+    )
+    def test_vite_asset_uses_remote_static_url(self):
+        with TemporaryDirectory() as tmp_dir:
+            manifest_dir = Path(tmp_dir) / "dist"
+            manifest_dir.mkdir(parents=True)
+            (manifest_dir / "manifest.json").write_text(
+                json.dumps(
+                    {"web/typescript/index.tsx": {"file": "assets/index-abc123.js"}}
+                )
+            )
+            vite._load_manifest.cache_clear()
+
+            with override_settings(STATIC_ROOT=tmp_dir):
+                rendered = Template(
+                    "{% load vite %}{% vite_asset 'web/typescript/index.tsx' %}"
+                ).render(Context())
+
+        self.assertEqual(
+            rendered,
+            "https://static.gsgfs.moe/static/dist/assets/index-abc123.js",
+        )
+
     @override_settings(DEBUG=False)
     def test_vite_asset_raises_when_manifest_is_missing(self):
         with TemporaryDirectory() as tmp_dir:

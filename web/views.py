@@ -198,6 +198,16 @@ def favicon(request: HttpRequest):
     return HttpResponsePermanentRedirect(static("favicon.ico"))
 
 
+@require_GET
+def robots(request: HttpRequest):
+    return HttpResponsePermanentRedirect(static("robots.txt"))
+
+
+@require_GET
+def llms(request: HttpRequest):
+    return HttpResponsePermanentRedirect(static("llms.txt"))
+
+
 # sync only
 def page_not_found(request: HttpRequest, exception: Exception):
     user = getattr(request, "user", None)

@@ -40,6 +40,17 @@ steps:
       REGISTRY_CLEANUP_ENABLED: "true" # needs registry cleanup?
       REGISTRY_CLEANUP_REQUIRED: "true" # interrupt CI when cleanup failed?
       STORAGE_DRIVER: overlay
+      STATIC_ASSET_ENDPOINT_URL:
+        from_secret: STATIC_ASSET_ENDPOINT_URL
+      STATIC_ASSET_BUCKET:
+        from_secret: STATIC_ASSET_BUCKET
+      STATIC_ASSET_ACCESS_KEY_ID:
+        from_secret: STATIC_ASSET_ACCESS_KEY_ID
+      STATIC_ASSET_SECRET_ACCESS_KEY:
+        from_secret: STATIC_ASSET_SECRET_ACCESS_KEY
+      STATIC_ASSET_PREFIX: static # public url should match prefix
+      STATIC_ASSET_PUBLIC_URL: https://static.gsgfs.moe/static/
+      STATIC_ASSET_ALLOWED_ORIGIN: https://gsgfs.moe
     commands:
       - |
         # 1. Install necessary tools

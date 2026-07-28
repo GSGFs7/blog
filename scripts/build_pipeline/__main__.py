@@ -16,6 +16,7 @@ from .task import (
     BuildImageTask,
     CheckRegistryRouteTask,
     CleanImageTask,
+    PublishStaticAssetsTask,
     PushImageTask,
     RegistryConfig,
     SetRegistryCertTask,
@@ -51,6 +52,7 @@ def main() -> int:
             SetRegistryCertTask(registry_config),
             CheckRegistryRouteTask(runner, registry_config),
             BuildImageTask(runner, IMAGES),
+            PublishStaticAssetsTask(runner),
             PushImageTask(runner, IMAGES, registry_config),
         ]
 

@@ -257,6 +257,8 @@ class PageCacheViewTests(TestCase):
             reverse("blog_post_id", args=[self.post.pk]),
             reverse("blog_post_markdown", args=[self.post.slug]),
             reverse("favicon"),
+            reverse("robots"),
+            reverse("llms"),
         ]
 
         for path in paths:
@@ -283,17 +285,43 @@ class PageCacheViewTests(TestCase):
                 )
 
     def test_redirect_and_error_responses_are_private(self):
-        responses = [
+        redirect_responses = [
             self.client.get(reverse("favicon")),
+            self.client.get(reverse("robots")),
+            self.client.get(reverse("llms")),
+        ]
+        responses = [
+            *redirect_responses,
             self.client.get("/missing-page"),
             server_error(RequestFactory().get("/broken-page")),
         ]
 
-        self.assertEqual(responses[0].status_code, 301)
-        self.assertEqual(responses[1].status_code, 404)
-        self.assertEqual(responses[2].status_code, 500)
+        for response in redirect_responses:
+            self.assertEqual(response.status_code, 301)
+        self.assertEqual(responses[-2].status_code, 404)
+        self.assertEqual(responses[-1].status_code, 500)
         for response in responses:
             self.assert_private_page(response)
+
+    @override_settings(
+        DEBUG=False,
+        STATIC_URL="https://static.gsgfs.moe/static/",
+    )
+    def test_static_redirects_use_remote_hashed_assets(self):
+        assets = {
+            "favicon": r"favicon\.[0-9a-f]{12}\.ico",
+            "robots": r"robots\.[0-9a-f]{12}\.txt",
+            "llms": r"llms\.[0-9a-f]{12}\.txt",
+        }
+
+        for view_name, asset_pattern in assets.items():
+            with self.subTest(view_name=view_name):
+                response = self.client.get(reverse(view_name))
+                self.assertEqual(response.status_code, 301)
+                self.assertRegex(
+                    response.headers["Location"],
+                    rf"^https://static\.gsgfs\.moe/static/{asset_pattern}$",
+                )
 
     def test_api_response_is_private(self):
         response = self.client.get("/api/auth/oauth/providers")

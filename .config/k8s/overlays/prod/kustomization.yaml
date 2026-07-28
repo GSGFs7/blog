@@ -9,6 +9,18 @@ resources:
 - middleware-whitelist.yaml
 - middleware-scanner-block.yaml
 
+patches:
+- target:
+    kind: ConfigMap
+    name: blog-config
+  patch: |-
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: blog-config
+    data:
+      STATIC_URL: "https://static.gsgfs.moe/static/"
+
 # In prod, images are managed by Woodpecker CI & Argo CD
 images:
 - name: blog-app

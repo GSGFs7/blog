@@ -123,10 +123,10 @@ CSP_POLICY = {
     "script-src": [CSP.SELF, CSP.WASM_UNSAFE_EVAL, _static_src],
     "script-src-attr": [CSP.NONE],
     # xterm.js needs inline style
-    "style-src": [CSP.SELF, CSP.UNSAFE_INLINE],
+    "style-src": [CSP.SELF, CSP.UNSAFE_INLINE, _static_src],
     "style-src-attr": [CSP.UNSAFE_INLINE],
-    "img-src": [CSP.SELF, "data:", "blob:", _img_src],
-    "font-src": [CSP.SELF, "data:"],
+    "img-src": [CSP.SELF, "data:", "blob:", _img_src, _static_src],
+    "font-src": [CSP.SELF, "data:", _static_src],
     "connect-src": [CSP.SELF, _static_src],
     "worker-src": [CSP.SELF, "blob:", _static_src],
     "media-src": [CSP.SELF],
@@ -314,7 +314,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = "/static/"
+STATIC_URL = os.getenv("STATIC_URL", "/static/")
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 # python manage.py collectstatic --noinput 收集静态文件
 

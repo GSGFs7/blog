@@ -57,7 +57,7 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
   }
 
   return {
-    base: command === "build" ? "/static/dist/" : "/",
+    base: command === "build" ? "./" : "/",
     plugins: [
       !isSsrBuild && tailwindcss(),
       solidPlugin({
