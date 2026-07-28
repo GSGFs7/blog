@@ -1,3 +1,5 @@
+import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation/events";
+
 const ISLAND_SELECTOR = "[data-solid-island]";
 
 let setupPromise: Promise<void> | undefined = undefined;
@@ -39,9 +41,8 @@ export function setupLazyIsland(): void {
     });
   };
 
-  const handleAfterSwap = (event: Event) => {
-    const root = event.target instanceof Element ? event.target : document;
-    scan(root);
+  const handleAfterSwap = (event: CustomEvent<PageSwapDetail>) => {
+    scan(event.detail.root);
   };
 
   if (document.readyState === "loading") {
@@ -50,5 +51,5 @@ export function setupLazyIsland(): void {
     scan(document);
   }
 
-  document.body.addEventListener("htmx:afterSwap", handleAfterSwap);
+  document.addEventListener(APP_PAGE_EVENT.afterSwap, handleAfterSwap);
 }

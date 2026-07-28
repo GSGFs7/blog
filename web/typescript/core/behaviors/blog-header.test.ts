@@ -2,6 +2,7 @@ import { fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { setupBehaviors } from ".";
+import { runPageSwap } from "../../test/page-lifecycle";
 
 let teardown: (() => void) | undefined;
 
@@ -11,17 +12,19 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("mounts a blog header loaded by htmx", () => {
+test("mounts a blog header after a page swap", () => {
   teardown = setupBehaviors();
-  document.body.innerHTML = `
-    <main id="swap-target">
-      <div data-blog-header>
-        <img data-blog-header-image>
-        <span data-blog-pointer-x></span>
-        <span data-blog-pointer-y></span>
-      </div>
-    </main>
-  `;
+  runPageSwap(() => {
+    document.body.innerHTML = `
+      <main id="swap-target">
+        <div data-blog-header>
+          <img data-blog-header-image>
+          <span data-blog-pointer-x></span>
+          <span data-blog-pointer-y></span>
+        </div>
+      </main>
+    `;
+  });
 
   const target = document.getElementById("swap-target")!;
   const card = target.querySelector<HTMLElement>("[data-blog-header]")!;
@@ -37,12 +40,6 @@ test("mounts a blog header loaded by htmx", () => {
     toJSON: () => ({}),
   });
 
-  target.dispatchEvent(
-    new CustomEvent("htmx:load", {
-      bubbles: true,
-      detail: { elt: target },
-    }),
-  );
   fireEvent.mouseMove(card, { clientX: 150, clientY: 25 });
 
   expect(card.querySelector("img")?.style.transform).toBe("scale(1.1) translateX(12.5px)");
@@ -50,14 +47,26 @@ test("mounts a blog header loaded by htmx", () => {
   expect(card.querySelector("[data-blog-pointer-y]")).toHaveTextContent("-0.50");
 });
 
-test("does not bind a blog header more than once", () => {
+test("does not retain blog header listeners from the previous page", () => {
   document.body.innerHTML = `
     <div data-blog-header>
       <img data-blog-header-image>
     </div>
   `;
+  const previousCard = document.querySelector<HTMLElement>("[data-blog-header]")!;
+  const previousRect = vi.spyOn(previousCard, "getBoundingClientRect");
+
+  teardown = setupBehaviors();
+  runPageSwap(() => {
+    document.body.innerHTML = `
+      <div data-blog-header>
+        <img data-blog-header-image>
+      </div>
+    `;
+  });
+
   const card = document.querySelector<HTMLElement>("[data-blog-header]")!;
-  const getBoundingClientRect = vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+  const currentRect = vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
     bottom: 100,
     height: 100,
     left: 0,
@@ -69,11 +78,11 @@ test("does not bind a blog header more than once", () => {
     toJSON: () => ({}),
   });
 
-  teardown = setupBehaviors();
-  card.dispatchEvent(new CustomEvent("htmx:load", { bubbles: true, detail: { elt: card } }));
+  fireEvent.mouseMove(previousCard, { clientX: 50, clientY: 50 });
   fireEvent.mouseMove(card, { clientX: 50, clientY: 50 });
 
-  expect(getBoundingClientRect).toHaveBeenCalledOnce();
+  expect(previousRect).not.toHaveBeenCalled();
+  expect(currentRect).toHaveBeenCalledOnce();
 });
 
 test("teardown removes behavior listeners", () => {

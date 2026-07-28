@@ -2,6 +2,7 @@ import { fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { setupBehaviors } from ".";
+import { runPageSwap } from "../../test/page-lifecycle";
 
 let teardown: (() => void) | undefined;
 
@@ -48,41 +49,33 @@ test("zooms an image and closes it with Escape", () => {
 });
 
 test("mounts swapped images once", () => {
-  document.body.innerHTML = '<main id="swap-target"></main>';
   teardown = setupBehaviors();
+  runPageSwap(() => {
+    document.body.innerHTML =
+      '<main id="swap-target"><article class="markdown-body"><img alt="test"></article></main>';
+  });
+
   const target = document.getElementById("swap-target")!;
-  target.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
   const image = target.querySelector("img")!;
   prepareImage(image);
 
-  for (let index = 0; index < 2; index += 1) {
-    target.dispatchEvent(
-      new CustomEvent("htmx:load", {
-        bubbles: true,
-        detail: { elt: target },
-      }),
-    );
-  }
   fireEvent.click(image);
 
   expect(image).toHaveClass("is-zoomed");
   expect(document.getElementById("zoom-overlay")).toHaveClass("is-visible");
 });
 
-test("recreates the overlay after htmx page navigation", () => {
+test("recreates the overlay after page navigation", () => {
   document.body.innerHTML = '<article class="markdown-body"><img alt="first"></article>';
   teardown = setupBehaviors();
   const initialOverlay = document.getElementById("zoom-overlay");
 
-  document.body.innerHTML = '<article class="markdown-body"><img alt="second"></article>';
+  runPageSwap(() => {
+    document.body.innerHTML = '<article class="markdown-body"><img alt="second"></article>';
+  });
+
   const image = document.querySelector("img")!;
   prepareImage(image);
-  document.body.dispatchEvent(
-    new CustomEvent("htmx:load", {
-      bubbles: true,
-      detail: { elt: document.body },
-    }),
-  );
 
   const replacementOverlay = document.getElementById("zoom-overlay");
   expect(initialOverlay).not.toBeInTheDocument();

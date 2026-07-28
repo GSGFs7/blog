@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { setupBehaviors } from ".";
+import { runPageSwap } from "../../test/page-lifecycle";
 
 let teardown: (() => void) | undefined;
 let matchMediaMock: ReturnType<typeof vi.fn>;
@@ -79,20 +80,15 @@ test("destroys stops listener and sets desktop state", () => {
   expect(mockMQL.listeners.size).toBe(0);
 });
 
-test("applies current state to htmx-swapped content", () => {
-  document.body.innerHTML = '<main id="swap-target"></main>';
+test("applies current state to swapped content", () => {
   teardown = setupBehaviors();
 
+  runPageSwap(() => {
+    document.body.innerHTML =
+      '<main id="swap-target"><div data-mobile-undecorated>content</div></main>';
+  });
+
   const target = document.getElementById("swap-target")!;
-  target.innerHTML = "<div data-mobile-undecorated>content</div>";
-
-  target.dispatchEvent(
-    new CustomEvent("htmx:load", {
-      bubbles: true,
-      detail: { elt: target },
-    }),
-  );
-
   expect(target.querySelector("[data-mobile-undecorated]")).toHaveClass("is-decorated");
 });
 
@@ -102,21 +98,15 @@ test("skips media query listener when no elements on page", () => {
   expect(matchMediaMock).not.toHaveBeenCalled();
 });
 
-test("stops listener when all elements are removed via htmx", () => {
+test("stops listener when all elements are removed by a page swap", () => {
   document.body.innerHTML =
     '<main id="swap-target"><div data-mobile-undecorated>content</div></main>';
   teardown = setupBehaviors();
   expect(matchMediaMock).toHaveBeenCalledTimes(1);
 
-  const target = document.getElementById("swap-target")!;
-  target.innerHTML = "<div>no decoration</div>";
-
-  target.dispatchEvent(
-    new CustomEvent("htmx:load", {
-      bubbles: true,
-      detail: { elt: target },
-    }),
-  );
+  runPageSwap(() => {
+    document.body.innerHTML = "<main><div>no decoration</div></main>";
+  });
 
   expect(mockMQL.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
 });

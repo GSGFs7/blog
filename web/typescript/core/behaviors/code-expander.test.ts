@@ -2,6 +2,7 @@ import { fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 
 import { setupBehaviors } from ".";
+import { runPageSwap } from "../../test/page-lifecycle";
 import { CODE_PREVIEW_LINE_LIMIT } from "./code-expander";
 
 let teardown: (() => void) | undefined;
@@ -76,25 +77,19 @@ test("collapses a terminal as one unit", () => {
   expect(document.querySelector(".code-expander__toggle")).toHaveTextContent("expand (15 lines)");
 });
 
-test("mounts htmx content once and teardown restores the original markup", () => {
-  document.body.innerHTML = '<main id="swap-target"></main>';
+test("mounts swapped content once and teardown restores the original markup", () => {
   teardown = setupBehaviors();
+  runPageSwap(() => {
+    document.body.innerHTML = `
+      <main id="swap-target">
+        <article class="markdown-body">
+          <pre><code>${lines(CODE_PREVIEW_LINE_LIMIT + 1)}</code></pre>
+        </article>
+      </main>
+    `;
+  });
+
   const target = document.getElementById("swap-target")!;
-  target.innerHTML = `
-    <article class="markdown-body">
-      <pre><code>${lines(CODE_PREVIEW_LINE_LIMIT + 1)}</code></pre>
-    </article>
-  `;
-
-  for (let index = 0; index < 2; index += 1) {
-    target.dispatchEvent(
-      new CustomEvent("htmx:load", {
-        bubbles: true,
-        detail: { elt: target },
-      }),
-    );
-  }
-
   expect(target.querySelectorAll(".code-expander")).toHaveLength(1);
   teardown();
   teardown = undefined;

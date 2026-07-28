@@ -2,6 +2,7 @@ import htmx, { type HtmxBeforeSwapDetails } from "htmx.org";
 import "htmx-ext-head-support";
 import "htmx-ext-preload";
 
+import { setupHtmxPageLifecycle } from "./navigation";
 import {
   applyHistoryPageTransition,
   applyPageTransition,
@@ -16,6 +17,9 @@ declare global {
     htmx: typeof htmx;
   }
 }
+
+// add plugin
+setupHtmxPageLifecycle(document);
 
 // get the csrf token from cookies
 // double submit cookie

@@ -18,6 +18,7 @@
   "ignorePatterns": [
     "**/templates/**/*.html",
     "web/static/*",
-    ".config/k8s/overlays/prod/kustomization.yaml"
+    ".config/k8s/overlays/prod/kustomization.yaml",
+    "native/markdown/upstream"
   ]
 }

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import { runPageSwap } from "../test/page-lifecycle";
 import { bootstrap, cleanup, setupIslands } from "./bootstrap";
+import { APP_PAGE_EVENT, emitPageEvent } from "./navigation/events";
 
 const solidWeb = vi.hoisted(() => {
   const dispose = vi.fn();
@@ -17,11 +19,12 @@ vi.mock("solid-js/web", async (importOriginal) => ({
   render: solidWeb.render,
 }));
 
-setupIslands({
-  Example: async () => () => null,
-});
+let loadComponent = async () => () => null;
+
+setupIslands({ Example: () => loadComponent() });
 
 beforeEach(() => {
+  loadComponent = async () => () => null;
   solidWeb.dispose.mockClear();
   solidWeb.hydrate.mockReset().mockReturnValue(solidWeb.dispose);
   solidWeb.render.mockReset().mockReturnValue(solidWeb.dispose);
@@ -77,4 +80,38 @@ test("falls back to client rendering when hydration fails", async () => {
     "Failed to hydrate Solid island 'Example', falling back to CSR.",
     expect.any(Error),
   );
+});
+
+test("cleans up and mounts islands through the page lifecycle", async () => {
+  document.body.innerHTML = '<div data-solid-island="Example"></div>';
+  bootstrap();
+  await vi.waitFor(() => expect(solidWeb.render).toHaveBeenCalledOnce());
+
+  runPageSwap(() => {
+    document.body.innerHTML = '<div data-solid-island="Example"></div>';
+  });
+
+  expect(solidWeb.dispose).toHaveBeenCalledOnce();
+  await vi.waitFor(() => expect(solidWeb.render).toHaveBeenCalledTimes(2));
+});
+
+test("does not mount an island whose page was replaced during component loading", async () => {
+  let resolveComponent: ((component: () => null) => void) | undefined;
+  loadComponent = () =>
+    new Promise((resolve) => {
+      resolveComponent = resolve;
+    });
+  document.body.innerHTML = '<div data-solid-island="Example"></div>';
+
+  bootstrap();
+  emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, {
+    navigationId: 1,
+    root: document.body,
+  });
+  document.body.replaceChildren();
+  resolveComponent?.(() => null);
+
+  await vi.waitFor(() => expect(resolveComponent).toBeDefined());
+  expect(solidWeb.hydrate).not.toHaveBeenCalled();
+  expect(solidWeb.render).not.toHaveBeenCalled();
 });

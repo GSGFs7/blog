@@ -3,12 +3,13 @@
 import { render, hydrate } from "solid-js/web";
 
 import type { ComponentProps, ComponentRegistry } from "../types";
+import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation/events";
 
 let registry: ComponentRegistry = {};
 
 type IslandElement = HTMLElement & {
   __solidDispose__?: () => void;
-  __solidMounting__?: boolean; // avoid concurrency issues
+  __solidMountToken__?: symbol; // avoid concurrency issues
 };
 
 function parseProps(componentName: string, propsJSON: string | null): ComponentProps {
@@ -22,12 +23,14 @@ function parseProps(componentName: string, propsJSON: string | null): ComponentP
 
 // mount solid component
 async function mountIsland(element: IslandElement): Promise<void> {
-  if (element.__solidDispose__ || element.__solidMounting__) {
+  if (element.__solidDispose__ || element.__solidMountToken__) {
     // avoid duplicate mounting
     return;
   }
-  // take it
-  element.__solidMounting__ = true;
+
+  // mark with a unique symbol
+  const token = Symbol("island token");
+  element.__solidMountToken__ = token;
 
   try {
     // get the component
@@ -37,7 +40,11 @@ async function mountIsland(element: IslandElement): Promise<void> {
       console.warn(`Solid component '${componentName}' not found in registry.`);
       return;
     }
+
     const Component = await loadComponent();
+    if (!element.isConnected || element.__solidMountToken__ !== token) {
+      return;
+    }
 
     // get component props
     const props = parseProps(componentName, element.dataset.props ?? "{}");
@@ -66,7 +73,9 @@ async function mountIsland(element: IslandElement): Promise<void> {
       element.__solidDispose__ = render(() => <Component {...props} />, element);
     }
   } finally {
-    delete element.__solidMounting__;
+    if (element.__solidMountToken__ === token) {
+      delete element.__solidMountToken__;
+    }
   }
 }
 
@@ -81,22 +90,16 @@ export function cleanup(root: ParentNode) {
     const island = element as IslandElement;
     island.__solidDispose__?.();
     delete island.__solidDispose__;
-    delete island.__solidMounting__;
+    delete island.__solidMountToken__;
   });
 }
 
-function handleBeforeSwap(event: Event) {
-  const target = event.target;
-  if (target instanceof HTMLElement) {
-    cleanup(target);
-  }
+function handleBeforeSwap(event: CustomEvent<PageSwapDetail>) {
+  cleanup(event.detail.root);
 }
 
-function handleAfterSwap(event: Event) {
-  const target = event.target;
-  if (target instanceof HTMLElement) {
-    bootstrap(target);
-  }
+function handleAfterSwap(event: CustomEvent<PageSwapDetail>) {
+  bootstrap(event.detail.root);
 }
 
 export function setupIslands(components: ComponentRegistry) {
@@ -109,7 +112,6 @@ export function setupIslands(components: ComponentRegistry) {
     bootstrap();
   }
 
-  // re-render when htmx update
-  document.body.addEventListener("htmx:beforeSwap", handleBeforeSwap);
-  document.body.addEventListener("htmx:afterSwap", handleAfterSwap);
+  document.addEventListener(APP_PAGE_EVENT.beforeSwap, handleBeforeSwap);
+  document.addEventListener(APP_PAGE_EVENT.afterSwap, handleAfterSwap);
 }
