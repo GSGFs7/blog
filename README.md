@@ -1,6 +1,6 @@
 # GSGFs-blog
 
-[![status-badge](https://woodpecker.gsgfs.sh/api/badges/1/status.svg)](https://woodpecker.gsgfs.sh/repos/1)
+[![status-badge](https://woodpecker.gsgfs.sh/api/badges/2/status.svg)](https://woodpecker.gsgfs.sh/repos/2)
 
 使用 `Django` 构建的个人网站.
 
