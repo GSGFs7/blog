@@ -13,6 +13,14 @@ ENV_NAMES = (
     "STATIC_ASSET_ALLOWED_ORIGIN",
 )
 
+OPTIONAL_ENV_NAMES = (
+    "STATIC_ASSET_VERIFY_INITIAL_RPS",
+    "STATIC_ASSET_VERIFY_MIN_RPS",
+    "STATIC_ASSET_VERIFY_MAX_RPS",
+    "STATIC_ASSET_VERIFY_MAX_ATTEMPTS",
+    "STATIC_ASSET_VERIFY_SUCCESS_STEP",
+)
+
 
 class PublishStaticAssetsTask(Task):
     def __init__(self, runner: Runner):
@@ -28,6 +36,9 @@ class PublishStaticAssetsTask(Task):
         command = ["podman", "run", "--rm"]
         for name in ENV_NAMES:
             command.extend(["--env", name])
+        for name in OPTIONAL_ENV_NAMES:
+            if os.getenv(name) is not None:
+                command.extend(["--env", name])
         command.extend(
             [
                 "localhost/blog-app:latest",

@@ -51,6 +51,11 @@ steps:
       STATIC_ASSET_PREFIX: static # public url should match prefix
       STATIC_ASSET_PUBLIC_URL: https://static.gsgfs.moe/static/
       STATIC_ASSET_ALLOWED_ORIGIN: https://gsgfs.moe
+      STATIC_ASSET_VERIFY_INITIAL_RPS: "8"
+      STATIC_ASSET_VERIFY_MIN_RPS: "1"
+      STATIC_ASSET_VERIFY_MAX_RPS: "32"
+      STATIC_ASSET_VERIFY_MAX_ATTEMPTS: "8"
+      STATIC_ASSET_VERIFY_SUCCESS_STEP: "50"
     commands:
       - |
         # 1. Install necessary tools

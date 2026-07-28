@@ -3,10 +3,18 @@
 import json
 import mimetypes
 import os
+import random
 import re
+import sys
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from math import isfinite
 from pathlib import Path, PurePosixPath
+from threading import Lock
+from time import monotonic, sleep
 from typing import TypedDict
 from urllib.parse import quote, urlsplit
 
@@ -20,6 +28,13 @@ IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 RELEASE_CACHE_CONTROL = "no-store"
 MAX_WORKERS = 16
 S3_REGION = "auto"
+VERIFY_INITIAL_RPS = 8.0
+VERIFY_MIN_RPS = 1.0
+VERIFY_MAX_RPS = 32.0
+VERIFY_MAX_ATTEMPTS = 8
+VERIFY_SUCCESS_STEP = 50
+VERIFY_MAX_BACKOFF_SECONDS = 60.0
+VERIFY_USER_AGENT = "gsgfs-static-publisher/1"
 COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SERVER_ONLY_ASSETS = {
     "ssr/solid-islands.json",
@@ -60,6 +75,89 @@ class ReleaseManifest(TypedDict):
 class UploadOutcome:
     record: AssetRecord
     uploaded: bool
+
+
+class AdaptiveRateLimiter:
+    def __init__(
+        self,
+        *,
+        initial_rps: float,
+        min_rps: float,
+        max_rps: float,
+        success_step: int,
+        clock: Callable[[], float] = monotonic,
+        sleeper: Callable[[float], None] = sleep,
+    ):
+        rates = (initial_rps, min_rps, max_rps)
+        if any(not isfinite(rate) or rate <= 0 for rate in rates):
+            raise ValueError("Verification request rates must be positive and finite")
+        if not min_rps <= initial_rps <= max_rps:
+            raise ValueError(
+                "Verification request rates must satisfy min <= initial <= max"
+            )
+        if type(success_step) is not int or success_step < 1:
+            raise ValueError("Verification success step must be a positive integer")
+
+        self._requests_per_second = initial_rps
+        self._min_rps = min_rps
+        self._max_rps = max_rps
+        self._success_step = success_step
+        self._success_count = 0
+        self._next_request_at = 0.0
+        self._blocked_until = 0.0
+        self._clock = clock
+        self._sleep = sleeper
+        self._lock = Lock()
+
+    @property
+    def requests_per_second(self) -> float:
+        with self._lock:
+            return self._requests_per_second
+
+    def acquire(self) -> None:
+        while True:
+            with self._lock:
+                now = self._clock()
+                ready_at = max(self._next_request_at, self._blocked_until)
+                if ready_at <= now:
+                    self._next_request_at = now + (1 / self._requests_per_second)
+                    return
+                delay = ready_at - now
+            self._sleep(delay)
+
+    def record_success(self) -> float:
+        with self._lock:
+            self._success_count += 1
+            if self._success_count >= self._success_step:
+                self._requests_per_second = min(
+                    self._max_rps,
+                    self._requests_per_second + 1,
+                )
+                self._success_count = 0
+            return self._requests_per_second
+
+    def record_throttle(self, retry_after: float) -> float:
+        if not isfinite(retry_after) or retry_after < 0:
+            raise ValueError("Retry delay must be non-negative and finite")
+
+        #  exponential backoff
+        with self._lock:
+            now = self._clock()
+            self._requests_per_second = max(
+                self._min_rps,
+                self._requests_per_second / 2,
+            )
+            self._success_count = 0
+            self._blocked_until = max(
+                self._blocked_until,
+                now + retry_after,
+            )
+            self._next_request_at = max(
+                self._next_request_at,
+                self._blocked_until,
+                now + (1 / self._requests_per_second),
+            )
+            return self._requests_per_second
 
 
 def _content_type(path: str | Path) -> str:
@@ -239,18 +337,89 @@ def upload_asset(
     )
 
 
+def _retry_after_seconds(
+    value: str | None,
+    *,
+    now: datetime | None = None,
+) -> float | None:
+    if value is None:
+        return None
+
+    value = value.strip()
+    try:
+        seconds = int(value)
+    except ValueError:
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except TypeError, ValueError, OverflowError:
+            return None
+
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        current_time = now or datetime.now(timezone.utc)
+        return max(0.0, (retry_at - current_time).total_seconds())
+
+    return float(seconds) if seconds >= 0 else None
+
+
+def _rate_limit_retry_delay(
+    response,
+    *,
+    attempt: int,
+) -> tuple[float, str]:
+    retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
+    if retry_after is not None:
+        return retry_after, "Retry-After"
+
+    backoff = min(VERIFY_MAX_BACKOFF_SECONDS, float(2**attempt))
+    return backoff + random.uniform(0, 1), "exponential backoff"
+
+
 def check_asset(
     client: httpx2.Client,
     *,
     url: str,
     allowed_origin: str,
     content_type: str,
+    limiter: AdaptiveRateLimiter,
+    max_attempts: int,
 ) -> None:
-    response = client.head(url, headers={"Origin": allowed_origin})
-    response.raise_for_status()
+    if type(max_attempts) is not int or max_attempts < 1:
+        raise ValueError("Verification max attempts must be a positive integer")
+
+    headers = {
+        "Origin": allowed_origin,
+        "User-Agent": VERIFY_USER_AGENT,
+    }
+    last_cf_ray = "unknown"
+    for attempt in range(max_attempts):
+        limiter.acquire()
+        response = client.head(url, headers=headers)
+        if response.status_code != 429:
+            response.raise_for_status()
+            limiter.record_success()
+            break
+
+        retry_delay, delay_source = _rate_limit_retry_delay(
+            response,
+            attempt=attempt,
+        )
+        current_rps = limiter.record_throttle(retry_delay)
+        last_cf_ray = response.headers.get("CF-Ray", "unknown")
+        print(
+            "Static asset verification rate limited: "
+            f"url={url} attempt={attempt + 1}/{max_attempts} "
+            f"delay={retry_delay:.2f}s source={delay_source} "
+            f"rate={current_rps:.2f}rps cf_ray={last_cf_ray}",
+            file=sys.stderr,
+        )
+    else:
+        raise RuntimeError(
+            "Static asset verification remained rate limited after "
+            f"{max_attempts} attempts: {url} (CF-Ray: {last_cf_ray})"
+        )
 
     # checks
-
     cache_directives = {
         directive.strip().lower()
         for directive in response.headers.get("Cache-Control", "").split(",")
@@ -328,11 +497,25 @@ def publish_static_assets(
     allowed_origin: str,
     commit: str,
     max_workers: int = MAX_WORKERS,
+    verify_initial_rps: float = VERIFY_INITIAL_RPS,
+    verify_min_rps: float = VERIFY_MIN_RPS,
+    verify_max_rps: float = VERIFY_MAX_RPS,
+    verify_max_attempts: int = VERIFY_MAX_ATTEMPTS,
+    verify_success_step: int = VERIFY_SUCCESS_STEP,
 ) -> ReleaseManifest:
     if not COMMIT_SHA_RE.fullmatch(commit):
         raise RuntimeError("CI_COMMIT_SHA must be a 40-character hexadecimal SHA")
     if max_workers < 1:
         raise RuntimeError("Static asset worker count must be positive")
+    if type(verify_max_attempts) is not int or verify_max_attempts < 1:
+        raise RuntimeError("Static asset verification attempts must be positive")
+
+    verify_limiter = AdaptiveRateLimiter(
+        initial_rps=verify_initial_rps,
+        min_rps=verify_min_rps,
+        max_rps=verify_max_rps,
+        success_step=verify_success_step,
+    )
 
     root = root.resolve()
     paths = collect_asset_paths(root)
@@ -358,10 +541,17 @@ def publish_static_assets(
             url=public_asset_url(public_url, relative),
             allowed_origin=allowed_origin,
             content_type=_content_type(root / relative),
+            limiter=verify_limiter,
+            max_attempts=verify_max_attempts,
         )
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # consume it
         list(executor.map(verify, outcomes))
+    print(
+        f"Static asset verification: {len(outcomes)} checked, "
+        f"final rate {verify_limiter.requests_per_second:.2f}rps"
+    )
 
     # collect manifest
     manifest: ReleaseManifest = {
@@ -389,6 +579,32 @@ def _required_environment(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
         raise RuntimeError(f"Static asset configuration is missing: {name}")
+    return value
+
+
+def _positive_float_environment(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive number") from exc
+    if not isfinite(value) or value <= 0:
+        raise RuntimeError(f"{name} must be a positive number")
+    return value
+
+
+def _positive_int_environment(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer") from exc
+    if value < 1:
+        raise RuntimeError(f"{name} must be a positive integer")
     return value
 
 
@@ -420,6 +636,26 @@ def main() -> int:
     public_url = _required_environment("STATIC_ASSET_PUBLIC_URL")
     allowed_origin = _required_environment("STATIC_ASSET_ALLOWED_ORIGIN")
     commit = _required_environment("CI_COMMIT_SHA")
+    verify_initial_rps = _positive_float_environment(
+        "STATIC_ASSET_VERIFY_INITIAL_RPS",
+        VERIFY_INITIAL_RPS,
+    )
+    verify_min_rps = _positive_float_environment(
+        "STATIC_ASSET_VERIFY_MIN_RPS",
+        VERIFY_MIN_RPS,
+    )
+    verify_max_rps = _positive_float_environment(
+        "STATIC_ASSET_VERIFY_MAX_RPS",
+        VERIFY_MAX_RPS,
+    )
+    verify_max_attempts = _positive_int_environment(
+        "STATIC_ASSET_VERIFY_MAX_ATTEMPTS",
+        VERIFY_MAX_ATTEMPTS,
+    )
+    verify_success_step = _positive_int_environment(
+        "STATIC_ASSET_VERIFY_SUCCESS_STEP",
+        VERIFY_SUCCESS_STEP,
+    )
 
     s3_client = create_s3_client(
         endpoint_url=endpoint_url,
@@ -436,6 +672,11 @@ def main() -> int:
             public_url=public_url,
             allowed_origin=allowed_origin,
             commit=commit,
+            verify_initial_rps=verify_initial_rps,
+            verify_min_rps=verify_min_rps,
+            verify_max_rps=verify_max_rps,
+            verify_max_attempts=verify_max_attempts,
+            verify_success_step=verify_success_step,
         )
     return 0
 
