@@ -353,7 +353,7 @@ def _storage_backend():
         options["custom_domain"] = S3_PUBLIC_DOMAIN
 
     return {
-        "BACKEND": "storages.backends.s3.S3Storage",
+        "BACKEND": "media_service.backends.MediaStorage",
         "OPTIONS": options,
     }
 
