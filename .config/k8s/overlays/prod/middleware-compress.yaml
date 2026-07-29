@@ -1,0 +1,13 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: response-compression
+  namespace: blog
+spec:
+  compress:
+    encodings:
+      - br
+      - gzip
+    excludedContentTypes:
+      - text/event-stream
+    minResponseBodyBytes: 1024

@@ -13,6 +13,13 @@ def _validate(name: str, value: int | None) -> None:
         raise ValueError(f"{name} must be a non-negative integer")
 
 
+def _is_html_response(response: HttpResponseBase) -> bool:
+    content_type = (
+        response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    )
+    return content_type == "text/html"
+
+
 def public_page_response(
     response: ResponseT,
     *,
@@ -30,11 +37,8 @@ def public_page_response(
     for name, value in ages.items():
         _validate(name, value)
 
-    content_type = (
-        response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-    )
     # avoid cache the error message
-    if response.status_code != 200 or content_type != "text/html":
+    if response.status_code != 200 or not _is_html_response(response):
         raise ValueError("public page response must be a 200 HTML response")
 
     directive = ["public", f"max-age={edge_max_age}"]
@@ -49,7 +53,8 @@ def public_page_response(
 
     # tell browser do not cache the page
     # (prevent navigation always based on a outdated page)
-    response.headers["Cache-Control"] = "no-cache"
+    # no-transform: tell CDN do not change the origin server's response (delete CF JSD)
+    response.headers["Cache-Control"] = "no-cache, no-transform"
     # tell CF CDN cache the page (cover the above rule)
     response.headers["Cloudflare-CDN-Cache-Control"] = ", ".join(directive)
     response.headers["X-Page-Cache"] = "public"
@@ -59,7 +64,10 @@ def public_page_response(
 
 
 def private_page_response(response: ResponseT) -> ResponseT:
-    response.headers["Cache-Control"] = "private, no-store"
+    cache_control = ["private", "no-store"]
+    if _is_html_response(response):
+        cache_control.append("no-transform")
+    response.headers["Cache-Control"] = ", ".join(cache_control)
     response.headers["Cloudflare-CDN-Cache-Control"] = "private, no-store"
     response.headers["X-Page-Cache"] = "private"
     response.headers.pop("X-Page-Cache-Max-Stale", None)

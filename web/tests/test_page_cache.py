@@ -30,7 +30,10 @@ class PageCacheHelperTests(SimpleTestCase):
         )
 
         self.assertIs(result, response)
-        self.assertEqual(result.headers["Cache-Control"], "no-cache")
+        self.assertEqual(
+            result.headers["Cache-Control"],
+            "no-cache, no-transform",
+        )
         self.assertEqual(
             result.headers["Cloudflare-CDN-Cache-Control"],
             ("public, max-age=300, stale-while-revalidate=300, stale-if-error=300"),
@@ -79,7 +82,10 @@ class PageCacheHelperTests(SimpleTestCase):
 
         result = private_page_response(response)
 
-        self.assertEqual(result.headers["Cache-Control"], "private, no-store")
+        self.assertEqual(
+            result.headers["Cache-Control"],
+            "private, no-store, no-transform",
+        )
         self.assertEqual(
             result.headers["Cloudflare-CDN-Cache-Control"],
             "private, no-store",
@@ -87,6 +93,13 @@ class PageCacheHelperTests(SimpleTestCase):
         self.assertEqual(result.headers["X-Page-Cache"], "private")
         self.assertNotIn("X-Page-Cache-Max-Stale", result.headers)
         self.assertNotIn("X-Page-Generated-At", result.headers)
+
+    def test_private_non_html_response_allows_transformations(self):
+        response = HttpResponse("{}", content_type="application/json")
+
+        result = private_page_response(response)
+
+        self.assertEqual(result.headers["Cache-Control"], "private, no-store")
 
 
 @override_settings(SESSION_ENGINE=SIGNED_COOKIE_SESSION_ENGINE)
@@ -114,7 +127,10 @@ class PageCacheMiddlewareTests(SimpleTestCase):
         middleware = HeadersMiddleware(SessionMiddleware(view))
         response = middleware(self.factory.get("/"))
 
-        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        self.assertEqual(
+            response.headers["Cache-Control"],
+            "private, no-store, no-transform",
+        )
         self.assertEqual(response.headers["X-Page-Cache"], "private")
         self.assertIn("sessionid", response.cookies)
         self.assertIn("Cookie", response.headers["Vary"])
@@ -131,7 +147,10 @@ class PageCacheMiddlewareTests(SimpleTestCase):
         result = middleware(self.factory.get("/"))
 
         self.assertEqual(result.headers["X-Page-Cache"], "private")
-        self.assertEqual(result.headers["Cache-Control"], "private, no-store")
+        self.assertEqual(
+            result.headers["Cache-Control"],
+            "private, no-store, no-transform",
+        )
 
     def test_unmarked_html_defaults_to_private(self):
         middleware = HeadersMiddleware(
@@ -141,7 +160,10 @@ class PageCacheMiddlewareTests(SimpleTestCase):
         response = middleware(self.factory.get("/account/login/"))
 
         self.assertEqual(response.headers["X-Page-Cache"], "private")
-        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        self.assertEqual(
+            response.headers["Cache-Control"],
+            "private, no-store, no-transform",
+        )
 
     def test_unmarked_api_response_defaults_to_private(self):
         middleware = HeadersMiddleware(lambda request: JsonResponse({"ok": True}))
@@ -185,7 +207,10 @@ class PageCacheViewTests(TestCase):
 
     def assert_public_page(self, response):
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["Cache-Control"], "no-cache")
+        self.assertEqual(
+            response.headers["Cache-Control"],
+            "no-cache, no-transform",
+        )
         self.assertEqual(
             response.headers["Cloudflare-CDN-Cache-Control"],
             "public, max-age=300",
@@ -202,7 +227,13 @@ class PageCacheViewTests(TestCase):
         self.assertNotIn("cookie", vary)
 
     def assert_private_page(self, response):
-        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        content_type = (
+            response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        )
+        expected = "private, no-store"
+        if content_type == "text/html":
+            expected += ", no-transform"
+        self.assertEqual(response.headers["Cache-Control"], expected)
         self.assertEqual(
             response.headers["Cloudflare-CDN-Cache-Control"],
             "private, no-store",

@@ -8,6 +8,7 @@ resources:
 - cluster-issuer.yaml
 - middleware-whitelist.yaml
 - middleware-scanner-block.yaml
+- middleware-compress.yaml
 
 patches:
 - patch: |-
