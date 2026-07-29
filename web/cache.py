@@ -33,16 +33,24 @@ def public_page_response(
     content_type = (
         response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
     )
+    # avoid cache the error message
     if response.status_code != 200 or content_type != "text/html":
         raise ValueError("public page response must be a 200 HTML response")
 
     directive = ["public", f"max-age={edge_max_age}"]
     if stale_while_revalidate is not None:
+        # tell CDN send the outdated page & async fetch the new page
+        # (prevent cache avalanches)
         directive.append(f"stale-while-revalidate={stale_while_revalidate}")
     if stale_if_error is not None:
+        # tell CDN send the outdated page when origin server error
+        # (e.g. site version update)
         directive.append(f"stale-if-error={stale_if_error}")
 
+    # tell browser do not cache the page
+    # (prevent navigation always based on a outdated page)
     response.headers["Cache-Control"] = "no-cache"
+    # tell CF CDN cache the page (cover the above rule)
     response.headers["Cloudflare-CDN-Cache-Control"] = ", ".join(directive)
     response.headers["X-Page-Cache"] = "public"
     response.headers["X-Page-Cache-Max-Stale"] = str(max_stale)

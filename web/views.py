@@ -26,9 +26,11 @@ def test(request: HttpRequest):
 
 @require_safe
 async def blog(request: HttpRequest):
+    # page
     page = request.GET.get("page", "1")
     page = max(1, int(page)) if page.isdigit() else 1
 
+    # get paginated obj
     all_posts = (
         Post.objects.filter(status="published")
         .select_related("category")
@@ -37,6 +39,7 @@ async def blog(request: HttpRequest):
     paginator = AsyncPaginator(all_posts, 10)
     page_obj = await paginator.aget_page(page)
 
+    # generate context
     page_number = page_obj.number
     post_list = await page_obj.aget_object_list()
     has_previous = await page_obj.ahas_previous()
@@ -53,6 +56,7 @@ async def blog(request: HttpRequest):
         "previous_page_number": previous_page_number,
         "next_page_number": next_page_number,
     }
+
     response = TemplateResponse(
         request,
         "web/pages/blog.html",

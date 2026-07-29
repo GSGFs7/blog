@@ -10,6 +10,7 @@ class MediaStorage(S3Storage):
 
         # add cache control header to R2 metadata
         if name.startswith(("images/raw/", "musics/")):
+            # hash indexed image. cache it as long as possible
             parameters["CacheControl"] = IMMUTABLE_CACHE_CONTROL
         elif name.startswith(
             (

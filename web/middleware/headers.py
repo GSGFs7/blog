@@ -32,9 +32,14 @@ class HeadersMiddleware:
         request: HttpRequest,
         response: HttpResponse,
     ) -> HttpResponse:
+        # Cross-Origin Isolation
+        # add there two to unlock high permission API
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        # COEP: all external resources must explicitly authorize
+        #       (them must respond with CORS header)
         response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
 
+        # mark as private if not public
         page_cache = response.headers.get("X-Page-Cache")
         if page_cache == "public":
             cache_control = response.headers.get("Cache-Control", "").lower()
