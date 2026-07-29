@@ -33,4 +33,3 @@ data:
   #HF_ENDPOINT: "https://hf-mirror.com"
   K8S_ENV: "True"
   BACKUP_BUCKET: "backup"
-  CLOUDFLARE_JSD_ENABLED: "True"

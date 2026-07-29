@@ -148,12 +148,6 @@ else:
 
 SECURE_CSP = CSP_POLICY
 
-# CF's bot fighter
-CLOUDFLARE_JSD_ENABLED = _env_bool(
-    "CLOUDFLARE_JSD_ENABLED",
-    not DEBUG,
-)
-
 # Application definition
 
 INSTALLED_APPS = [

@@ -31,6 +31,4 @@ def site_meta(request):
         "SITE_CANONICAL": "https://gsgfs.moe",
         "APP_BUILD_ID": settings.APP_BUILD_ID,
         "APP_NAVIGATION_VERSION": "1",
-        # CF's JSD
-        "CLOUDFLARE_JSD_ENABLED": settings.CLOUDFLARE_JSD_ENABLED,
     }
