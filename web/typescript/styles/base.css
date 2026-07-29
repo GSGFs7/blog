@@ -40,8 +40,10 @@
     transition: opacity 100ms ease-in-out;
   }
 
-  .site-body.htmx-swapping .site-main,
-  .site-body.htmx-settling .site-main {
+  /* why leaving & entering? */
+  /* mark new HTML is transparent. avoid FOUC */
+  .site-body[data-page-transition="leaving"] .site-main,
+  .site-body[data-page-transition="entering"] .site-main {
     opacity: 0;
   }
 }

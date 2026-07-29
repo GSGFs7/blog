@@ -1,5 +1,6 @@
 import htmx, { type HtmxBeforeSwapDetails, type HtmxResponseInfo } from "htmx.org";
 
+import { PAGE_TRANSITION_TIMING } from "../page-transition";
 import {
   APP_PAGE_EVENT,
   emitPageEvent,
@@ -13,6 +14,9 @@ import {
 import { type PageProtocol, parsePageProtocol, protocolsMatch, readPageProtocol } from "./protocol";
 
 const EXTENSION_NAME = "app-page-lifecycle";
+export const HTMX_PAGE_TRANSITION_SWAP =
+  `innerHTML swap:${PAGE_TRANSITION_TIMING.swapDelay}ms ` +
+  `settle:${PAGE_TRANSITION_TIMING.settleDelay}ms`;
 
 type TransactionStage = "loading" | "swapping" | "settling" | "finished";
 
@@ -27,10 +31,17 @@ interface NavigationTransaction {
   xhr?: XMLHttpRequest;
 }
 
-interface HtmxHistoryDetail {
+interface HtmxHistorySwapDetails {
+  historyElt: Element;
+  swapSpec: {
+    swapDelay: number;
+    settleDelay: number;
+  };
+}
+
+interface HtmxHistoryDetail extends HtmxHistorySwapDetails {
   path: string;
   xhr?: XMLHttpRequest;
-  historyElt: Element;
 }
 
 interface HtmxPageLifecycleOptions {
@@ -61,6 +72,8 @@ export function setupHtmxPageLifecycle(
     options.currentProtocol === undefined ? readPageProtocol(document) : options.currentProtocol;
 
   const navigate = options.navigate ?? ((url: URL) => view.location.assign(url.href));
+  const prefersReducedMotion = (): boolean =>
+    view.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const historyGuardController = new AbortController();
   let nextNavigationId = 0;
   let currentUrl = new URL(view.location.href);
@@ -317,6 +330,7 @@ export function setupHtmxPageLifecycle(
         transaction.stage = "swapping";
         swapTransaction = transaction;
 
+        applyHtmxPageTransition(detail, document.body, prefersReducedMotion());
         emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
         return true;
       }
@@ -338,6 +352,7 @@ export function setupHtmxPageLifecycle(
         historyTransaction = transaction;
         swapTransaction = transaction;
 
+        applyHtmxHistoryPageTransition(detail, document.body, prefersReducedMotion());
         emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
         return true;
       }
@@ -373,6 +388,11 @@ export function setupHtmxPageLifecycle(
           : transaction.requestedUrl;
         transaction.stage = "swapping";
         swapTransaction = transaction;
+        applyHtmxHistoryPageTransition(
+          customEvent.detail as HtmxHistorySwapDetails,
+          document.body,
+          prefersReducedMotion(),
+        );
         emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
         return true;
       }
@@ -436,4 +456,35 @@ export function setupHtmxPageLifecycle(
       finish(activeTransaction, "cancelled");
     }
   };
+}
+
+export function applyHtmxPageTransition(
+  detail: HtmxBeforeSwapDetails,
+  body: HTMLElement,
+  reducedMotion: boolean,
+): void {
+  if (
+    !detail.boosted ||
+    !detail.shouldSwap ||
+    detail.target !== body ||
+    reducedMotion ||
+    detail.swapOverride != null
+  ) {
+    return;
+  }
+
+  detail.swapOverride = HTMX_PAGE_TRANSITION_SWAP;
+}
+
+export function applyHtmxHistoryPageTransition(
+  detail: HtmxHistorySwapDetails,
+  body: HTMLElement,
+  reducedMotion: boolean,
+): void {
+  if (detail.historyElt !== body || reducedMotion) {
+    return;
+  }
+
+  detail.swapSpec.swapDelay = PAGE_TRANSITION_TIMING.swapDelay;
+  detail.swapSpec.settleDelay = PAGE_TRANSITION_TIMING.settleDelay;
 }

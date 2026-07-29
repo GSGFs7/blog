@@ -1,72 +1,79 @@
-import type { HtmxBeforeSwapDetails } from "htmx.org";
+import { APP_PAGE_EVENT } from "./navigation";
+import { setupPageTransition } from "./page-transition";
 
-import {
-  applyHistoryPageTransition,
-  applyPageTransition,
-  type HtmxHistorySwapDetails,
-  PAGE_TRANSITION_SWAP,
-} from "./page-transition";
+let teardown: (() => void) | undefined;
 
-type SwapDetail = Pick<HtmxBeforeSwapDetails, "boosted" | "shouldSwap" | "target" | "swapOverride">;
-
-function detail(overrides: Partial<SwapDetail> & { target?: Element } = {}): HtmxBeforeSwapDetails {
-  return {
-    ...overrides,
-  } as unknown as HtmxBeforeSwapDetails;
+function emit(name: string, detail: unknown): void {
+  document.dispatchEvent(new CustomEvent(name, { detail }));
 }
 
-function historyDetail(overrides: Partial<HtmxHistorySwapDetails> = {}): HtmxHistorySwapDetails {
-  return {
-    historyElt: document.body,
-    swapSpec: { swapDelay: 0, settleDelay: 0 },
-    ...overrides,
-  };
+function swapDetail(navigationId: number, root = document.body) {
+  return { navigationId, root };
 }
 
 afterEach(() => {
-  document.body.classList.remove("htmx-swapping");
+  teardown?.();
+  teardown = undefined;
+  document.body.removeAttribute("data-page-transition");
 });
 
-test("adds fade timing to boosted page swaps", () => {
-  const d = detail({ boosted: true, shouldSwap: true, target: document.body });
+test("tracks leaving and entering phases until navigation completes", () => {
+  teardown = setupPageTransition(document, { prefersReducedMotion: () => false });
 
-  applyPageTransition(d, document.body, false);
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(1));
+  expect(document.body).toHaveAttribute("data-page-transition", "leaving");
 
-  expect(d.swapOverride).toBe(PAGE_TRANSITION_SWAP);
+  emit(APP_PAGE_EVENT.afterSwap, swapDetail(1));
+  expect(document.body).toHaveAttribute("data-page-transition", "entering");
+
+  emit(APP_PAGE_EVENT.navigationEnd, { navigationId: 1 });
+  expect(document.body).not.toHaveAttribute("data-page-transition");
 });
 
-const unchangedSwapCases: Array<[HtmxBeforeSwapDetails, boolean]> = [
-  [detail({ boosted: false, shouldSwap: true }), false],
-  [detail({ boosted: true, shouldSwap: false }), false],
-  [detail({ boosted: true, shouldSwap: true, target: document.createElement("main") }), false],
-  [detail({ boosted: true, shouldSwap: true, target: document.body }), true],
-  [
-    detail({ boosted: true, shouldSwap: true, target: document.body, swapOverride: "outerHTML" }),
-    false,
-  ],
-];
+test("clears the active phase when navigation fails", () => {
+  teardown = setupPageTransition(document, { prefersReducedMotion: () => false });
 
-test.each(unchangedSwapCases)("leaves non-page swaps unchanged", (d, reducedMotion) => {
-  applyPageTransition(d, document.body, reducedMotion);
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(1));
+  emit(APP_PAGE_EVENT.navigationError, { navigationId: 1 });
 
-  expect(d.swapOverride).not.toBe(PAGE_TRANSITION_SWAP);
+  expect(document.body).not.toHaveAttribute("data-page-transition");
 });
 
-test("adds fade timing to history page swaps", () => {
-  const d = historyDetail();
+test("does not let stale navigation events modify the active phase", () => {
+  teardown = setupPageTransition(document, { prefersReducedMotion: () => false });
 
-  applyHistoryPageTransition(d, document.body, false);
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(1));
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(2));
+  emit(APP_PAGE_EVENT.afterSwap, swapDetail(1));
+  emit(APP_PAGE_EVENT.navigationEnd, { navigationId: 1 });
 
-  expect(d.swapSpec).toEqual({ swapDelay: 100, settleDelay: 20 });
-  expect(document.body).toHaveClass("htmx-swapping");
+  expect(document.body).toHaveAttribute("data-page-transition", "leaving");
+
+  emit(APP_PAGE_EVENT.afterSwap, swapDetail(2));
+  expect(document.body).toHaveAttribute("data-page-transition", "entering");
 });
 
-test.each([
-  [historyDetail({ historyElt: document.createElement("main") }), false],
-  [historyDetail(), true],
-])("leaves unsupported history swaps unchanged", (d, reducedMotion) => {
-  applyHistoryPageTransition(d, document.body, reducedMotion);
+test("reads reduced motion preference for each navigation", () => {
+  let reducedMotion = true;
+  teardown = setupPageTransition(document, {
+    prefersReducedMotion: () => reducedMotion,
+  });
 
-  expect(d.swapSpec).toEqual({ swapDelay: 0, settleDelay: 0 });
-  expect(document.body).not.toHaveClass("htmx-swapping");
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(1));
+  expect(document.body).not.toHaveAttribute("data-page-transition");
+
+  reducedMotion = false;
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(2));
+  expect(document.body).toHaveAttribute("data-page-transition", "leaving");
+});
+
+test("teardown clears state and removes listeners", () => {
+  teardown = setupPageTransition(document, { prefersReducedMotion: () => false });
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(1));
+
+  teardown();
+  teardown = undefined;
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(2));
+
+  expect(document.body).not.toHaveAttribute("data-page-transition");
 });

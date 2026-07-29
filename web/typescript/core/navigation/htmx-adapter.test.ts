@@ -7,7 +7,12 @@ import {
   type PageNavigationEndDetail,
   type PageNavigationErrorDetail,
 } from "./events";
-import { setupHtmxPageLifecycle } from "./htmx-adapter";
+import {
+  applyHtmxHistoryPageTransition,
+  applyHtmxPageTransition,
+  HTMX_PAGE_TRANSITION_SWAP,
+  setupHtmxPageLifecycle,
+} from "./htmx-adapter";
 import type { PageProtocol } from "./protocol";
 
 const CURRENT_PROTOCOL: PageProtocol = {
@@ -87,7 +92,7 @@ function beforeSwapDetail(
     selectOverride: "",
     serverResponse,
     shouldSwap,
-    swapOverride: "",
+    swapOverride: undefined as unknown as string,
   };
 }
 
@@ -163,12 +168,14 @@ afterEach(() => {
 
 test("emits one complete lifecycle for a boosted body navigation", () => {
   const request = requestDetail("/about");
+  const swap = beforeSwapDetail(request);
 
   notify("htmx:beforeRequest", request, request.requestConfig.elt);
-  notify("htmx:beforeSwap", beforeSwapDetail(request));
+  notify("htmx:beforeSwap", swap);
   notify("htmx:afterSwap", request);
   notify("htmx:afterSettle", request);
 
+  expect(swap.swapOverride).toBe(HTMX_PAGE_TRANSITION_SWAP);
   expect(eventNames()).toEqual([
     APP_PAGE_EVENT.navigationStart,
     APP_PAGE_EVENT.beforeSwap,
@@ -313,14 +320,17 @@ test("falls back to a full navigation while another swap is pending", () => {
 });
 
 test("bridges a history cache hit", () => {
-  notify("htmx:historyCacheHit", {
+  const detail = {
     historyElt: document.body,
     path: "/cached",
-    swapSpec: {},
-  });
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
+  };
+
+  notify("htmx:historyCacheHit", detail);
   notify("htmx:afterSwap", {});
   notify("htmx:afterSettle", {});
 
+  expect(detail.swapSpec).toEqual({ swapDelay: 100, settleDelay: 20 });
   expect(eventNames()).toEqual([
     APP_PAGE_EVENT.navigationStart,
     APP_PAGE_EVENT.beforeSwap,
@@ -338,7 +348,7 @@ test("bridges a history cache miss", () => {
   const detail = {
     historyElt: document.body,
     path: "/restored",
-    swapSpec: {},
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
     xhr,
   };
 
@@ -347,6 +357,7 @@ test("bridges a history cache miss", () => {
   notify("htmx:afterSwap", {});
   notify("htmx:afterSettle", {});
 
+  expect(detail.swapSpec).toEqual({ swapDelay: 100, settleDelay: 20 });
   expect(eventNames()).toEqual([
     APP_PAGE_EVENT.navigationStart,
     APP_PAGE_EVENT.beforeSwap,
@@ -357,6 +368,36 @@ test("bridges a history cache miss", () => {
     navigationType: "pop",
     source: "fetch",
   });
+});
+
+test("leaves explicit and reduced-motion page transitions unchanged", () => {
+  const request = requestDetail("/about");
+  const explicit = beforeSwapDetail(request);
+  explicit.swapOverride = "outerHTML";
+  const reduced = beforeSwapDetail(request);
+
+  applyHtmxPageTransition(explicit, document.body, false);
+  applyHtmxPageTransition(reduced, document.body, true);
+
+  expect(explicit.swapOverride).toBe("outerHTML");
+  expect(reduced.swapOverride).toBeUndefined();
+});
+
+test("leaves unsupported history transitions unchanged", () => {
+  const nested = {
+    historyElt: document.createElement("main"),
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
+  };
+  const reduced = {
+    historyElt: document.body,
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
+  };
+
+  applyHtmxHistoryPageTransition(nested, document.body, false);
+  applyHtmxHistoryPageTransition(reduced, document.body, true);
+
+  expect(nested.swapSpec).toEqual({ swapDelay: 0, settleDelay: 0 });
+  expect(reduced.swapSpec).toEqual({ swapDelay: 0, settleDelay: 0 });
 });
 
 test("allows a matching history cache miss response", () => {
