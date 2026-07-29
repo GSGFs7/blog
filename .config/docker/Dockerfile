@@ -2,6 +2,9 @@
 # Unified Dockerfile
 FROM archlinux:latest
 
+ARG BUILD_ID=local
+ENV APP_BUILD_ID=${BUILD_ID}
+
 WORKDIR /app
 
 # Unified environment variables

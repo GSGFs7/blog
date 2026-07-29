@@ -10,6 +10,7 @@ import {
   type PageNavigationDetail,
   type PageSwapDetail,
 } from "./events";
+import { type PageProtocol, parsePageProtocol, protocolsMatch, readPageProtocol } from "./protocol";
 
 const EXTENSION_NAME = "app-page-lifecycle";
 
@@ -34,6 +35,7 @@ interface HtmxHistoryDetail {
 
 interface HtmxPageLifecycleOptions {
   navigate?: (url: URL) => void;
+  currentProtocol?: PageProtocol | null;
 }
 
 const ERROR_PHASES: Partial<Record<string, NavigationPhase>> = {
@@ -55,7 +57,11 @@ export function setupHtmxPageLifecycle(
     return () => undefined;
   }
 
+  const currentProtocol =
+    options.currentProtocol === undefined ? readPageProtocol(document) : options.currentProtocol;
+
   const navigate = options.navigate ?? ((url: URL) => view.location.assign(url.href));
+  const historyGuardController = new AbortController();
   let nextNavigationId = 0;
   let currentUrl = new URL(view.location.href);
   let activeTransaction: NavigationTransaction | undefined = undefined;
@@ -102,6 +108,36 @@ export function setupHtmxPageLifecycle(
     }
 
     transaction.finalUrl = toUrl(detail.pathInfo.responsePath ?? detail.pathInfo.finalRequestPath);
+  };
+
+  const guardHistoryResponse = (xhr: XMLHttpRequest, transaction: NavigationTransaction): void => {
+    xhr.addEventListener(
+      "load",
+      (event) => {
+        if (transaction.stage !== "loading") {
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 400) {
+          return;
+        }
+
+        const responseProtocol = parsePageProtocol(xhr.responseText);
+        if (protocolsMatch(currentProtocol, responseProtocol)) {
+          return;
+        }
+
+        event.stopImmediatePropagation();
+
+        const finalUrl = xhr.responseURL ? toUrl(xhr.responseURL) : transaction.requestedUrl;
+        fallbackTransaction(transaction, finalUrl);
+      },
+      {
+        capture: true,
+        once: true,
+        signal: historyGuardController.signal,
+      },
+    );
   };
 
   const detailFor = (transaction: NavigationTransaction): PageNavigationDetail => ({
@@ -214,6 +250,13 @@ export function setupHtmxPageLifecycle(
     return false;
   };
 
+  const fallbackTransaction = (transaction: NavigationTransaction, url: URL): false => {
+    transaction.finalUrl = url;
+    finish(transaction, "fallback");
+    navigate(url);
+    return false;
+  };
+
   const transactionFrom = (event: CustomEvent): NavigationTransaction | undefined => {
     const xhr = (event.detail as { xhr?: unknown })?.xhr;
     if (xhr instanceof view.XMLHttpRequest) {
@@ -262,6 +305,15 @@ export function setupHtmxPageLifecycle(
         }
 
         applyResponseNavigation(transaction, detail);
+
+        const responseProtocol = parsePageProtocol(detail.serverResponse);
+        if (!protocolsMatch(currentProtocol, responseProtocol)) {
+          detail.shouldSwap = false;
+          customEvent.preventDefault();
+
+          return fallbackTransaction(transaction, transaction.finalUrl ?? transaction.requestedUrl);
+        }
+
         transaction.stage = "swapping";
         swapTransaction = transaction;
 
@@ -305,6 +357,8 @@ export function setupHtmxPageLifecycle(
         transaction.xhr = detail.xhr;
         historyTransaction = transaction;
         transactions.set(detail.xhr, transaction);
+
+        guardHistoryResponse(detail.xhr, transaction);
         return true;
       }
 
@@ -376,6 +430,7 @@ export function setupHtmxPageLifecycle(
   });
 
   return () => {
+    historyGuardController.abort();
     htmx.removeExtension(EXTENSION_NAME);
     if (activeTransaction && activeTransaction.stage !== "finished") {
       finish(activeTransaction, "cancelled");

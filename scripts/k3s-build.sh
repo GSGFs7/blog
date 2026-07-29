@@ -8,6 +8,8 @@ set -e
 # Ensure we are in the project root
 cd "$(dirname "$0")/.."
 
+BUILD_ID="${CI_COMMIT_SHA:-$(git rev-parse HEAD)}"
+
 # Image list: dockerfile_path:target:name
 declare -a IMAGES=(
     ".config/k8s/containers/app.Dockerfile::app"
@@ -38,6 +40,7 @@ build_with_podman() {
         "-f" "$dockerfile"
         "-t" "localhost/blog-$name:latest"
     )
+    if [ "$name" == "app" ]; then build_args+=("--build-arg" "BUILD_ID=$BUILD_ID"); fi
     if [ -n "$target" ]; then build_args+=("--target" "$target"); fi
     podman "${build_args[@]}" .
 }
@@ -52,6 +55,7 @@ build_with_docker() {
         "-f" "$dockerfile"
         "-t" "localhost/blog-$name:latest"
     )
+    if [ "$name" == "app" ]; then build_args+=("--build-arg" "BUILD_ID=$BUILD_ID"); fi
     if [ -n "$target" ]; then build_args+=("--target" "$target"); fi
     docker "${build_args[@]}" .
 }

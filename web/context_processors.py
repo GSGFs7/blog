@@ -1,3 +1,6 @@
+from django.conf import settings
+
+
 def site_meta(request):
     """put site meta info here"""
     return {
@@ -26,4 +29,6 @@ def site_meta(request):
         ],
         # without tailing '/'
         "SITE_CANONICAL": "https://gsgfs.moe",
+        "APP_BUILD_ID": settings.APP_BUILD_ID,
+        "APP_NAVIGATION_VERSION": "1",
     }

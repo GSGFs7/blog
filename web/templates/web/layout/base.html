@@ -15,6 +15,8 @@
   <link rel="stylesheet" href="{% vite_asset 'web/typescript/styles/font.css' %}" crossorigin>
   <link rel="alternate" type="application/atom+xml" title="GSGFs's blog" href="{% url 'blog_feed' %}">
   <link rel="icon" href="{% static 'favicon.ico' %}" type="image/x-icon">
+  <meta name="app-build-id" content="{{ APP_BUILD_ID }}">
+  <meta name="app-navigation-version" content="{{ APP_NAVIGATION_VERSION }}">
   {% vite_hmr %}
   {% block extra_head %}{% endblock %}
   {% block seo_head %}

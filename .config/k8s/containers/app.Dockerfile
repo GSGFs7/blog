@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 FROM archlinux:latest
 
+# BUILD_ID = git commit hash
+ARG BUILD_ID
+ENV APP_BUILD_ID=${BUILD_ID}
+
 WORKDIR /app
 
 # Unified environment variables

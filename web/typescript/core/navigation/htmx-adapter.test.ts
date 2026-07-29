@@ -8,6 +8,12 @@ import {
   type PageNavigationErrorDetail,
 } from "./events";
 import { setupHtmxPageLifecycle } from "./htmx-adapter";
+import type { PageProtocol } from "./protocol";
+
+const CURRENT_PROTOCOL: PageProtocol = {
+  navigationVersion: "1",
+  buildId: "test-build",
+};
 
 const htmxMock = vi.hoisted(() => ({
   defineExtension: vi.fn(),
@@ -58,16 +64,52 @@ function requestDetail(
   } as unknown as HtmxResponseInfo;
 }
 
-function beforeSwapDetail(request: HtmxResponseInfo, shouldSwap = true): HtmxBeforeSwapDetails {
+function pageHtml(protocol: PageProtocol = CURRENT_PROTOCOL): string {
+  return `<!doctype html>
+    <html>
+      <head>
+        <meta name="app-navigation-version" content="${protocol.navigationVersion}">
+        <meta name="app-build-id" content="${protocol.buildId}">
+      </head>
+      <body></body>
+    </html>`;
+}
+
+function beforeSwapDetail(
+  request: HtmxResponseInfo,
+  shouldSwap = true,
+  serverResponse = pageHtml(),
+): HtmxBeforeSwapDetails {
   return {
     ...request,
     ignoreTitle: false,
     isError: false,
     selectOverride: "",
-    serverResponse: "<body></body>",
+    serverResponse,
     shouldSwap,
     swapOverride: "",
   };
+}
+
+function setXhrResponse(
+  xhr: XMLHttpRequest,
+  responseText: string,
+  responseURL = "http://localhost/restored",
+): void {
+  Object.defineProperties(xhr, {
+    responseText: {
+      configurable: true,
+      value: responseText,
+    },
+    responseURL: {
+      configurable: true,
+      value: responseURL,
+    },
+    status: {
+      configurable: true,
+      value: 200,
+    },
+  });
 }
 
 function notify(name: string, detail: unknown, target: EventTarget = document.body): boolean {
@@ -105,7 +147,10 @@ beforeEach(() => {
     );
   }
 
-  teardown = setupHtmxPageLifecycle(document, { navigate });
+  teardown = setupHtmxPageLifecycle(document, {
+    currentProtocol: CURRENT_PROTOCOL,
+    navigate,
+  });
   extension = htmxMock.defineExtension.mock.calls.at(-1)?.[1] as LifecycleExtension;
 });
 
@@ -137,6 +182,39 @@ test("emits one complete lifecycle for a boosted body navigation", () => {
   expect(recordedEvents.at(-1)?.detail).toMatchObject({
     outcome: "completed",
   });
+});
+
+test("falls back when the response build does not match", () => {
+  const request = requestDetail("/new-build");
+  const detail = beforeSwapDetail(
+    request,
+    true,
+    pageHtml({ ...CURRENT_PROTOCOL, buildId: "next" }),
+  );
+
+  notify("htmx:beforeRequest", request, request.requestConfig.elt);
+  const accepted = notify("htmx:beforeSwap", detail);
+
+  expect(accepted).toBe(false);
+  expect(detail.shouldSwap).toBe(false);
+  expect(eventNames()).toEqual([APP_PAGE_EVENT.navigationStart, APP_PAGE_EVENT.navigationEnd]);
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({
+    outcome: "fallback",
+  });
+  expect(navigate).toHaveBeenCalledOnce();
+  expect((navigate.mock.calls[0][0] as URL).pathname).toBe("/new-build");
+});
+
+test("falls back when the response protocol is missing", () => {
+  const request = requestDetail("/invalid");
+  const detail = beforeSwapDetail(request, true, "<html><body></body></html>");
+
+  notify("htmx:beforeRequest", request, request.requestConfig.elt);
+  const accepted = notify("htmx:beforeSwap", detail);
+
+  expect(accepted).toBe(false);
+  expect(detail.shouldSwap).toBe(false);
+  expect(navigate).toHaveBeenCalledOnce();
 });
 
 test("does not emit swap events when HTMX declines the swap", () => {
@@ -279,6 +357,67 @@ test("bridges a history cache miss", () => {
     navigationType: "pop",
     source: "fetch",
   });
+});
+
+test("allows a matching history cache miss response", () => {
+  const xhr = new XMLHttpRequest();
+  const detail = {
+    historyElt: document.body,
+    path: "/restored",
+    swapSpec: {},
+    xhr,
+  };
+  const downstreamLoad = vi.fn();
+
+  notify("htmx:historyCacheMiss", detail);
+  setXhrResponse(xhr, pageHtml());
+  xhr.addEventListener("load", downstreamLoad);
+  xhr.dispatchEvent(new ProgressEvent("load"));
+
+  expect(downstreamLoad).toHaveBeenCalledOnce();
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+test("blocks a mismatched history cache miss response", () => {
+  const xhr = new XMLHttpRequest();
+  const detail = {
+    historyElt: document.body,
+    path: "/restored",
+    swapSpec: {},
+    xhr,
+  };
+  const downstreamLoad = vi.fn();
+
+  notify("htmx:historyCacheMiss", detail);
+  setXhrResponse(xhr, pageHtml({ ...CURRENT_PROTOCOL, buildId: "next" }));
+  xhr.addEventListener("load", downstreamLoad);
+  xhr.dispatchEvent(new ProgressEvent("load"));
+
+  expect(downstreamLoad).not.toHaveBeenCalled();
+  expect(eventNames()).toEqual([APP_PAGE_EVENT.navigationStart, APP_PAGE_EVENT.navigationEnd]);
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({
+    outcome: "fallback",
+  });
+  expect(navigate).toHaveBeenCalledOnce();
+  expect((navigate.mock.calls[0][0] as URL).pathname).toBe("/restored");
+});
+
+test("removes history response guards during teardown", () => {
+  const xhr = new XMLHttpRequest();
+
+  notify("htmx:historyCacheMiss", {
+    historyElt: document.body,
+    path: "/restored",
+    swapSpec: {},
+    xhr,
+  });
+  teardown?.();
+  teardown = undefined;
+
+  setXhrResponse(xhr, pageHtml({ ...CURRENT_PROTOCOL, buildId: "next" }));
+  xhr.dispatchEvent(new ProgressEvent("load"));
+
+  expect(navigate).not.toHaveBeenCalled();
 });
 
 test("recognizes inherited hx-replace-url navigation", () => {

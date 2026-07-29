@@ -4,6 +4,11 @@ import "htmx-ext-preload";
 
 import { setupHtmxPageLifecycle } from "./navigation/htmx-adapter";
 import {
+  readPageProtocol,
+  readSessionStorage,
+  syncHtmxHistoryGeneration,
+} from "./navigation/protocol";
+import {
   applyHistoryPageTransition,
   applyPageTransition,
   type HtmxHistorySwapDetails,
@@ -18,8 +23,15 @@ declare global {
   }
 }
 
+// must match navigation protocol
+const currentProtocol = readPageProtocol(document);
+const sessionStorage = readSessionStorage(window);
+if (sessionStorage) {
+  syncHtmxHistoryGeneration(sessionStorage, currentProtocol);
+}
+
 // add plugin
-setupHtmxPageLifecycle(document);
+setupHtmxPageLifecycle(document, { currentProtocol });
 
 // get the csrf token from cookies
 // double submit cookie

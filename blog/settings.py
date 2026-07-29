@@ -65,6 +65,12 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 DEBUG = bool(os.environ.get("DEBUG", default="False") == "True")
 SOLID_ISLANDS_SSR = _env_bool("SOLID_ISLANDS_SSR", not DEBUG)
 
+APP_BUILD_ID = os.environ.get("APP_BUILD_ID", "").strip()
+if not APP_BUILD_ID:
+    if not DEBUG:
+        raise RuntimeError("APP_BUILD_ID is required when DEBUG is disabled")
+    APP_BUILD_ID = "local"
+
 # 在 K8s 环境中允许所有 hosts 以支持 Pod IP 健康检查
 if is_k8s_env():
     ALLOWED_HOSTS = ["*"]

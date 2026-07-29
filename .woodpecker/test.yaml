@@ -23,6 +23,7 @@ steps:
     image: docker.io/library/archlinux:latest
     environment:
       DEBUG: "True"
+      APP_BUILD_ID: test
       DJANGO_SECRET_KEY: woodpecker_test_django_secret_key
       DATABASE_ENGINE: postgresql
       DATABASE_NAME: woodpecker_test

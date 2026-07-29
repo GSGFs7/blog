@@ -39,6 +39,21 @@ class BlogListViewTests(TestCase):
         response = self.client.get(reverse("blog"))
         self.assertEqual(response.status_code, 200)
 
+    @override_settings(APP_BUILD_ID="test-build")
+    def test_navigation_protocol_meta(self):
+        response = self.client.get(reverse("blog"))
+
+        self.assertContains(
+            response,
+            '<meta name="app-build-id" content="test-build">',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            '<meta name="app-navigation-version" content="1">',
+            html=False,
+        )
+
     def test_blog_list_uses_correct_template(self):
         response = self.client.get(reverse("blog"))
         self.assertTemplateUsed(response, "web/pages/blog.html")
