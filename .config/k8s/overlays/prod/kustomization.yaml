@@ -25,13 +25,13 @@ patches:
 images:
 - name: blog-app
   newName: registry.gsgfs.sh/blog-app
-  newTag: c5195110307d6792860075382a600470048198c3
+  newTag: 2e1dbbc747e589938e80396af2f7ff6fca96f0ae
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
-  newTag: c5195110307d6792860075382a600470048198c3
+  newTag: 2e1dbbc747e589938e80396af2f7ff6fca96f0ae
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
-  newTag: c5195110307d6792860075382a600470048198c3
+  newTag: 2e1dbbc747e589938e80396af2f7ff6fca96f0ae
 - name: blog-pgbouncer
   newName: registry.gsgfs.sh/blog-pgbouncer
-  newTag: c5195110307d6792860075382a600470048198c3
+  newTag: 2e1dbbc747e589938e80396af2f7ff6fca96f0ae
