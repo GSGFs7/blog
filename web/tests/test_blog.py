@@ -39,6 +39,12 @@ class BlogListViewTests(TestCase):
         response = self.client.get(reverse("blog"))
         self.assertEqual(response.status_code, 200)
 
+    def test_csp_is_enforced(self):
+        response = self.client.get(reverse("blog"))
+
+        self.assertIn("Content-Security-Policy", response.headers)
+        self.assertNotIn("Content-Security-Policy-Report-Only", response.headers)
+
     @override_settings(APP_BUILD_ID="test-build")
     def test_navigation_protocol_meta(self):
         response = self.client.get(reverse("blog"))

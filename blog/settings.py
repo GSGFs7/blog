@@ -146,7 +146,13 @@ if DEBUG:
 else:
     CSP_POLICY["upgrade-insecure-requests"] = True
 
-SECURE_CSP_REPORT_ONLY = CSP_POLICY
+SECURE_CSP = CSP_POLICY
+
+# CF's bot fighter
+CLOUDFLARE_JSD_ENABLED = _env_bool(
+    "CLOUDFLARE_JSD_ENABLED",
+    not DEBUG,
+)
 
 # Application definition
 

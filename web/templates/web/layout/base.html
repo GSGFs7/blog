@@ -44,13 +44,15 @@
 
   {% include "web/partials/globals/footer.html" %}
 
-  {# due to strict CSP, disable CF's bot fight mode first, use below script replace it #}
-  {# Read: https://developers.cloudflare.com/bots/get-started/bot-fight-mode/#javascript-detections #}
-  <script src="{% static 'js/cloudflare-jsd.js' %}"></script>
-  <script
-    src="/cdn-cgi/challenge-platform/scripts/jsd/api.js?onload=cloudflareJsdOnload"
-    async
-  ></script>
+  {% if CLOUDFLARE_JSD_ENABLED %}
+    {# due to strict CSP, disable CF's Bot Fight Mode > JavaScript Detections first, use below script replace it #}
+    {# Read: https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/ #}
+    <script src="{% static 'js/cloudflare-jsd.js' %}"></script>
+    <script
+      src="/cdn-cgi/challenge-platform/scripts/jsd/api.js?onload=cloudflareJsdOnload"
+      async
+    ></script>
+  {% endif %}
 </div>
 </body>
 </html>
