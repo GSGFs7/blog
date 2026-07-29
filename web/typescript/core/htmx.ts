@@ -2,7 +2,7 @@ import htmx, { type HtmxBeforeSwapDetails } from "htmx.org";
 import "htmx-ext-head-support";
 import "htmx-ext-preload";
 
-import { setupHtmxPageLifecycle } from "./navigation";
+import { setupHtmxPageLifecycle } from "./navigation/htmx-adapter";
 import {
   applyHistoryPageTransition,
   applyPageTransition,
