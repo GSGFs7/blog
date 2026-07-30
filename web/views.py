@@ -1,5 +1,6 @@
 from django.core.paginator import AsyncPaginator
 from django.http import HttpRequest, HttpResponse, HttpResponsePermanentRedirect
+from django.http.response import Http404
 from django.shortcuts import aget_object_or_404, redirect, render
 from django.template.response import TemplateResponse
 from django.templatetags.static import static
@@ -95,6 +96,16 @@ async def blog_random_post(request: HttpRequest):
         return private_page_response(redirect("blog"))
 
     return private_page_response(redirect("blog_post_slug", post_slug=post.slug))
+
+
+async def blog_latest(request: HttpRequest):
+    try:
+        post = await Post.objects.filter(status="published").alatest()
+    except Post.DoesNotExist:
+        return Http404()
+
+    response = redirect("blog_post_slug", post_slug=post.slug)
+    return response
 
 
 @require_GET

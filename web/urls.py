@@ -9,6 +9,7 @@ urlpatterns = [
     path("test", views.test, name="test"),
     path("blog", views.blog, name="blog"),
     path("blog/random", views.blog_random_post, name="blog_random_post"),
+    path("blog/latest", views.blog_latest, name="blog_latest"),
     path("blog/feed.atom", feed.BlogPostFeed(), name="blog_feed"),
     path("blog/<int:post_id>", views.blog_post_id, name="blog_post_id"),
     path(

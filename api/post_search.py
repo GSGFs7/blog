@@ -36,8 +36,16 @@ def perform_full_text_search(query: str) -> List[ScoreItem]:
 
     # perform query
     rows = (
-        Post.objects.annotate(score=SearchRank(F("pg_gin_search_vector"), search_query))
-        .filter(pg_gin_search_vector=search_query)
+        Post.objects.annotate(
+            score=SearchRank(
+                F("pg_gin_search_vector"),
+                search_query,
+            )
+        )
+        .filter(
+            status="published",
+            pg_gin_search_vector=search_query,
+        )
         .values("id", "score")
     )
 
@@ -57,7 +65,8 @@ def perform_semantic_search(query: str) -> Optional[List[ScoreItem]]:
     # Group by post_id, and calculate the minimum distance
     # to the most matching block for each post.
     rows = list(
-        PostChunk.objects.annotate(
+        PostChunk.objects.filter(post__status="published")
+        .annotate(
             dist=CosineDistance("embedding", query_embedding),
         )
         .filter(dist__lt=CONFIDENCE)

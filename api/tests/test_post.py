@@ -132,6 +132,41 @@ class TestPost(TestCase):
                 slug="123",
             )
 
+    def test_unpublished_post_not_in_api(self):
+        draft = Post.objects.create(
+            title="draft post",
+            content="draft content",
+            slug="draft-post",
+            status="draft",
+        )
+        generate_post_embedding(draft.id)
+
+        response = self.client.get("/api/post/")
+        data = response.json()
+        self.assertFalse(any(p["id"] == draft.id for p in data["posts"]))
+
+        response = self.client.get("/api/post/ids")
+        data = response.json()
+        self.assertNotIn(draft.id, data["ids"])
+
+        response = self.client.get(f"/api/post/{draft.id}")
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get(f"/api/post/{draft.slug}")
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get("/api/post/sitemap")
+        data = response.json()
+        self.assertFalse(any(item["id"] == draft.id for item in data))
+
+        response = self.client.get("/api/post/search?q=draft")
+        data = response.json()
+        self.assertFalse(
+            any(
+                item["post"]["id"] == draft.id for item in data["posts_with_similarity"]
+            )
+        )
+
 
 @override_settings(
     SECURE_SSL_REDIRECT=False,

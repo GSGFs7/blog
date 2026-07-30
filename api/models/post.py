@@ -108,6 +108,7 @@ class Post(BaseModel):
     published_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(BaseModel.Meta):
+        get_latest_by = ["published_at", "created_at"]
         ordering = ["-order", "-created_at"]
         indexes = [
             GinIndex(fields=["pg_gin_search_vector"]),
