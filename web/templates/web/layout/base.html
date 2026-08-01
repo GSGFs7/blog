@@ -17,7 +17,9 @@
   <link rel="icon" href="{% static 'favicon.ico' %}" type="image/x-icon">
   <meta name="app-build-id" content="{{ APP_BUILD_ID }}">
   <meta name="app-navigation-version" content="{{ APP_NAVIGATION_VERSION }}">
+  <meta name="page-navigation-mode" content="{{ PAGE_NAVIGATION_MODE|default:'auto' }}">
   {% vite_hmr %}
+  <meta name="app-dynamic-head-start" content="">
   {% block extra_head %}{% endblock %}
   {% block seo_head %}
   <meta name="description" content="{{ SITE_DESCRIPTION }}">
@@ -31,6 +33,7 @@
   <meta name="twitter:title" content="{{ SITE_TITLE }}">
   <meta name="twitter:description" content="{{ SITE_DESCRIPTION }}">
   {% endblock %}
+  <meta name="app-dynamic-head-end" content="">
 </head>
 <body class="site-body" hx-boost="true" hx-ext="head-support, preload, app-page-lifecycle">
 <header class="site-header">

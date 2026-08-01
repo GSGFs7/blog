@@ -31,4 +31,5 @@ def site_meta(request):
         "SITE_CANONICAL": "https://gsgfs.moe",
         "APP_BUILD_ID": settings.APP_BUILD_ID,
         "APP_NAVIGATION_VERSION": "1",
+        "PAGE_NAVIGATION_MODE": settings.PAGE_NAVIGATION_MODE,
     }

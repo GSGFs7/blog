@@ -63,7 +63,9 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = bool(os.environ.get("DEBUG", default="False") == "True")
+
 SOLID_ISLANDS_SSR = _env_bool("SOLID_ISLANDS_SSR", not DEBUG)
+PAGE_NAVIGATION_MODE = os.environ.get("PAGE_NAVIGATION_MODE", "auto").strip()
 
 APP_BUILD_ID = os.environ.get("APP_BUILD_ID", "").strip()
 if not APP_BUILD_ID:

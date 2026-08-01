@@ -10,6 +10,7 @@ export type PageNavigationType = Exclude<NavigationType, "reload">;
 export type PageNavigationSource = "cache" | "fetch";
 export type PageNavigationOutcome = "completed" | "cancelled" | "fallback";
 export type PageNavigationPhase = "request" | "validation" | "swap" | "settle";
+export type PageNavigationDeliverySource = "service-worker" | "origin" | "cloudflare" | "unknown";
 
 export interface PageSwapDetail {
   readonly navigationId: number;
@@ -22,7 +23,7 @@ export interface PageNavigationDetail extends PageSwapDetail {
   readonly finalUrl?: URL;
   readonly navigationType: PageNavigationType;
   readonly source: PageNavigationSource;
-  readonly deliverySource?: "service-worker" | "origin" | "cloudflare" | "unknown";
+  readonly deliverySource?: PageNavigationDeliverySource;
 }
 
 export interface PageNavigationEndDetail extends PageNavigationDetail {

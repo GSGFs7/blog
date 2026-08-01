@@ -339,7 +339,7 @@ test("bridges a history cache hit", () => {
   ]);
   expect(recordedEvents[0].detail).toMatchObject({
     navigationType: "traverse",
-    source: "memory",
+    source: "cache",
   });
 });
 
