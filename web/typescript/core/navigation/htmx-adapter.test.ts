@@ -338,7 +338,7 @@ test("bridges a history cache hit", () => {
     APP_PAGE_EVENT.navigationEnd,
   ]);
   expect(recordedEvents[0].detail).toMatchObject({
-    navigationType: "pop",
+    navigationType: "traverse",
     source: "memory",
   });
 });
@@ -365,7 +365,7 @@ test("bridges a history cache miss", () => {
     APP_PAGE_EVENT.navigationEnd,
   ]);
   expect(recordedEvents[0].detail).toMatchObject({
-    navigationType: "pop",
+    navigationType: "traverse",
     source: "fetch",
   });
 });

@@ -4,10 +4,10 @@ import { PAGE_TRANSITION_TIMING } from "../page-transition";
 import {
   APP_PAGE_EVENT,
   emitPageEvent,
-  type NavigationOutcome,
-  type NavigationPhase,
-  type NavigationSource,
-  type NavigationType,
+  type PageNavigationOutcome,
+  type PageNavigationPhase,
+  type PageNavigationSource,
+  type PageNavigationType,
   type PageNavigationDetail,
   type PageSwapDetail,
 } from "./events";
@@ -25,8 +25,8 @@ interface NavigationTransaction {
   from: URL;
   requestedUrl: URL;
   finalUrl?: URL;
-  navigationType: NavigationType;
-  source: NavigationSource;
+  navigationType: PageNavigationType;
+  source: PageNavigationSource;
   stage: TransactionStage;
   xhr?: XMLHttpRequest;
 }
@@ -49,7 +49,7 @@ interface HtmxPageLifecycleOptions {
   currentProtocol?: PageProtocol | null;
 }
 
-const ERROR_PHASES: Partial<Record<string, NavigationPhase>> = {
+const ERROR_PHASES: Partial<Record<string, PageNavigationPhase>> = {
   "htmx:responseError": "request",
   "htmx:sendError": "request",
   "htmx:timeout": "request",
@@ -96,7 +96,7 @@ export function setupHtmxPageLifecycle(
     return null;
   };
 
-  const navigationTypeFor = (detail: HtmxResponseInfo): NavigationType => {
+  const navigationTypeFor = (detail: HtmxResponseInfo): PageNavigationType => {
     const replace =
       detail.etc.replace ?? inheritedAttribute(detail.requestConfig.elt, "hx-replace-url");
     return replace !== undefined && replace !== null && replace !== "false" ? "replace" : "push";
@@ -168,7 +168,7 @@ export function setupHtmxPageLifecycle(
     root: document.body,
   });
 
-  const finish = (transaction: NavigationTransaction, outcome: NavigationOutcome) => {
+  const finish = (transaction: NavigationTransaction, outcome: PageNavigationOutcome) => {
     if (transaction.stage === "finished") {
       return;
     }
@@ -194,7 +194,7 @@ export function setupHtmxPageLifecycle(
     }
   };
 
-  const fail = (transaction: NavigationTransaction, phase: NavigationPhase, error: unknown) => {
+  const fail = (transaction: NavigationTransaction, phase: PageNavigationPhase, error: unknown) => {
     if (transaction.stage === "finished") {
       return;
     }
@@ -231,8 +231,8 @@ export function setupHtmxPageLifecycle(
 
   const start = (
     requestedUrl: URL,
-    navigationType: NavigationType,
-    source: NavigationSource,
+    navigationType: PageNavigationType,
+    source: PageNavigationSource,
   ): NavigationTransaction => {
     if (activeTransaction?.stage === "loading") {
       cancelLoading(activeTransaction);
@@ -254,8 +254,8 @@ export function setupHtmxPageLifecycle(
 
   const fallback = (
     requestedUrl: URL,
-    navigationType: NavigationType,
-    source: NavigationSource,
+    navigationType: PageNavigationType,
+    source: PageNavigationSource,
   ): false => {
     const transaction = start(requestedUrl, navigationType, source);
     finish(transaction, "fallback");
@@ -343,10 +343,10 @@ export function setupHtmxPageLifecycle(
 
         const requestedUrl = toUrl(detail.path);
         if (swapTransaction && swapTransaction.stage !== "finished") {
-          return fallback(requestedUrl, "pop", "memory");
+          return fallback(requestedUrl, "traverse", "cache");
         }
 
-        const transaction = start(requestedUrl, "pop", "memory");
+        const transaction = start(requestedUrl, "traverse", "cache");
         transaction.finalUrl = requestedUrl;
         transaction.stage = "swapping";
         historyTransaction = transaction;
@@ -365,10 +365,10 @@ export function setupHtmxPageLifecycle(
 
         const requestedUrl = toUrl(detail.path);
         if (swapTransaction && swapTransaction.stage !== "finished") {
-          return fallback(requestedUrl, "pop", "fetch");
+          return fallback(requestedUrl, "traverse", "fetch");
         }
 
-        const transaction = start(requestedUrl, "pop", "fetch");
+        const transaction = start(requestedUrl, "traverse", "fetch");
         transaction.xhr = detail.xhr;
         historyTransaction = transaction;
         transactions.set(detail.xhr, transaction);

@@ -6,10 +6,10 @@ export const APP_PAGE_EVENT = {
   afterSwap: "app:after-swap",
 } as const;
 
-export type NavigationType = "push" | "pop" | "replace";
-export type NavigationSource = "memory" | "fetch";
-export type NavigationOutcome = "completed" | "cancelled" | "fallback";
-export type NavigationPhase = "request" | "validation" | "swap" | "settle";
+export type PageNavigationType = Exclude<NavigationType, "reload">;
+export type PageNavigationSource = "cache" | "fetch";
+export type PageNavigationOutcome = "completed" | "cancelled" | "fallback";
+export type PageNavigationPhase = "request" | "validation" | "swap" | "settle";
 
 export interface PageSwapDetail {
   readonly navigationId: number;
@@ -20,17 +20,17 @@ export interface PageNavigationDetail extends PageSwapDetail {
   readonly from: URL;
   readonly requestedUrl: URL;
   readonly finalUrl?: URL;
-  readonly navigationType: NavigationType;
-  readonly source: NavigationSource;
+  readonly navigationType: PageNavigationType;
+  readonly source: PageNavigationSource;
   readonly deliverySource?: "service-worker" | "origin" | "cloudflare" | "unknown";
 }
 
 export interface PageNavigationEndDetail extends PageNavigationDetail {
-  readonly outcome: NavigationOutcome;
+  readonly outcome: PageNavigationOutcome;
 }
 
 export interface PageNavigationErrorDetail extends PageNavigationDetail {
-  readonly phase: NavigationPhase;
+  readonly phase: PageNavigationPhase;
   readonly error: unknown;
 }
 
