@@ -1,12 +1,12 @@
 import { expect, test, vi } from "vitest";
 
 import {
-  fetchPage,
+  page,
   PageLoadError,
   type FetchPageOptions,
   type PageLoadResult,
   type PageReloadReason,
-} from "./fetch-page";
+} from "./page";
 import type { PageProtocol } from "./protocol";
 
 const ORIGIN = "https://example.com";
@@ -77,7 +77,7 @@ test.each([
 ])("reloads the browser for %s without fetching", async (_name, raw) => {
   const { fetchImpl, options } = harness();
 
-  const result = await fetchPage(new URL(raw), options);
+  const result = await page(new URL(raw), options);
 
   expectReload(result, "cross-origin", new URL(raw).href);
   expect(fetchImpl).not.toHaveBeenCalled();
@@ -87,7 +87,7 @@ test("requests the URL without the fragment", async () => {
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml()));
 
-  await fetchPage(new URL("https://example.com/post/1#comment-3"), options);
+  await page(new URL("https://example.com/post/1#comment-3"), options);
 
   expect(fetchImpl).toHaveBeenCalledTimes(1);
   const [url, init] = fetchImpl.mock.calls[0];
@@ -105,7 +105,7 @@ test("swaps a valid same-origin page and keeps the fragment", async () => {
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml()));
 
-  const result = await fetchPage(new URL("https://example.com/post/1#comment-3"), options);
+  const result = await page(new URL("https://example.com/post/1#comment-3"), options);
 
   expect(result.kind).toBe("swap");
   if (result.kind !== "swap") {
@@ -122,7 +122,7 @@ test("follows same-origin redirects and keeps the fragment", async () => {
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml(), {}, "https://example.com/redirected/path"));
 
-  const result = await fetchPage(new URL("https://example.com/start#top"), options);
+  const result = await page(new URL("https://example.com/start#top"), options);
 
   expect(result.kind).toBe("swap");
   if (result.kind !== "swap") {
@@ -137,7 +137,7 @@ test("accepts a content type with parameters", async () => {
     htmlResponse(pageHtml(), { headers: { "Content-Type": "text/html; charset=utf-8" } }),
   );
 
-  const result = await fetchPage(new URL("https://example.com/"), options);
+  const result = await page(new URL("https://example.com/"), options);
 
   expect(result.kind).toBe("swap");
 });
@@ -148,7 +148,7 @@ test("uses an injected parser", async () => {
   const parseHtml = vi.fn(() => document);
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml()));
 
-  const result = await fetchPage(new URL("https://example.com/"), { ...options, parseHtml });
+  const result = await page(new URL("https://example.com/"), { ...options, parseHtml });
 
   expect(parseHtml).toHaveBeenCalledWith(expect.stringContaining("app-navigation-version"));
   expect(result.kind).toBe("swap");
@@ -185,7 +185,7 @@ test.each(reloadCases)("reloads the browser for %s", async (_name, response, rea
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(response);
 
-  const result = await fetchPage(new URL("https://example.com/page#frag"), options);
+  const result = await page(new URL("https://example.com/page#frag"), options);
 
   expectReload(result, reason, "https://example.com/page#frag");
 });
@@ -194,7 +194,7 @@ test("reloads when the page has no title", async () => {
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml().replace("<title>Test Page</title>", "")));
 
-  const result = await fetchPage(new URL("https://example.com/"), options);
+  const result = await page(new URL("https://example.com/"), options);
 
   expectReload(result, "invalid-html", "https://example.com/");
 });
@@ -205,7 +205,7 @@ test("reloads when the body is not marked as a site body", async () => {
     htmlResponse(pageHtml().replace('<body class="site-body">', "<body>")),
   );
 
-  const result = await fetchPage(new URL("https://example.com/"), options);
+  const result = await page(new URL("https://example.com/"), options);
 
   expectReload(result, "invalid-html", "https://example.com/");
 });
@@ -220,7 +220,7 @@ test("reloads when the dynamic head range is missing", async () => {
     ),
   );
 
-  const result = await fetchPage(new URL("https://example.com/"), options);
+  const result = await page(new URL("https://example.com/"), options);
 
   expectReload(result, "invalid-html", "https://example.com/");
 });
@@ -232,7 +232,7 @@ test.each([
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml(pageProtocol)));
 
-  const result = await fetchPage(new URL("https://example.com/"), options);
+  const result = await page(new URL("https://example.com/"), options);
 
   expectReload(result, "protocol", "https://example.com/");
 });
@@ -245,7 +245,7 @@ test.each([
   const { fetchImpl, options } = harness();
   fetchImpl.mockResolvedValue(htmlResponse(pageHtml(), init));
 
-  const result = await fetchPage(new URL("https://example.com/"), options);
+  const result = await page(new URL("https://example.com/"), options);
 
   expect(result.kind).toBe("swap");
   if (result.kind !== "swap") {
@@ -259,7 +259,7 @@ test("rethrows the abort error when the request is aborted", async () => {
   controller.abort();
   fetchImpl.mockRejectedValue(new DOMException("The operation was aborted.", "AbortError"));
 
-  const error = await fetchPage(new URL("https://example.com/"), options).catch((e) => e);
+  const error = await page(new URL("https://example.com/"), options).catch((e) => e);
 
   expect(error).not.toBeInstanceOf(PageLoadError);
   expect((error as Error).name).toBe("AbortError");
@@ -272,7 +272,7 @@ test("rethrows when the signal aborts after the response resolves", async () => 
     return htmlResponse(pageHtml());
   });
 
-  const error = await fetchPage(new URL("https://example.com/"), options).catch((e) => e);
+  const error = await page(new URL("https://example.com/"), options).catch((e) => e);
 
   expect(error).not.toBeInstanceOf(PageLoadError);
   expect((error as Error).name).toBe("AbortError");
@@ -282,7 +282,7 @@ test("throws a request PageLoadError for network failures", async () => {
   const { fetchImpl, options } = harness();
   fetchImpl.mockRejectedValue(new TypeError("Failed to fetch"));
 
-  const error = await fetchPage(new URL("https://example.com/"), options).catch((e) => e);
+  const error = await page(new URL("https://example.com/"), options).catch((e) => e);
 
   expect(error).toBeInstanceOf(PageLoadError);
   expect(error).toMatchObject({ phase: "request" });
@@ -299,7 +299,7 @@ test("throws a request PageLoadError when reading the body fails", async () => {
   } as unknown as Response;
   fetchImpl.mockResolvedValue(response);
 
-  const error = await fetchPage(new URL("https://example.com/"), options).catch((e) => e);
+  const error = await page(new URL("https://example.com/"), options).catch((e) => e);
 
   expect(error).toBeInstanceOf(PageLoadError);
   expect(error).toMatchObject({ phase: "request" });
@@ -312,7 +312,7 @@ test("throws a validation PageLoadError when parsing fails", async () => {
     throw new Error("broken parser");
   });
 
-  const error = await fetchPage(new URL("https://example.com/"), {
+  const error = await page(new URL("https://example.com/"), {
     ...options,
     parseHtml,
   }).catch((e) => e);

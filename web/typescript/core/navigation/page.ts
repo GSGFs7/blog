@@ -77,7 +77,7 @@ function deliverSource(response: Response): PageNavigationDeliverySource {
 
 // --- core method ---
 
-export async function fetchPage(
+export async function page(
   requestedUrl: URL,
   options: FetchPageOptions,
 ): Promise<PageLoadResult> {
