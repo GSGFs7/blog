@@ -77,10 +77,7 @@ function deliverSource(response: Response): PageNavigationDeliverySource {
 
 // --- core method ---
 
-export async function page(
-  requestedUrl: URL,
-  options: FetchPageOptions,
-): Promise<PageLoadResult> {
+export async function page(requestedUrl: URL, options: FetchPageOptions): Promise<PageLoadResult> {
   const navigationUrl = new URL(requestedUrl);
   // cross-origin, reload page
   if (

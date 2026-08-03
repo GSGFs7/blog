@@ -3,11 +3,11 @@ import { defineConfig, devices } from "@playwright/test";
 import { createWebServers, sharedConfig } from "./playwright.shared.config";
 
 export default defineConfig(sharedConfig, {
-  testIgnore: ["**/ssr/**"],
+  testIgnore: ["**/native-navigation.spec.ts", "**/ssr/**"],
   projects: [
     {
       name: "desktop-chromium",
-      testIgnore: ["**/*.mobile.spec.ts", "**/ssr/**"],
+      testIgnore: ["**/*.mobile.spec.ts", "**/native-navigation.spec.ts", "**/ssr/**"],
       use: { ...devices["Desktop Chrome"] },
     },
     {

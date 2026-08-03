@@ -9,13 +9,20 @@ Frontend architecture maybe is a bit complex. Read `../docs/agent-guide/frontend
 
 ## Non-negotiable rules
 
-- Use Django templates for pages and content, HTMX for progressive navigation or partial replacement, behaviors for small DOM enhancements, and Solid islands for isolated stateful interaction.
+- Use Django templates for pages and content, the protocol-driven navigation layer (`core/navigation/`: HTMX or Native Navigation API adapter) for page swaps, behaviors for small DOM enhancements, and Solid islands for isolated stateful interaction.
 - Load built assets with `{% vite_asset %}`. Do not reference generated `web/static/dist` files directly.
-- Preserve the base layout's early theme script, HTMX setup, and `hx-boost` unless the task explicitly changes their behavior.
+- Preserve the base layout's early theme script, navigation protocol meta tags, and `hx-boost`/`hx-ext` wiring unless the task explicitly changes their behavior.
+- Do not add a parallel navigation mechanism (custom click/popstate routing). Extend `core/navigation/` instead; swaps must only happen when the page protocol (`app-build-id`/`app-navigation-version`) and dynamic-head markers validate, otherwise fall back to a full navigation.
 
-## HTMX and behaviors
+## Navigation and lifecycle
 
-- A behavior's `mount()` may run on the initial document and repeatedly after `htmx:load`; it must be safe to run more than once.
+- `core/navigation/setup.ts` picks the adapter from `page-navigation-mode` (`auto`/`native`/`htmx`); HTMX is imported dynamically only in HTMX modes.
+- All navigation reports through `app:*` events (`navigation-start` → `before-swap` → `after-swap` → `navigation-end`). Behaviors, transitions, and Solid mount/cleanup hook into these events, not into HTMX-internal events.
+- `core/navigation/route-policy.ts` centrally decides which URLs and sources are eligible for local swaps (private, auth, feed, Markdown, random, and non-HTML routes excluded); do not duplicate denylist rules elsewhere.
+
+## Behaviors
+
+- A behavior's `mount()` may run on the initial document and repeatedly after `app:after-swap`; it must be safe to run more than once.
 - Add shared DOM enhancements through `web/typescript/core/behaviors/` and register them in `core/behaviors/index.ts`.
 - Use the behavior runtime's abort signal for listeners and do not mutate a subtree owned by a Solid island.
 
@@ -27,4 +34,4 @@ Frontend architecture maybe is a bit complex. Read `../docs/agent-guide/frontend
 
 ## Verification
 
-Run the checks that match the change: `pnpm test`, `pnpm test:e2e`, `pnpm test:ssr`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`.
+Run the checks that match the change: `pnpm test`, `pnpm test:e2e`, `pnpm test:e2e:native` (native navigation mode), `pnpm test:ssr`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`.

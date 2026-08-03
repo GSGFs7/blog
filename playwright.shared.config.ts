@@ -28,9 +28,12 @@ export function createWebServers(ssr = false): PlaywrightTestConfig["webServer"]
       env: ssr
         ? {
             DEBUG: "True",
+            PAGE_NAVIGATION_MODE: "htmx",
             SOLID_ISLANDS_SSR: "True",
           }
-        : undefined,
+        : {
+            PAGE_NAVIGATION_MODE: "htmx",
+          },
       reuseExistingServer,
     },
   ];
