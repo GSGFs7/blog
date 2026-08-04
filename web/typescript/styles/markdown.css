@@ -605,11 +605,15 @@
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   color: #000;
   background: #000;
+  /* force overwrite */
+  filter: brightness(0);
 }
 
 .markdown-body .heimu:hover,
 .markdown-body .heimu:active {
-  color: inherit !important;
+  color: inherit;
+  background: transparent;
+  filter: none;
 }
 
 /* Image zoom */
