@@ -1,9 +1,9 @@
 import { fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { setupBehaviors } from ".";
-import { runPageSwap } from "../../test/page-lifecycle";
-import { waitForBehaviorMount } from "./test-utils";
+import { setupBehaviors } from "../index";
+import { runPageSwap } from "../../../test/page-lifecycle";
+import { waitForBehaviorMount } from "../test-utils";
 
 let teardown: (() => void) | undefined;
 

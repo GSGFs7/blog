@@ -1,5 +1,5 @@
-import { queryAllIncludingRoot } from "./dom";
-import type { Behavior, BehaviorContext } from "./types";
+import { queryAllIncludingRoot } from "../dom";
+import type { Behavior, BehaviorContext } from "../types";
 
 export function createZoomBehavior(): Behavior {
   // mounted images

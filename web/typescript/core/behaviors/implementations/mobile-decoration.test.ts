@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { setupBehaviors } from ".";
-import { runPageSwap } from "../../test/page-lifecycle";
-import { waitForBehaviorMount } from "./test-utils";
+import { setupBehaviors } from "../index";
+import { runPageSwap } from "../../../test/page-lifecycle";
+import { waitForBehaviorMount } from "../test-utils";
 
 let teardown: (() => void) | undefined;
 let matchMediaMock: ReturnType<typeof vi.fn>;

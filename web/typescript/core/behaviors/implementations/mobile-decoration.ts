@@ -1,5 +1,5 @@
-import { queryAllIncludingRoot } from "./dom";
-import type { Behavior } from "./types";
+import { queryAllIncludingRoot } from "../dom";
+import type { Behavior } from "../types";
 
 export type MediaQueryCallback = (matches: boolean) => void;
 

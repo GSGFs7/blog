@@ -5,7 +5,10 @@ const behaviorNames = ["blog-header", "code-expander", "mobile-decoration", "zoo
 function behaviorNameFromUrl(url: string): (typeof behaviorNames)[number] | undefined {
   const pathname = new URL(url).pathname;
   return behaviorNames.find(
-    (name) => pathname.includes(`/core/behaviors/${name}.`) || pathname.includes(`/${name}-`),
+    (name) =>
+      pathname.includes(`/core/behaviors/${name}.`) ||
+      pathname.includes(`/core/behaviors/implementations/${name}.`) ||
+      pathname.includes(`/${name}-`),
   );
 }
 
