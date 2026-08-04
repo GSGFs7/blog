@@ -181,13 +181,15 @@
   text-decoration: underline;
 }
 
-.markdown-body.is-decorated a::before {
+.markdown-body.is-decorated a::before,
+.markdown-body.is-decorated a::after {
   content: "[";
   color: var(--md-syntax-fg);
   font-family: var(--font-mono);
+  font-size: 0.85em;
   font-weight: 400;
   user-select: none;
-  margin-right: -1px;
+  margin-inline: -0.15em;
   text-decoration: none;
   display: inline-block;
   vertical-align: 0.05em;
@@ -195,14 +197,6 @@
 
 .markdown-body.is-decorated a::after {
   content: "]";
-  color: var(--md-syntax-fg);
-  font-family: var(--font-mono);
-  font-weight: 400;
-  user-select: none;
-  margin-left: -1px;
-  text-decoration: none;
-  display: inline-block;
-  vertical-align: 0.05em;
 }
 
 .markdown-body.is-decorated code a::before,
