@@ -18,4 +18,8 @@ export const behaviorRegistry = [
     selector: ".markdown-body img",
     load: async () => (await import("./implementations/zoom")).createZoomBehavior,
   },
+  {
+    selector: ".markdown-body a[href]",
+    load: async () => (await import("./implementations/article-links")).createArticleLinkBehavior,
+  },
 ] satisfies readonly LazyBehavior[];
