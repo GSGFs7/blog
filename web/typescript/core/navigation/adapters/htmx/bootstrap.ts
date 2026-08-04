@@ -50,3 +50,9 @@ document.body.addEventListener("htmx:configRequest", (event) => {
 });
 
 window.htmx = htmx;
+
+// add a check
+// avoid missing DOMContentLoaded event during dynamic loading
+if (document.readyState !== "loading") {
+  document.dispatchEvent(new Event("DOMContentLoaded"));
+}
