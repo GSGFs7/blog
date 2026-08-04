@@ -14,7 +14,7 @@ steps:
       REGISTRY_DOMAIN:
         from_secret: REGISTRY_DOMAIN
     commands:
-      - pacman -Sy --noconfirm
+      - pacman -Syu --noconfirm
       - pacman -S kustomize git openssh --noconfirm
       # Setup SSH
       - mkdir -p ~/.ssh

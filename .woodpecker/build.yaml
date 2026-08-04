@@ -59,7 +59,7 @@ steps:
     commands:
       - |
         # 1. Install necessary tools
-        pacman -Sy --noconfirm podman skopeo fuse-overlayfs curl jq ca-certificates python git
+        pacman -Syu --noconfirm podman skopeo fuse-overlayfs curl jq ca-certificates python git
 
         # 2. Register private CA in system trust store
         if [ -n "$REGISTRY_CA_CERT" ]; then
