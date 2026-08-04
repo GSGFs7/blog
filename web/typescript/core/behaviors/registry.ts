@@ -11,7 +11,8 @@ export const behaviorRegistry = [
   },
   {
     selector: "[data-mobile-undecorated]",
-    load: async () => (await import("./implementations/mobile-decoration")).createMobileDecorationBehavior,
+    load: async () =>
+      (await import("./implementations/mobile-decoration")).createMobileDecorationBehavior,
   },
   {
     selector: ".markdown-body img",

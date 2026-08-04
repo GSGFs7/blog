@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { setupBehaviors } from "../index";
 import { runPageSwap } from "../../../test/page-lifecycle";
+import { setupBehaviors } from "../manager";
 import { waitForBehaviorMount } from "../test-utils";
 
 let teardown: (() => void) | undefined;

@@ -1,10 +1,10 @@
 import { fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 
-import { setupBehaviors } from "../index";
 import { runPageSwap } from "../../../test/page-lifecycle";
-import { CODE_PREVIEW_LINE_LIMIT } from "./code-expander";
+import { setupBehaviors } from "../manager";
 import { waitForBehaviorMount } from "../test-utils";
+import { CODE_PREVIEW_LINE_LIMIT } from "./code-expander";
 
 let teardown: (() => void) | undefined;
 
