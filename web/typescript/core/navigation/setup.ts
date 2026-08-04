@@ -15,7 +15,7 @@ export async function setupNavigation() {
       const { setupNativePageNavigation } = await import("./native-adapter");
       setupNativePageNavigation(document);
     } else {
-      void import("../htmx");
+      await import("../htmx");
     }
   }
 
@@ -27,7 +27,7 @@ export async function setupNavigation() {
 
   // htmx mode
   if (requestedMode === "htmx") {
-    void import("../htmx");
+    await import("../htmx");
   }
 
   // no navigation

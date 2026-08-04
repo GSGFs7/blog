@@ -7,7 +7,7 @@ export default defineConfig(sharedConfig, {
   workers: 1,
   projects: [
     {
-      name: "native-chromium",
+      name: "native-firefox",
       use: { ...devices["Desktop Firefox"] },
     },
   ],

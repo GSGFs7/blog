@@ -4,6 +4,6 @@ import { setupBehaviors } from "./core/behaviors";
 import { setupLazyIsland } from "./core/lazy-islands";
 import { setupNavigation } from "./core/navigation";
 
-setupNavigation();
+await setupNavigation();
 setupBehaviors();
 setupLazyIsland();
