@@ -13,7 +13,7 @@ import {
   type PageSwapDetail,
 } from "./events";
 import { preparePageHead } from "./head";
-import { page, PageLoadError, type PageLoadResult } from "./page";
+import { type FetchedPage, page, PageLoadError, type PageLoadResult } from "./page";
 import { readPageProtocol } from "./protocol";
 import { isPageNavigationUrl, shouldInterceptNavigation } from "./route-policy";
 
@@ -37,6 +37,7 @@ interface NativePageNavigationOptions {
   reload?: () => void;
   wait?: (duration: number, signal: AbortSignal) => Promise<void>;
   prefersReducedMotion?: () => boolean;
+  supportsPrecommitRedirect?: () => boolean;
 }
 
 function waitFor(duration: number, signal: AbortSignal): Promise<void> {
@@ -83,6 +84,16 @@ export function setupNativePageNavigation(
   const prefersReducedMotion =
     options.prefersReducedMotion ??
     ((): boolean => view.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+  const supportsPrecommitRedirect =
+    options.supportsPrecommitRedirect ??
+    (() => {
+      const PrecommitController = view.NavigationPrecommitController;
+      return (
+        typeof PrecommitController === "function" &&
+        typeof PrecommitController.prototype.redirect === "function" &&
+        typeof PrecommitController.prototype.addHandler === "function"
+      );
+    });
 
   const isCurrent = (transaction: NavigationTransaction): boolean =>
     activeTransaction === transaction &&
@@ -173,6 +184,111 @@ export function setupNativePageNavigation(
     target.replaceChildren(...nodes);
   };
 
+  const loadTransaction = async (
+    transaction: NavigationTransaction,
+    signal: AbortSignal,
+  ): Promise<FetchedPage | undefined> => {
+    let result: PageLoadResult;
+    try {
+      result = await loadPage(transaction.requestedUrl, {
+        signal,
+        expectedOrigin: view.location.origin,
+        currentProtocol,
+      });
+    } catch (e) {
+      if (!isCurrent(transaction)) {
+        return;
+      }
+      if (signal.aborted) {
+        cancel(transaction);
+        return;
+      }
+      reloadAfterError(
+        transaction,
+        transaction.requestedUrl,
+        e instanceof PageLoadError ? e.phase : "request",
+        e,
+      );
+      return;
+    }
+
+    if (!isCurrent(transaction)) {
+      return;
+    }
+    if (result.kind === "reload") {
+      fallbackTo(transaction, result.url);
+      return;
+    }
+
+    transaction.finalUrl = new URL(result.page.finalUrl);
+    transaction.deliverySource = result.page.deliverySource;
+    if (!isPageNavigationUrl(transaction.finalUrl, currentUrl.origin)) {
+      fallbackTo(transaction, transaction.finalUrl);
+      return;
+    }
+
+    return result.page;
+  };
+
+  const swapTransaction = async (
+    transaction: NavigationTransaction,
+    fetchedPage: FetchedPage,
+    signal: AbortSignal,
+  ): Promise<void> => {
+    if (!isCurrent(transaction)) {
+      return;
+    }
+
+    let head: Awaited<ReturnType<typeof preparePageHead>> | undefined;
+    try {
+      head = await prepareHead(document, fetchedPage.document, {
+        signal,
+        currentUrl,
+        nextUrl: transaction.finalUrl!,
+      });
+
+      if (!isCurrent(transaction)) {
+        head.rollback();
+        return;
+      }
+
+      transaction.stage = "swapping";
+      emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
+      if (!prefersReducedMotion()) {
+        await wait(PAGE_TRANSITION_TIMING.swapDelay, signal);
+      }
+      signal.throwIfAborted();
+      if (!isCurrent(transaction)) {
+        head.rollback();
+        return;
+      }
+
+      head.commit();
+      swapBodyChildren(document.body, fetchedPage.document.body);
+      transaction.stage = "settling";
+      emitPageEvent(document, APP_PAGE_EVENT.afterSwap, swapDetailFor(transaction));
+      if (!prefersReducedMotion()) {
+        await wait(PAGE_TRANSITION_TIMING.settleDelay, signal);
+      }
+      signal.throwIfAborted();
+      if (!isCurrent(transaction)) {
+        return;
+      }
+
+      finish(transaction, "completed");
+    } catch (e) {
+      head?.rollback();
+      if (!isCurrent(transaction)) {
+        return;
+      }
+      if (signal.aborted) {
+        cancel(transaction);
+        return;
+      }
+      reloadAfterError(transaction, transaction.finalUrl ?? transaction.requestedUrl, "swap", e);
+    }
+  };
+
   const handleNavigate = (event: NavigateEvent) => {
     if (fullNavigationPending) {
       return;
@@ -225,105 +341,58 @@ export function setupNativePageNavigation(
       controller: new AbortController(),
     };
 
+    const signal = AbortSignal.any([
+      event.signal,
+      controller.signal,
+      transaction.controller.signal,
+    ]);
+
     try {
-      event.intercept({
-        focusReset: "after-transition",
-        scroll: "after-transition",
-        async handler() {
-          const signal = AbortSignal.any([
-            event.signal,
-            controller.signal,
-            transaction.controller.signal,
-          ]);
-          let result: PageLoadResult;
-          try {
-            result = await loadPage(transaction.requestedUrl, {
-              signal,
-              expectedOrigin: view.location.origin,
-              currentProtocol,
-            });
-          } catch (e) {
-            if (!isCurrent(transaction)) {
+      const canRedirectBeforeCommit =
+        event.cancelable &&
+        (event.navigationType === "push" || event.navigationType === "replace") &&
+        supportsPrecommitRedirect();
+
+      if (canRedirectBeforeCommit) {
+        event.intercept({
+          focusReset: "after-transition",
+          scroll: "after-transition",
+          async precommitHandler(precommit) {
+            const fetchedPage = await loadTransaction(transaction, signal);
+            if (!fetchedPage) {
+              throw signal.reason ?? new DOMException("Navigation did not load", "AbortError");
+            }
+
+            if (transaction.finalUrl!.href !== transaction.requestedUrl.href) {
+              try {
+                precommit.redirect(transaction.finalUrl!);
+              } catch {
+                fallbackTo(transaction, transaction.finalUrl!);
+                throw transaction.controller.signal.reason;
+              }
+            }
+
+            precommit.addHandler(() => swapTransaction(transaction, fetchedPage, signal));
+          },
+        });
+      } else {
+        event.intercept({
+          focusReset: "after-transition",
+          scroll: "after-transition",
+          async handler() {
+            const fetchedPage = await loadTransaction(transaction, signal);
+            if (!fetchedPage) {
               return;
             }
-            if (signal.aborted) {
-              cancel(transaction);
-              return;
-            }
-            reloadAfterError(
-              transaction,
-              transaction.requestedUrl,
-              e instanceof PageLoadError ? e.phase : "request",
-              e,
-            );
-            return;
-          }
-
-          if (!isCurrent(transaction)) {
-            return;
-          }
-          if (result.kind === "reload") {
-            fallbackTo(transaction, result.url);
-            return;
-          }
-
-          transaction.finalUrl = new URL(result.page.finalUrl);
-          transaction.deliverySource = result.page.deliverySource;
-          if (transaction.finalUrl.href !== transaction.requestedUrl.href) {
-            fallbackTo(transaction, transaction.finalUrl);
-            return;
-          }
-
-          let head: Awaited<ReturnType<typeof preparePageHead>> | undefined;
-          try {
-            head = await prepareHead(document, result.page.document, {
-              signal,
-              currentUrl,
-              nextUrl: transaction.finalUrl,
-            });
-
-            if (!isCurrent(transaction)) {
-              head.rollback();
+            if (transaction.finalUrl!.href !== transaction.requestedUrl.href) {
+              fallbackTo(transaction, transaction.finalUrl!);
               return;
             }
 
-            transaction.stage = "swapping";
-            emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
-            if (!prefersReducedMotion()) {
-              await wait(PAGE_TRANSITION_TIMING.swapDelay, signal);
-            }
-            signal.throwIfAborted();
-            if (!isCurrent(transaction)) {
-              head.rollback();
-              return;
-            }
-
-            head.commit();
-            swapBodyChildren(document.body, result.page.document.body);
-            transaction.stage = "settling";
-            emitPageEvent(document, APP_PAGE_EVENT.afterSwap, swapDetailFor(transaction));
-            if (!prefersReducedMotion()) {
-              await wait(PAGE_TRANSITION_TIMING.settleDelay, signal);
-            }
-            signal.throwIfAborted();
-            if (!isCurrent(transaction)) {
-              return;
-            }
-
-            finish(transaction, "completed");
-          } catch (e) {
-            head?.rollback();
-            if (!isCurrent(transaction)) {
-              return;
-            }
-            if (signal.aborted) {
-              cancel(transaction);
-              return;
-            }
-            reloadAfterError(transaction, transaction.requestedUrl, "swap", e);
-          }
-        },
-      });
+            await swapTransaction(transaction, fetchedPage, signal);
+          },
+        });
+      }
     } catch {
       transaction.controller.abort();
       return;

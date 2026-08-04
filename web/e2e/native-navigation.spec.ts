@@ -5,6 +5,8 @@ interface NavigationProbeEvent {
   navigationId: number;
   navigationType?: NavigationType;
   outcome?: string;
+  requestedUrl?: string;
+  finalUrl?: string;
 }
 
 interface NavigationProbe {
@@ -41,6 +43,8 @@ async function installNavigationProbe(page: Page): Promise<void> {
           navigationId: detail.navigationId,
           navigationType: detail.navigationType,
           outcome: detail.outcome,
+          requestedUrl: detail.requestedUrl?.href,
+          finalUrl: detail.finalUrl?.href,
         });
       });
     }
@@ -143,7 +147,7 @@ test("restores pages through back and forward traversal", async ({ page }) => {
   expect((await probe(page)).documentId).toBe(initialDocumentId);
 });
 
-test("reloads an excluded history entry", async ({ page }) => {
+test("restores a private page through same-document history traversal", async ({ page }) => {
   const initialDocumentId = await openNativeTestPage(page);
   await page
     .locator(".site-navbar__links")
@@ -151,13 +155,9 @@ test("reloads an excluded history entry", async ({ page }) => {
     .click();
   await expect(page).toHaveURL(/\/about$/);
   await expectCompletedLifecycle(page, "push");
-  const documentRequest = page.waitForRequest(
-    (request) =>
-      new URL(request.url()).pathname === "/test" && request.resourceType() === "document",
-  );
 
+  await clearProbeEvents(page);
   await page.goBack({ waitUntil: "commit" });
-  await documentRequest;
 
   await expect(page).toHaveURL(/\/test$/);
   await expect(page).toHaveTitle(/^Test page -/);
@@ -165,11 +165,11 @@ test("reloads an excluded history entry", async ({ page }) => {
     "data-props",
     /"initial":1024/,
   );
-  expect((await probe(page)).documentId).not.toBe(initialDocumentId);
-  expect((await probe(page)).events).toEqual([]);
+  expect((await probe(page)).documentId).toBe(initialDocumentId);
+  await expectCompletedLifecycle(page, "traverse");
 });
 
-test("leaves an excluded route to a full document navigation", async ({ page }) => {
+test("navigates to a private page without replacing the document", async ({ page }) => {
   const initialDocumentId = await openNativeTestPage(page);
   await page.evaluate(() => {
     const link = document.createElement("a");
@@ -177,16 +177,56 @@ test("leaves an excluded route to a full document navigation", async ({ page }) 
     link.textContent = "Login E2E";
     document.body.append(link);
   });
-  const documentRequest = page.waitForRequest(
-    (request) =>
-      new URL(request.url()).pathname === "/login" && request.resourceType() === "document",
+  const fetchRequest = page.waitForRequest(
+    (request) => new URL(request.url()).pathname === "/login" && request.resourceType() === "fetch",
   );
 
   await page.getByRole("link", { name: "Login E2E" }).click();
-  await documentRequest;
+  await fetchRequest;
 
   await expect(page).toHaveURL(/\/login$/);
   await expect(page).toHaveTitle(/^Login -/);
-  expect((await probe(page)).documentId).not.toBe(initialDocumentId);
-  expect((await probe(page)).events).toEqual([]);
+  expect((await probe(page)).documentId).toBe(initialDocumentId);
+  await expectCompletedLifecycle(page, "push");
+});
+
+test("commits and swaps the final URL from a redirect", async ({ page }) => {
+  const initialDocumentId = await openNativeTestPage(page);
+  const aboutRequestTypes: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/about") {
+      aboutRequestTypes.push(request.resourceType());
+    }
+  });
+  await page.route(/\/native-redirect$/, async (route) => {
+    await route.fulfill({
+      status: 302,
+      headers: { location: "/about" },
+      body: "",
+    });
+  });
+  await page.evaluate(() => {
+    const link = document.createElement("a");
+    link.href = "/native-redirect";
+    link.textContent = "Redirect E2E";
+    document.body.append(link);
+  });
+
+  await page.getByRole("link", { name: "Redirect E2E" }).click();
+
+  await expect(page).toHaveURL(/\/about$/);
+  await expect(page.getByRole("heading", { name: "关于我", exact: true })).toBeVisible();
+  await expectCompletedLifecycle(page, "push");
+  expect((await probe(page)).documentId).toBe(initialDocumentId);
+  expect(aboutRequestTypes).toEqual(["fetch"]);
+  expect((await probe(page)).events.at(-1)).toMatchObject({
+    outcome: "completed",
+    requestedUrl: expect.stringMatching(/\/native-redirect$/),
+    finalUrl: expect.stringMatching(/\/about$/),
+  });
+
+  await clearProbeEvents(page);
+  await page.goBack({ waitUntil: "commit" });
+  await expect(page).toHaveURL(/\/test$/);
+  await expectCompletedLifecycle(page, "traverse");
 });

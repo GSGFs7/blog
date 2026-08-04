@@ -56,9 +56,14 @@ describe("isPageNavigationUrl", () => {
     "/",
     "/about",
     "/about/",
+    "/blog/latest",
     "/blog/post-slug",
+    "/blog/random",
     "/blog/123/comments",
+    "/login",
     "/search?q=django#results",
+    "/test",
+    "/user",
   ])("allows a regular same-origin page URL: %s", (path) => {
     expect(isPageNavigationUrl(new URL(path, ORIGIN), ORIGIN)).toBe(true);
   });
@@ -69,21 +74,13 @@ describe("isPageNavigationUrl", () => {
     expect(isPageNavigationUrl(new URL("http://example.com/about"), ORIGIN)).toBe(false);
   });
 
-  test.each([
-    "/blog/feed.atom",
-    "/blog/latest",
-    "/blog/random",
-    "/favicon.ico",
-    "/llms.txt",
-    "/login",
-    "/robots.txt",
-    "/sitemap.xml",
-    "/test",
-    "/user",
-  ])("requires a full reload for an exact path: %s", (path) => {
-    expect(isPageNavigationUrl(new URL(path, ORIGIN), ORIGIN)).toBe(false);
-    expect(isPageNavigationUrl(new URL(`${path}/`, ORIGIN), ORIGIN)).toBe(false);
-  });
+  test.each(["/blog/feed.atom", "/favicon.ico", "/llms.txt", "/robots.txt", "/sitemap.xml"])(
+    "requires a full reload for an exact path: %s",
+    (path) => {
+      expect(isPageNavigationUrl(new URL(path, ORIGIN), ORIGIN)).toBe(false);
+      expect(isPageNavigationUrl(new URL(`${path}/`, ORIGIN), ORIGIN)).toBe(false);
+    },
+  );
 
   test.each(["/account/settings", "/api/posts", "/not-admin/login", "/prometheus/metrics"])(
     "requires a full reload below a reserved prefix: %s",
@@ -154,7 +151,7 @@ describe("shouldInterceptNavigation", () => {
 
   test.each([
     "https://other.example/about",
-    `${ORIGIN}/login`,
+    `${ORIGIN}/api/private`,
     `${ORIGIN}/blog/123`,
     `${ORIGIN}/article.md`,
   ])("does not intercept an ineligible destination: %s", (destinationUrl) => {

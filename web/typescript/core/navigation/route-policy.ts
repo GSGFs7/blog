@@ -1,15 +1,10 @@
 const RELOAD_PREFIXES = ["/account/", "/api/", "/not-admin/", "/prometheus/"];
 const RELOAD_PATHS = new Set([
   "/blog/feed.atom",
-  "/blog/latest",
-  "/blog/random",
   "/favicon.ico",
   "/llms.txt",
-  "/login",
   "/robots.txt",
   "/sitemap.xml",
-  "/test",
-  "/user",
 ]);
 
 function normalizedPathname(pathname: string): string {

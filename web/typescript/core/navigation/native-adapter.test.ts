@@ -19,6 +19,8 @@ interface RecordedEvent {
 interface TestNavigateEvent {
   event: NavigateEvent;
   intercept: ReturnType<typeof vi.fn>;
+  redirect: ReturnType<typeof vi.fn>;
+  addHandler: ReturnType<typeof vi.fn>;
   run(): Promise<void>;
 }
 
@@ -80,9 +82,14 @@ function navigateEvent(
 ): TestNavigateEvent {
   const signalController = new AbortController();
   let interceptOptions: NavigationInterceptOptions | undefined;
+  const postCommitHandlers: NavigationInterceptHandler[] = [];
   const event = new Event("navigate", { cancelable: true }) as NavigateEvent;
   const intercept = vi.fn((options?: NavigationInterceptOptions) => {
     interceptOptions = options;
+  });
+  const redirect = vi.fn();
+  const addHandler = vi.fn((handler: NavigationInterceptHandler) => {
+    postCommitHandlers.push(handler);
   });
 
   Object.defineProperties(event, {
@@ -100,10 +107,22 @@ function navigateEvent(
   return {
     event,
     intercept,
+    redirect,
+    addHandler,
     async run() {
+      const precommitHandler = interceptOptions?.precommitHandler;
+      if (precommitHandler) {
+        await precommitHandler({
+          redirect,
+          addHandler,
+        } as unknown as NavigationPrecommitController);
+      }
       const handler = interceptOptions?.handler;
       if (handler) {
         await handler();
+      }
+      for (const postCommitHandler of postCommitHandlers) {
+        await postCommitHandler();
       }
     },
   };
@@ -135,6 +154,7 @@ function setup(
     reload?: ReturnType<typeof vi.fn<() => void>>;
     wait?: ReturnType<typeof vi.fn<(duration: number, signal: AbortSignal) => Promise<void>>>;
     prefersReducedMotion?: () => boolean;
+    supportsPrecommitRedirect?: () => boolean;
   } = {},
 ) {
   const loadPage = overrides.loadPage ?? vi.fn<typeof page>();
@@ -156,6 +176,7 @@ function setup(
     reload,
     wait,
     prefersReducedMotion: overrides.prefersReducedMotion ?? (() => false),
+    supportsPrecommitRedirect: overrides.supportsPrecommitRedirect ?? (() => false),
   });
 
   return { loadPage, prepareHead, commit, rollback, navigate, reload, wait };
@@ -297,7 +318,7 @@ test("rolls back the prepared head before reloading after a swap error", async (
   expect(harness.navigate.mock.calls[0][0].pathname).toBe("/about");
 });
 
-test("falls back to the final URL after a server redirect", async () => {
+test("falls back to the final URL after a server redirect without precommit support", async () => {
   const harness = setup();
   harness.loadPage.mockResolvedValue(swapResult("/old", "/new"));
   const request = navigateEvent("/old");
@@ -311,6 +332,57 @@ test("falls back to the final URL after a server redirect", async () => {
     outcome: "fallback",
     finalUrl: destination("/new"),
   });
+});
+
+test("redirects before commit and swaps the final page", async () => {
+  const harness = setup({ supportsPrecommitRedirect: () => true });
+  harness.loadPage.mockResolvedValue(swapResult("/old", "/new"));
+  const request = navigateEvent("/old");
+
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  expect(request.redirect).toHaveBeenCalledOnce();
+  expect((request.redirect.mock.calls[0][0] as URL).pathname).toBe("/new");
+  expect(request.addHandler).toHaveBeenCalledOnce();
+  expect(harness.navigate).not.toHaveBeenCalled();
+  expect(harness.prepareHead).toHaveBeenCalledOnce();
+  expect(harness.commit).toHaveBeenCalledOnce();
+  expect(document.body).toHaveTextContent("next page");
+  expect(recordedEvents.at(-1)?.detail as PageNavigationEndDetail).toMatchObject({
+    outcome: "completed",
+    requestedUrl: destination("/old"),
+    finalUrl: destination("/new"),
+  });
+});
+
+test("falls back when a redirect ends at an excluded route", async () => {
+  const harness = setup({ supportsPrecommitRedirect: () => true });
+  harness.loadPage.mockResolvedValue(swapResult("/old", "/api/private"));
+  const request = navigateEvent("/old");
+
+  navigation.dispatchEvent(request.event);
+
+  await expect(request.run()).rejects.toMatchObject({ name: "AbortError" });
+  expect(request.redirect).not.toHaveBeenCalled();
+  expect(harness.prepareHead).not.toHaveBeenCalled();
+  expect(harness.navigate).toHaveBeenCalledOnce();
+  expect(harness.navigate.mock.calls[0][0].pathname).toBe("/api/private");
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ outcome: "fallback" });
+});
+
+test("falls back for a redirect discovered during history traversal", async () => {
+  const harness = setup({ supportsPrecommitRedirect: () => true });
+  harness.loadPage.mockResolvedValue(swapResult("/old", "/new"));
+  const request = navigateEvent("/old", "traverse", true);
+
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  expect(request.redirect).not.toHaveBeenCalled();
+  expect(harness.prepareHead).not.toHaveBeenCalled();
+  expect(harness.navigate.mock.calls[0][0].pathname).toBe("/new");
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ outcome: "fallback" });
 });
 
 test("cancels a superseded loading transaction exactly once", async () => {
@@ -424,7 +496,7 @@ test("does not start a transaction when intercept throws", () => {
 
 test("fully reloads an excluded same-document history entry", async () => {
   const harness = setup();
-  const request = navigateEvent("/test", "traverse", true);
+  const request = navigateEvent("/api/private", "traverse", true);
 
   navigation.dispatchEvent(request.event);
   await request.run();

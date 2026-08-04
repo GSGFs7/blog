@@ -6,7 +6,6 @@ import { type PageProtocol, protocolsMatch, readPageProtocol } from "./protocol"
 
 export type PageReloadReason =
   | "cross-origin"
-  | "redirect"
   | "status"
   | "content-type"
   | "content-disposition"

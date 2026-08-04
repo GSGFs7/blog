@@ -18,7 +18,7 @@ Frontend architecture maybe is a bit complex. Read `../docs/agent-guide/frontend
 
 - `core/navigation/setup.ts` picks the adapter from `page-navigation-mode` (`auto`/`native`/`htmx`); HTMX is imported dynamically only in HTMX modes.
 - All navigation reports through `app:*` events (`navigation-start` → `before-swap` → `after-swap` → `navigation-end`). Behaviors, transitions, and Solid mount/cleanup hook into these events, not into HTMX-internal events.
-- `core/navigation/route-policy.ts` centrally decides which URLs and sources are eligible for local swaps (private, auth, feed, Markdown, random, and non-HTML routes excluded); do not duplicate denylist rules elsewhere.
+- `core/navigation/route-policy.ts` centrally decides which URLs and sources are eligible for local swaps (reserved prefixes, feed, Markdown, and non-HTML routes excluded); do not duplicate denylist rules elsewhere. The native adapter resolves eligible same-origin redirects before commit when the browser supports precommit redirects, and otherwise falls back to a full navigation.
 
 ## Behaviors
 
