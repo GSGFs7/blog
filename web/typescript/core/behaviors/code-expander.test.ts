@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "vitest";
 import { setupBehaviors } from ".";
 import { runPageSwap } from "../../test/page-lifecycle";
 import { CODE_PREVIEW_LINE_LIMIT } from "./code-expander";
+import { waitForBehaviorMount } from "./test-utils";
 
 let teardown: (() => void) | undefined;
 
@@ -17,7 +18,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("collapses a long code block and toggles the full content", () => {
+test("collapses a long code block and toggles the full content", async () => {
   const lineCount = CODE_PREVIEW_LINE_LIMIT + 3;
   document.body.innerHTML = `
     <article class="markdown-body">
@@ -26,6 +27,7 @@ test("collapses a long code block and toggles the full content", () => {
   `;
 
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
 
   const wrapper = document.querySelector(".code-expander")!;
   const viewport = document.querySelector<HTMLElement>(".code-expander__viewport")!;
@@ -46,7 +48,7 @@ test("collapses a long code block and toggles the full content", () => {
   expect(button).toHaveAttribute("aria-expanded", "false");
 });
 
-test("leaves a short code block unchanged", () => {
+test("leaves a short code block unchanged", async () => {
   document.body.innerHTML = `
     <article class="markdown-body">
       <pre><code>${lines(CODE_PREVIEW_LINE_LIMIT)}</code></pre>
@@ -54,12 +56,13 @@ test("leaves a short code block unchanged", () => {
   `;
 
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
 
   expect(document.querySelector(".code-expander")).not.toBeInTheDocument();
   expect(document.querySelector("pre")).toHaveTextContent(`line ${CODE_PREVIEW_LINE_LIMIT}`);
 });
 
-test("collapses a terminal as one unit", () => {
+test("collapses a terminal as one unit", async () => {
   document.body.innerHTML = `
     <article class="markdown-body">
       <div class="terminal">
@@ -71,13 +74,14 @@ test("collapses a terminal as one unit", () => {
   `;
 
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
 
   expect(document.querySelectorAll(".code-expander")).toHaveLength(1);
   expect(document.querySelector(".code-expander")).toHaveClass("code-expander--terminal");
   expect(document.querySelector(".code-expander__toggle")).toHaveTextContent("expand (15 lines)");
 });
 
-test("mounts swapped content once and teardown restores the original markup", () => {
+test("mounts swapped content once and teardown restores the original markup", async () => {
   teardown = setupBehaviors();
   runPageSwap(() => {
     document.body.innerHTML = `
@@ -88,6 +92,7 @@ test("mounts swapped content once and teardown restores the original markup", ()
       </main>
     `;
   });
+  await waitForBehaviorMount();
 
   const target = document.getElementById("swap-target")!;
   expect(target.querySelectorAll(".code-expander")).toHaveLength(1);

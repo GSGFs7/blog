@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { setupBehaviors } from ".";
 import { runPageSwap } from "../../test/page-lifecycle";
+import { waitForBehaviorMount } from "./test-utils";
 
 let teardown: (() => void) | undefined;
 
@@ -12,7 +13,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("mounts a blog header after a page swap", () => {
+test("mounts a blog header after a page swap", async () => {
   teardown = setupBehaviors();
   runPageSwap(() => {
     document.body.innerHTML = `
@@ -25,6 +26,7 @@ test("mounts a blog header after a page swap", () => {
       </main>
     `;
   });
+  await waitForBehaviorMount();
 
   const target = document.getElementById("swap-target")!;
   const card = target.querySelector<HTMLElement>("[data-blog-header]")!;
@@ -47,7 +49,7 @@ test("mounts a blog header after a page swap", () => {
   expect(card.querySelector("[data-blog-pointer-y]")).toHaveTextContent("-0.50");
 });
 
-test("does not retain blog header listeners from the previous page", () => {
+test("does not retain blog header listeners from the previous page", async () => {
   document.body.innerHTML = `
     <div data-blog-header>
       <img data-blog-header-image>
@@ -64,6 +66,7 @@ test("does not retain blog header listeners from the previous page", () => {
       </div>
     `;
   });
+  await waitForBehaviorMount();
 
   const card = document.querySelector<HTMLElement>("[data-blog-header]")!;
   const currentRect = vi.spyOn(card, "getBoundingClientRect").mockReturnValue({

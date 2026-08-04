@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { setupBehaviors } from ".";
 import { runPageSwap } from "../../test/page-lifecycle";
+import { waitForBehaviorMount } from "./test-utils";
 
 let teardown: (() => void) | undefined;
 let matchMediaMock: ReturnType<typeof vi.fn>;
@@ -41,22 +42,25 @@ function changeMediaQuery(matches: boolean) {
   }
 }
 
-test("applies is-decorated on desktop", () => {
+test("applies is-decorated on desktop", async () => {
   document.body.innerHTML = "<div data-mobile-undecorated>content</div>";
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   expect(document.querySelector("[data-mobile-undecorated]")).toHaveClass("is-decorated");
 });
 
-test("removes is-decorated on mobile", () => {
+test("removes is-decorated on mobile", async () => {
   mockMQL.matches = true;
   document.body.innerHTML = "<div data-mobile-undecorated>content</div>";
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   expect(document.querySelector("[data-mobile-undecorated]")).not.toHaveClass("is-decorated");
 });
 
-test("toggles class when viewport crosses breakpoint", () => {
+test("toggles class when viewport crosses breakpoint", async () => {
   document.body.innerHTML = "<div data-mobile-undecorated>content</div>";
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   const el = document.querySelector<HTMLElement>("[data-mobile-undecorated]")!;
 
   expect(el).toHaveClass("is-decorated");
@@ -68,9 +72,10 @@ test("toggles class when viewport crosses breakpoint", () => {
   expect(el).toHaveClass("is-decorated");
 });
 
-test("destroys stops listener and sets desktop state", () => {
+test("destroys stops listener and sets desktop state", async () => {
   document.body.innerHTML = "<div data-mobile-undecorated>content</div>";
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   expect(document.querySelector("[data-mobile-undecorated]")).toHaveClass("is-decorated");
 
   teardown();
@@ -80,33 +85,37 @@ test("destroys stops listener and sets desktop state", () => {
   expect(mockMQL.listeners.size).toBe(0);
 });
 
-test("applies current state to swapped content", () => {
+test("applies current state to swapped content", async () => {
   teardown = setupBehaviors();
 
   runPageSwap(() => {
     document.body.innerHTML =
       '<main id="swap-target"><div data-mobile-undecorated>content</div></main>';
   });
+  await waitForBehaviorMount();
 
   const target = document.getElementById("swap-target")!;
   expect(target.querySelector("[data-mobile-undecorated]")).toHaveClass("is-decorated");
 });
 
-test("skips media query listener when no elements on page", () => {
+test("skips media query listener when no elements on page", async () => {
   document.body.innerHTML = "<div>no decoration</div>";
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   expect(matchMediaMock).not.toHaveBeenCalled();
 });
 
-test("stops listener when all elements are removed by a page swap", () => {
+test("stops listener when all elements are removed by a page swap", async () => {
   document.body.innerHTML =
     '<main id="swap-target"><div data-mobile-undecorated>content</div></main>';
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   expect(matchMediaMock).toHaveBeenCalledTimes(1);
 
   runPageSwap(() => {
     document.body.innerHTML = "<main><div>no decoration</div></main>";
   });
+  await waitForBehaviorMount();
 
   expect(mockMQL.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
 });

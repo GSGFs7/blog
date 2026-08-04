@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { setupBehaviors } from ".";
 import { runPageSwap } from "../../test/page-lifecycle";
+import { waitForBehaviorMount } from "./test-utils";
 
 let teardown: (() => void) | undefined;
 
@@ -31,12 +32,13 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("zooms an image and closes it with Escape", () => {
+test("zooms an image and closes it with Escape", async () => {
   vi.useFakeTimers();
   document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
   const image = document.querySelector("img")!;
   prepareImage(image);
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
 
   fireEvent.click(image);
   expect(image).toHaveClass("is-zoomed");
@@ -48,12 +50,13 @@ test("zooms an image and closes it with Escape", () => {
   expect(image).not.toHaveClass("is-zoomed");
 });
 
-test("mounts swapped images once", () => {
+test("mounts swapped images once", async () => {
   teardown = setupBehaviors();
   runPageSwap(() => {
     document.body.innerHTML =
       '<main id="swap-target"><article class="markdown-body"><img alt="test"></article></main>';
   });
+  await waitForBehaviorMount();
 
   const target = document.getElementById("swap-target")!;
   const image = target.querySelector("img")!;
@@ -65,7 +68,7 @@ test("mounts swapped images once", () => {
   expect(document.getElementById("zoom-overlay")).toHaveClass("is-visible");
 });
 
-test("recreates the overlay after page navigation", () => {
+test("recreates the overlay after page navigation", async () => {
   document.body.innerHTML = '<article class="markdown-body"><img alt="first"></article>';
   teardown = setupBehaviors();
   const initialOverlay = document.getElementById("zoom-overlay");
@@ -73,6 +76,7 @@ test("recreates the overlay after page navigation", () => {
   runPageSwap(() => {
     document.body.innerHTML = '<article class="markdown-body"><img alt="second"></article>';
   });
+  await waitForBehaviorMount();
 
   const image = document.querySelector("img")!;
   prepareImage(image);
@@ -85,11 +89,12 @@ test("recreates the overlay after page navigation", () => {
   expect(replacementOverlay).toHaveClass("is-visible");
 });
 
-test("teardown restores the zoomed image and removes the overlay", () => {
+test("teardown restores the zoomed image and removes the overlay", async () => {
   document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
   const image = document.querySelector("img")!;
   prepareImage(image);
   teardown = setupBehaviors();
+  await waitForBehaviorMount();
   fireEvent.click(image);
 
   teardown();
