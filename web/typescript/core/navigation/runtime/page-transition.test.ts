@@ -1,4 +1,4 @@
-import { APP_PAGE_EVENT } from "./navigation";
+import { APP_PAGE_EVENT } from "../index";
 import { setupPageTransition } from "./page-transition";
 
 let teardown: (() => void) | undefined;

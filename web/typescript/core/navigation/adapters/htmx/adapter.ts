@@ -1,6 +1,5 @@
 import htmx, { type HtmxBeforeSwapDetails, type HtmxResponseInfo } from "htmx.org";
 
-import { PAGE_TRANSITION_TIMING } from "../page-transition";
 import {
   APP_PAGE_EVENT,
   emitPageEvent,
@@ -10,8 +9,14 @@ import {
   type PageNavigationType,
   type PageNavigationDetail,
   type PageSwapDetail,
-} from "./events";
-import { type PageProtocol, parsePageProtocol, protocolsMatch, readPageProtocol } from "./protocol";
+} from "../../contracts";
+import {
+  type PageProtocol,
+  parsePageProtocol,
+  protocolsMatch,
+  readPageProtocol,
+} from "../../contracts";
+import { PAGE_TRANSITION_TIMING } from "../../runtime";
 
 const EXTENSION_NAME = "app-page-lifecycle";
 export const HTMX_PAGE_TRANSITION_SWAP =

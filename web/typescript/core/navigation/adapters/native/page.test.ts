@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 
+import type { PageProtocol } from "../../contracts";
 import {
   page,
   PageLoadError,
@@ -7,7 +8,6 @@ import {
   type PageLoadResult,
   type PageReloadReason,
 } from "./page";
-import type { PageProtocol } from "./protocol";
 
 const ORIGIN = "https://example.com";
 const PROTOCOL: PageProtocol = {

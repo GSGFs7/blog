@@ -3,7 +3,7 @@
 import { render, hydrate } from "solid-js/web";
 
 import type { ComponentProps, ComponentRegistry } from "../types";
-import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation/events";
+import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation";
 
 let registry: ComponentRegistry = {};
 

@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { PAGE_TRANSITION_TIMING } from "../page-transition";
 import {
   APP_PAGE_EVENT,
   type PageNavigationDetail,
   type PageNavigationEndDetail,
   type PageNavigationErrorDetail,
-} from "./events";
+} from "../../contracts";
+import { PAGE_TRANSITION_TIMING } from "../../runtime";
+import { setupNativePageNavigation } from "./adapter";
 import type { preparePageHead } from "./head";
-import { setupNativePageNavigation } from "./native-adapter";
 import { type page, PageLoadError, type PageLoadResult } from "./page";
 
 interface RecordedEvent {

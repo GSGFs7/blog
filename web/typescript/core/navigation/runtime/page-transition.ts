@@ -1,4 +1,4 @@
-import { APP_PAGE_EVENT } from "./navigation";
+import { APP_PAGE_EVENT } from "../contracts";
 
 export const PAGE_TRANSITION_TIMING = {
   swapDelay: 100,

@@ -1,7 +1,6 @@
 // it uses a very very very new API (in 2026) - Navigation API
 // docs: https://developer.mozilla.org/docs/Web/API/Navigation_API
 
-import { PAGE_TRANSITION_TIMING, setupPageTransition } from "../page-transition";
 import {
   APP_PAGE_EVENT,
   emitPageEvent,
@@ -11,11 +10,12 @@ import {
   type PageNavigationPhase,
   type PageNavigationType,
   type PageSwapDetail,
-} from "./events";
+} from "../../contracts";
+import { readPageProtocol } from "../../contracts";
+import { isPageNavigationUrl, shouldInterceptNavigation } from "../../policy";
+import { PAGE_TRANSITION_TIMING, setupPageTransition } from "../../runtime";
 import { preparePageHead } from "./head";
 import { type FetchedPage, page, PageLoadError, type PageLoadResult } from "./page";
-import { readPageProtocol } from "./protocol";
-import { isPageNavigationUrl, shouldInterceptNavigation } from "./route-policy";
 
 type TransactionStage = "loading" | "swapping" | "settling" | "finished";
 

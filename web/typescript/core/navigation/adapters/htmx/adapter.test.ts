@@ -6,14 +6,14 @@ import {
   type PageNavigationDetail,
   type PageNavigationEndDetail,
   type PageNavigationErrorDetail,
-} from "./events";
+} from "../../contracts";
+import type { PageProtocol } from "../../contracts";
 import {
   applyHtmxHistoryPageTransition,
   applyHtmxPageTransition,
   HTMX_PAGE_TRANSITION_SWAP,
   setupHtmxPageLifecycle,
-} from "./htmx-adapter";
-import type { PageProtocol } from "./protocol";
+} from "./adapter";
 
 const CURRENT_PROTOCOL: PageProtocol = {
   navigationVersion: "1",

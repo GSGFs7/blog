@@ -1,6 +1,10 @@
-import type { PageNavigationDeliverySource } from "./events";
+import {
+  type PageNavigationDeliverySource,
+  type PageProtocol,
+  protocolsMatch,
+  readPageProtocol,
+} from "../../contracts";
 import { hasValidPageHead } from "./head";
-import { type PageProtocol, protocolsMatch, readPageProtocol } from "./protocol";
 
 // --- types ---
 

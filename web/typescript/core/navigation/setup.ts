@@ -12,23 +12,23 @@ export async function setupNavigation() {
   // auto mode
   if (requestedMode === "auto") {
     if (hasNavigationAPI()) {
-      const { setupNativePageNavigation } = await import("./native-adapter");
+      const { setupNativePageNavigation } = await import("./adapters/native");
       setupNativePageNavigation(document);
     } else {
-      await import("../htmx");
+      await import("./adapters/htmx/bootstrap");
     }
   }
 
   // native mode
   if (requestedMode === "native" && hasNavigationAPI()) {
-    const { setupNativePageNavigation } = await import("./native-adapter");
+    const { setupNativePageNavigation } = await import("./adapters/native");
     setupNativePageNavigation(document);
   }
 
   // htmx mode
   if (requestedMode === "htmx") {
-    await import("../htmx");
+    await import("./adapters/htmx/bootstrap");
   }
 
-  // no navigation
+  // no navigator
 }

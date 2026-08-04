@@ -2,13 +2,9 @@ import htmx from "htmx.org";
 import "htmx-ext-head-support";
 import "htmx-ext-preload";
 
-import { setupHtmxPageLifecycle } from "./navigation/htmx-adapter";
-import {
-  readPageProtocol,
-  readSessionStorage,
-  syncHtmxHistoryGeneration,
-} from "./navigation/protocol";
-import { setupPageTransition } from "./page-transition";
+import { readPageProtocol, readSessionStorage, syncHtmxHistoryGeneration } from "../../contracts";
+import { setupPageTransition } from "../../runtime";
+import { setupHtmxPageLifecycle } from "./adapter";
 
 // settings
 htmx.config.includeIndicatorStyles = false;

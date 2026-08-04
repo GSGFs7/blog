@@ -1,0 +1,1 @@
+export { setupNativePageNavigation } from "./adapter";

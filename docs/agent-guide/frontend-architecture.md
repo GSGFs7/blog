@@ -12,25 +12,28 @@ This project is not a single SPA. Django server-renders pages, a protocol-driven
 
 ## Directory ownership
 
-| Location                                 | Owns                                                                  |
-| ---------------------------------------- | --------------------------------------------------------------------- |
-| `web/urls.py`, `web/views.py`            | Page routes, server-side data, and template responses                 |
-| `web/templates/web/layout/base.html`     | Site shell, Vite entries, navigation protocol meta tags, HTMX wiring  |
-| `web/templates/web/pages/`               | Server-rendered page bodies                                           |
-| `web/templates/web/partials/`            | Reusable template fragments (navigation, footer, etc.)                |
-| `web/typescript/core/behaviors/`         | Small framework-free DOM enhancements                                 |
-| `web/typescript/core/navigation/`        | Navigation protocol, app page events, HTMX and native adapters        |
-| `web/typescript/core/htmx.ts`            | HTMX setup module: extensions, history cache, CSRF                    |
-| `web/typescript/core/page-transition.ts` | Page transition timing and `data-page-transition` toggling            |
-| `web/typescript/core/bootstrap.tsx`      | Island mount/hydrate runtime and lifecycle wiring                     |
-| `web/typescript/core/lazy-islands.ts`    | On-demand Solid runtime loading (keeps Solid out of the first bundle) |
-| `web/typescript/islands/`                | Self-contained Solid interaction components                           |
-| `web/typescript/ssr.tsx`                 | SSR build entry: island manifest and hydration script                 |
-| `web/typescript/admin/`                  | Django admin frontend enhancements                                    |
-| `web/typescript/styles/`                 | CSS entries composed by `vite.config.mts`                             |
-| `web/context_processors.py`              | Navigation protocol meta values (`APP_BUILD_ID`, mode, version)       |
-| `api/markdown/post_processors.py`        | Safe article HTML post-processing and Markdown directives             |
-| `vite.config.mts`                        | Vite entries, development server, and client/SSR builds               |
+| Location                                          | Owns                                                                  |
+| ------------------------------------------------- | --------------------------------------------------------------------- |
+| `web/urls.py`, `web/views.py`                     | Page routes, server-side data, and template responses                 |
+| `web/templates/web/layout/base.html`              | Site shell, Vite entries, navigation protocol meta tags, HTMX wiring  |
+| `web/templates/web/pages/`                        | Server-rendered page bodies                                           |
+| `web/templates/web/partials/`                     | Reusable template fragments (navigation, footer, etc.)                |
+| `web/typescript/core/behaviors/`                  | Small framework-free DOM enhancements                                 |
+| `web/typescript/core/navigation/`                 | Public navigation facade and adapter setup                            |
+| `web/typescript/core/navigation/contracts/`       | Navigation events and page protocol contracts                         |
+| `web/typescript/core/navigation/policy/`          | URL and source eligibility for local navigation                       |
+| `web/typescript/core/navigation/runtime/`         | Shared page transition runtime                                        |
+| `web/typescript/core/navigation/adapters/htmx/`   | HTMX bootstrap and lifecycle adapter                                  |
+| `web/typescript/core/navigation/adapters/native/` | Native adapter, page loading, and dynamic-head handling               |
+| `web/typescript/core/bootstrap.tsx`               | Island mount/hydrate runtime and lifecycle wiring                     |
+| `web/typescript/core/lazy-islands.ts`             | On-demand Solid runtime loading (keeps Solid out of the first bundle) |
+| `web/typescript/islands/`                         | Self-contained Solid interaction components                           |
+| `web/typescript/ssr.tsx`                          | SSR build entry: island manifest and hydration script                 |
+| `web/typescript/admin/`                           | Django admin frontend enhancements                                    |
+| `web/typescript/styles/`                          | CSS entries composed by `vite.config.mts`                             |
+| `web/context_processors.py`                       | Navigation protocol meta values (`APP_BUILD_ID`, mode, version)       |
+| `api/markdown/post_processors.py`                 | Safe article HTML post-processing and Markdown directives             |
+| `vite.config.mts`                                 | Vite entries, development server, and client/SSR builds               |
 
 ## Page rendering and interaction lifecycle
 
@@ -49,7 +52,7 @@ Browser request
 
 `base.html` loads the theme script early, then the frontend entry. HTMX is not loaded up front: it is imported dynamically by the navigation setup only when the page runs in an HTMX-supported mode. An ordinary template does not need a separate JavaScript entry point.
 
-All client-side navigation reports through the app page events defined in `core/navigation/events.ts`:
+All client-side navigation reports through the app page events defined in `core/navigation/contracts/events.ts`:
 
 ```text
 navigation request
@@ -79,22 +82,22 @@ Features that must convey information or support a basic task without JavaScript
 
 Page responses carry three meta tags emitted by `base.html` from `web/context_processors.py`:
 
-- `app-build-id` and `app-navigation-version` identify the deployed frontend build. `core/navigation/protocol.ts` compares them before every swap; a mismatch forces a full page reload (fallback), and the HTMX history cache generation is reset when the build changes.
+- `app-build-id` and `app-navigation-version` identify the deployed frontend build. `core/navigation/contracts/protocol.ts` compares them before every swap; a mismatch forces a full page reload (fallback), and the HTMX history cache generation is reset when the build changes.
 - `page-navigation-mode` is `auto` (default), `native`, or `htmx`, driven by `PAGE_NAVIGATION_MODE` in settings. `core/navigation/setup.ts` reads it and decides which adapter to load:
     - `auto`: use the native adapter when the Navigation API is available, otherwise the HTMX adapter.
     - `native`: require the Navigation API; the HTMX adapter is never loaded.
     - `htmx`: always use the HTMX adapter.
     - If no adapter applies, links fall through to normal full-page loads.
 
-`core/htmx.ts` is the HTMX setup module, loaded dynamically only for HTMX modes. It imports `htmx.org` plus the `head-support` and `preload` extensions, installs the `app-page-lifecycle` extension, syncs the HTMX history cache, attaches the CSRF header from the `csrftoken` cookie, and exposes `window.htmx`. The `body` declares `hx-boost="true"` and `hx-ext="head-support, preload, app-page-lifecycle"`.
+`core/navigation/adapters/htmx/bootstrap.ts` is the HTMX setup module, loaded dynamically only for HTMX modes. It imports `htmx.org` plus the `head-support` and `preload` extensions, installs the `app-page-lifecycle` extension, syncs the HTMX history cache, attaches the CSRF header from the `csrftoken` cookie, and exposes `window.htmx`. The `body` declares `hx-boost="true"` and `hx-ext="head-support, preload, app-page-lifecycle"`.
 
-The HTMX adapter (`core/navigation/htmx-adapter.ts`) treats a boosted body swap as a navigation transaction: it starts the request, guards the response protocol, applies a page transition, emits the app events, and finishes with an outcome (`completed` / `cancelled` / `fallback`). Errors map to a phase (`request` / `validation` / `swap` / `settle`).
+The HTMX adapter (`core/navigation/adapters/htmx/adapter.ts`) treats a boosted body swap as a navigation transaction: it starts the request, guards the response protocol, applies a page transition, emits the app events, and finishes with an outcome (`completed` / `cancelled` / `fallback`). Errors map to a phase (`request` / `validation` / `swap` / `settle`).
 
-`core/navigation/page.ts` (renamed from `fetch-page.ts`) and `head.ts` back the native adapter. Fetched pages are validated before swapping (same-origin, status, content type, `Content-Disposition`, `body.site-body`, a single `<title>`, and the dynamic-head markers), and any mismatch becomes a full reload with a reason (`cross-origin` / `status` / `content-type` / `content-disposition` / `invalid-html` / `protocol`). `route-policy.ts` decides which URLs and sources are eligible, and `native-adapter.ts` intercepts `navigate` events: it fetches and validates the page, prepares the head (stylesheet preload, commit/rollback), and swaps the body children. For push and replace navigations, browsers with precommit redirect support commit and swap an eligible same-origin redirect's final URL without a second request. Unsupported browsers, history traversals that redirect, excluded final URLs, and validation or swap failures fall back to a full navigation.
+`core/navigation/adapters/native/page.ts` and `core/navigation/adapters/native/head.ts` back the native adapter. Fetched pages are validated before swapping (same-origin, status, content type, `Content-Disposition`, `body.site-body`, a single `<title>`, and the dynamic-head markers), and any mismatch becomes a full reload with a reason (`cross-origin` / `status` / `content-type` / `content-disposition` / `invalid-html` / `protocol`). `core/navigation/policy/route-policy.ts` decides which URLs and sources are eligible, and `core/navigation/adapters/native/adapter.ts` intercepts `navigate` events: it fetches and validates the page, prepares the head (stylesheet preload, commit/rollback), and swaps the body children. For push and replace navigations, browsers with precommit redirect support commit and swap an eligible same-origin redirect's final URL without a second request. Unsupported browsers, history traversals that redirect, excluded final URLs, and validation or swap failures fall back to a full navigation.
 
 ### Dynamic head
 
-`base.html` marks a dynamic head region between the `app-dynamic-head-start` and `app-dynamic-head-end` meta tags; page templates extend it via the `extra_head` and `seo_head` blocks. `core/navigation/head.ts` reads the region, and `hasValidPageHead()` (single title, `body.site-body`, valid dynamic-head range) is one of the swap preconditions.
+`base.html` marks a dynamic head region between the `app-dynamic-head-start` and `app-dynamic-head-end` meta tags; page templates extend it via the `extra_head` and `seo_head` blocks. `core/navigation/adapters/native/head.ts` reads the region, and `hasValidPageHead()` (single title, `body.site-body`, valid dynamic-head range) is one of the swap preconditions.
 
 ## Behaviors
 

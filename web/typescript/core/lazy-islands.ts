@@ -1,4 +1,4 @@
-import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation/events";
+import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation";
 
 const ISLAND_SELECTOR = "[data-solid-island]";
 

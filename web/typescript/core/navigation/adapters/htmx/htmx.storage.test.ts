@@ -12,7 +12,7 @@ vi.mock("htmx.org", () => ({
 }));
 vi.mock("htmx-ext-head-support", () => ({}));
 vi.mock("htmx-ext-preload", () => ({}));
-vi.mock("./navigation/htmx-adapter", () => ({
+vi.mock("./adapter", () => ({
   setupHtmxPageLifecycle,
 }));
 
@@ -26,7 +26,7 @@ test("registers the lifecycle adapter when the session storage getter throws", a
   });
 
   try {
-    await import("./htmx");
+    await import("./bootstrap");
   } finally {
     if (descriptor) {
       Object.defineProperty(window, "sessionStorage", descriptor);
