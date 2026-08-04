@@ -56,6 +56,8 @@ patches:
         template:
           spec:
             initContainers:
+              - name: copy-staticfiles
+                imagePullPolicy: Never
               - name: wait-for-db
                 imagePullPolicy: Never
             containers:

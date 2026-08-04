@@ -1,4 +1,5 @@
 # k8s/base/litellm.yaml
+# TODO: migrate to a more lightweight AI gateway
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -42,6 +43,10 @@ spec:
             - "/app/config.yaml"
             - "--port"
             - "4000"
+            - "--num_workers"
+            - "1"
+            - "--telemetry"
+            - "False"
           ports:
             - name: http
               containerPort: 4000

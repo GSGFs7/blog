@@ -3,8 +3,15 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: blog-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - blog.local
+      secretName: blog-local-tls # create & import a self-signed tls cert first
   rules:
     - host: blog.local # It may need to be added to the hosts file.
       http:

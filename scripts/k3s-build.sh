@@ -98,7 +98,7 @@ import_to_k3s() {
 
 print_what_next() {
     echo "Deploy to k3s:"
-    echo "  ./scripts/k3s-deploy.sh"
+    echo "  ./scripts/k3s-deploy.sh dev"
 }
 
 # Main execution

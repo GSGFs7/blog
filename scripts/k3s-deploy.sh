@@ -1,83 +1,86 @@
 #!/usr/bin/env bash
 # k3s deployment script
-# Usage: ./k3s-deploy.sh [dev|prod]
 # in real prod, use Argo CD
 
-set -e
+set -euo pipefail
 
-# Deployment environment: dev (local registry) or prod (remote registry)
-DEPLOY_ENV=${1:-prod}
+DEPLOY_ENV=${1:-}
+case "$DEPLOY_ENV" in
+    dev | prod) ;;
+    *)
+        echo "Usage: $0 <dev|prod>" >&2
+        exit 1
+        ;;
+esac
 
-# Load environment variables from .env file
-if [ -f .env ]; then
-    echo "Loading environment variables from .env..."
-    set -a # auto-export all sourced variables
-    source .env
-    set +a
-else
-    echo "Warning: .env file not found. Variables might not be substituted correctly."
-fi
+cd "$(dirname "$0")/.."
 
-# Configure registry and image pull policy per environment
-if [ "$DEPLOY_ENV" = "dev" ]; then
-    echo "Setting up development environment configuration..."
-    export REGISTRY_DOMAIN=localhost
-    export IMAGE_PULL_POLICY=Never
-else
-    echo "Setting up production environment configuration..."
-    # REGISTRY_DOMAIN already exported via set -a from .env
-    export IMAGE_PULL_POLICY=Always
-fi
-
-echo "Image registry: $REGISTRY_DOMAIN"
-echo "Image pull policy: $IMAGE_PULL_POLICY"
-
-echo ""
-# Deploy to k3s cluster using Kustomize
-echo "Deploying to k3s cluster using Kustomize ($DEPLOY_ENV)..."
-echo ""
-
-# Ensure the overlay directory exists
 OVERLAY_DIR=".config/k8s/overlays/$DEPLOY_ENV"
+OVERLAY_ENV="$OVERLAY_DIR/.env.$DEPLOY_ENV"
 if [ ! -d "$OVERLAY_DIR" ]; then
-    echo "Error: Overlay directory $OVERLAY_DIR not found."
+    echo "Error: $OVERLAY_DIR does not exist." >&2
+    exit 1
+fi
+if [ ! -f "$OVERLAY_ENV" ]; then
+    echo "Error: $OVERLAY_ENV does not exist." >&2
     exit 1
 fi
 
-# Check that the overlay .env file exists for secret generation
-if [ ! -f "$OVERLAY_DIR/.env.$DEPLOY_ENV" ]; then
-    echo "Error: Secret file $OVERLAY_DIR/.env.$DEPLOY_ENV not found."
-    echo "Please create it before deploying (do not commit secrets to git)."
+if [ "$DEPLOY_ENV" = "prod" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$OVERLAY_ENV"
+    set +a
+
+    missing_keys=()
+    for key in BACKEND_DOMAIN ADMIN_EMAIL; do
+        if [ ! -v "$key" ] || [ -z "${!key}" ]; then
+            missing_keys+=("$key")
+        fi
+    done
+    if [ "${#missing_keys[@]}" -gt 0 ]; then
+        echo "Error: missing production template variables:" >&2
+        printf '  %s\n' "${missing_keys[@]}" >&2
+        exit 1
+    fi
+fi
+
+echo "Deploying the $DEPLOY_ENV overlay..."
+
+./scripts/k3s-sync-secrets.sh "$DEPLOY_ENV"
+kubectl delete job blog-django-migrate --namespace=blog --ignore-not-found
+
+if [ "$DEPLOY_ENV" = "dev" ]; then
+    kubectl apply -k "$OVERLAY_DIR"
+else
+    # shellcheck disable=SC2016
+    kubectl kustomize "$OVERLAY_DIR" \
+        | envsubst '${BACKEND_DOMAIN} ${ADMIN_EMAIL}' \
+        | kubectl apply -f -
+fi
+
+if ! kubectl wait \
+    --for=condition=complete \
+    job/blog-django-migrate \
+    --namespace=blog \
+    --timeout=300s; then
+    kubectl logs job/blog-django-migrate --namespace=blog --tail=200
     exit 1
 fi
 
-echo "Creating/updating secret 'blog-secrets' from $OVERLAY_DIR/.env.$DEPLOY_ENV..."
-kubectl create secret generic blog-secrets \
-    --from-env-file="$OVERLAY_DIR/.env.$DEPLOY_ENV" \
-    -n blog \
-    --dry-run=client -o yaml | kubectl apply -f -
+if [ "$DEPLOY_ENV" = "dev" ]; then
+    kubectl rollout restart \
+        deployment/blog-pgbouncer \
+        deployment/blog-django \
+        deployment/blog-celery-worker \
+        deployment/blog-celery-beat \
+        deployment/blog-litellm \
+        deployment/blog-llama-cpp \
+        --namespace=blog
+fi
 
-# Jobs are immutable; delete existing before applying new
-echo "Preparing migration job..."
-kubectl delete job blog-django-migrate -n blog --ignore-not-found
+kubectl rollout status deployment/blog-pgbouncer --namespace=blog --timeout=180s
+kubectl rollout status deployment/blog-django --namespace=blog --timeout=300s
 
-echo "Applying K8s manifests using Kustomize and envsubst..."
-# Images and pull policy are fully controlled by the overlay kustomization.yaml.
-# envsubst handles runtime variables like $BACKEND_DOMAIN and $ADMIN_EMAIL.
-pushd "$OVERLAY_DIR" > /dev/null
-kubectl kustomize . | envsubst | kubectl apply -f -
-popd > /dev/null
-
-echo ""
-echo "Deployment completed!"
-echo ""
-echo "Check deployment status:"
-echo "  kubectl get -n blog pods"
-echo "  kubectl get -n blog svc"
-echo "  kubectl get -n blog ingress"
-echo "  kubectl get -n blog cronjob"
-echo ""
-echo "View logs:"
-echo "  kubectl logs -f -n blog deployment/blog-django"
-echo "  kubectl logs -f -n blog deployment/blog-celery-worker"
-echo "  kubectl logs -f -n blog deployment/blog-celery-beat"
+echo "Deployment completed."
+kubectl get pods --namespace=blog

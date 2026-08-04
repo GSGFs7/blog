@@ -33,3 +33,4 @@ data:
   #HF_ENDPOINT: "https://hf-mirror.com"
   K8S_ENV: "True"
   BACKUP_BUCKET: "backup"
+  PAGE_NAVIGATION_MODE: "auto"

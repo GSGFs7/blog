@@ -11,12 +11,13 @@
 1. 配置环境变量
 
     ```bash
-    # 复制 .env 并填写相关内容
-    cp .env.example .env
-
-    # 从 .env 文件创建 secret
-    kubectl create secret generic blog-secrets --from-env-file=.env -n blog
+    # 创建并填写 dev overlay 使用的环境变量
+    cp .env.example .config/k8s/overlays/dev/.env.dev
     ```
+
+    `.env.dev` 可以包含构建和本地辅助变量。部署时只有明确列入
+    `scripts/k3s-sync-secrets.sh` 白名单的变量会写入 `blog-secrets`，
+    普通运行配置由 `blog-config` ConfigMap 提供。
 
 2. 构建镜像并导入到 k3s
 
@@ -33,12 +34,11 @@
 3. 部署到 k3s
 
     ```bash
-    ./scripts/k3s-deploy.sh
-    # 或者使用开发环境配置
     ./scripts/k3s-deploy.sh dev
     ```
 
-    Django 和 Celery 会通过 `blog-pgbouncer:6432` 访问数据库
+    dev overlay 直接通过 Kustomize 部署，不会对工作负载中的 Shell 变量执行 `envsubst`。
+    本地 `latest` 镜像部署后会自动触发相关 Deployment 滚动更新。
 
 ## 生产环境
 
@@ -46,7 +46,7 @@
 
 具体配置见 `.woodpecker/` 和 `scripts/argo-app-config.sh`
 
-`blog-secret` 这个 k8s secret 可以使用 `scripts/k3s-sync-secrets.sh` 自动生成
+`blog-secrets` 这个 K8s Secret 可以使用 `scripts/k3s-sync-secrets.sh` 自动生成
 
 ---
 
