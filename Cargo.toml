@@ -1,6 +1,6 @@
 [package]
 name = "markdown-it-rs"
-version = "0.6.2"
+version = "0.7.0"
 authors = ["Alex Kocharin <alex@kocharin.ru>", "GSGFs7"]
 description = "Rust port of popular markdown-it.js library. Forked from markdown-it-rust/markdown-it"
 documentation = "https://docs.rs/markdown-it-rs"
@@ -35,8 +35,13 @@ members = [
     "bindings/kotlin",
     "bindings/python",
     "bindings/wasm",
-    "benchmarks",
 ]
+# The legacy markdown-it 0.6 has a vulnerability dependency
+# Make it out of the work space
+exclude = ["benchmarks"]
+
+[profile.release.package."markdown-it-rs-wasm"]
+opt-level = "s"
 
 [features]
 default = ["linkify", "syntect"]
