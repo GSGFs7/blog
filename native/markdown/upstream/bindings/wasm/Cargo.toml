@@ -1,6 +1,6 @@
 [package]
 name = "markdown-it-rs-wasm"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 
@@ -20,6 +20,5 @@ full = ["extras", "linkify", "syntect", "katex"]
 [dependencies]
 wasm-bindgen = "0.2"
 markdown-it-rs = { path = "../..", default-features = false }
-
-[profile.release]
-opt-level = "s"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
