@@ -461,7 +461,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "markdown-it-rs"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "const_format",
  "derive_more",
