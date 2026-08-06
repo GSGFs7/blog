@@ -2,7 +2,7 @@ import inspect
 from typing import Callable
 
 
-def is_async(func: Callable):
+def is_async(func: Callable) -> bool:
     is_async_function = inspect.iscoroutinefunction(func)
     is_async_callable_object = inspect.iscoroutinefunction(
         getattr(func, "__call__", None)
