@@ -1,7 +1,7 @@
 import hmac
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
+from email.utils import format_datetime, parsedate_to_datetime
 from hashlib import sha256
 from types import TracebackType
 from typing import Literal, Mapping, Protocol
@@ -207,7 +207,13 @@ class InvalidObjectRequest(ObjectStoreError):
 
 
 class SyncObjectStore(Protocol):
-    def stat(self, key: str) -> ObjectMetadata: ...
+    def stat(
+        self,
+        key: str,
+        *,
+        if_none_match: str | None = None,
+        if_modified_since: datetime | None = None,
+    ) -> ObjectMetadata: ...
     def get(
         self,
         key: str,
@@ -243,7 +249,13 @@ class SyncObjectStore(Protocol):
 
 
 class AsyncObjectStore(Protocol):
-    async def stat(self, key: str) -> ObjectMetadata: ...
+    async def stat(
+        self,
+        key: str,
+        *,
+        if_none_match: str | None = None,
+        if_modified_since: datetime | None = None,
+    ) -> ObjectMetadata: ...
     async def get(
         self,
         key: str,
@@ -467,6 +479,68 @@ class AsyncR2Client(AsyncObjectStore):
             raise error
 
         await response.aclose()
+
+    async def stat(
+        self,
+        key: str,
+        *,
+        if_none_match: str | None = None,
+        if_modified_since: datetime | None = None,
+    ) -> ObjectMetadata:
+        url = self._object_url(key)
+
+        headers = {
+            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+        }
+        if if_none_match is not None:
+            headers["if-none-match"] = if_none_match
+        if if_modified_since is not None:
+            if if_modified_since.tzinfo is None:
+                if_modified_since = if_modified_since.replace(tzinfo=timezone.utc)
+            else:
+                if_modified_since = if_modified_since.astimezone(timezone.utc)
+            headers["if-modified-since"] = format_datetime(
+                if_modified_since, usegmt=True
+            )
+        headers = self.signer.sign(
+            "HEAD",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+        )
+
+        try:
+            response = await self.client.request(
+                "HEAD",
+                url,
+                headers=headers,
+            )
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 HEAD request failed") from exc
+
+        if response.status_code == 304:
+            request_id = response.headers.get(
+                "x-amz-request-id"
+            ) or response.headers.get("cf-ray")
+
+            await response.aclose()
+            raise ObjectNotModified(
+                key,
+                status_code=304,
+                request_id=request_id,
+            )
+        if response.status_code >= 400:
+            error = self._map_error(
+                response,
+                response.content,
+                key=key,
+            )
+            await response.aclose()
+            raise error
+
+        metadata = ObjectMetadata.from_response(key, response)
+        await response.aclose()
+        return metadata
 
     def presign(
         self,

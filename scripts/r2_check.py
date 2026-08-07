@@ -32,6 +32,8 @@ async def f():
         async with await s.get(key) as body:
             assert blake3(await body.read()).hexdigest() == h
 
+        assert (await s.stat(key)).size == len(raw)
+
         try:
             await s.put(key, raw, if_none_match="*")
         except PreconditionFailed:

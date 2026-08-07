@@ -10,6 +10,7 @@ from core.r2 import (
     AsyncR2Client,
     AuthenticationFailed,
     ObjectNotFound,
+    ObjectNotModified,
     PreconditionFailed,
     SigV4Signer,
     StorageUnavailable,
@@ -514,4 +515,210 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(
             str(raised.exception),
             "R2 DELETE request failed",
+        )
+
+    async def test_stat_returns_object_metadata(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+
+            return httpx2.Response(
+                200,
+                headers={
+                    "content-length": "1024",
+                    "content-type": "image/png",
+                    "cache-control": "public, max-age=3600",
+                    "content-disposition": 'inline; filename="image.png"',
+                    "content-encoding": "gzip",
+                    "etag": '"abc123"',
+                    "last-modified": "Thu, 06 Aug 2026 10:30:00 GMT",
+                    "x-amz-meta-kind": "avatar",
+                    "x-amz-meta-owner": "42",
+                },
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            metadata = await client.stat("images/avatar.png")
+
+        self.assertEqual(metadata.key, "images/avatar.png")
+        self.assertEqual(metadata.size, 1024)
+        self.assertEqual(metadata.etag, '"abc123"')
+        self.assertEqual(metadata.content_type, "image/png")
+        self.assertEqual(
+            metadata.cache_control,
+            "public, max-age=3600",
+        )
+        self.assertEqual(
+            metadata.content_disposition,
+            'inline; filename="image.png"',
+        )
+        self.assertEqual(metadata.content_encoding, "gzip")
+        self.assertEqual(
+            metadata.last_modified,
+            datetime(
+                2026,
+                8,
+                6,
+                10,
+                30,
+                tzinfo=timezone.utc,
+            ),
+        )
+        self.assertEqual(
+            metadata.metadata,
+            {
+                "kind": "avatar",
+                "owner": "42",
+            },
+        )
+
+        self.assertEqual(len(requests), 1)
+        request = requests[0]
+
+        self.assertEqual(request.method, "HEAD")
+        self.assertEqual(
+            request.url,
+            "https://example.r2.cloudflarestorage.com/bucket/images/avatar.png",
+        )
+        self.assertEqual(
+            request.headers["x-amz-content-sha256"],
+            EMPTY_PAYLOAD_HASH,
+        )
+        self.assertIn(
+            "AWS4-HMAC-SHA256",
+            request.headers["authorization"],
+        )
+
+    async def test_stat_maps_not_found_error(self):
+        async def handler(request):
+            return httpx2.Response(
+                404,
+                headers={"x-amz-request-id": "request-1"},
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(ObjectNotFound) as raised:
+                await client.stat("missing.txt")
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.request_id, "request-1")
+        self.assertEqual(str(raised.exception), "missing.txt")
+
+    async def test_stat_maps_transport_error(self):
+        async def handler(request):
+            raise httpx2.ConnectError(
+                "connection failed",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(StorageUnavailable) as raised:
+                await client.stat("file.txt")
+
+        self.assertEqual(
+            str(raised.exception),
+            "R2 HEAD request failed",
+        )
+
+    async def test_stat_raises_not_modified_for_matching_etag(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+
+            return httpx2.Response(
+                304,
+                headers={"x-amz-request-id": "request-1"},
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(ObjectNotModified) as raised:
+                await client.stat(
+                    "file.txt",
+                    if_none_match='"abc123"',
+                )
+
+        self.assertEqual(raised.exception.status_code, 304)
+        self.assertEqual(raised.exception.request_id, "request-1")
+        self.assertEqual(str(raised.exception), "file.txt")
+
+        request = requests[0]
+        self.assertEqual(
+            request.headers["if-none-match"],
+            '"abc123"',
+        )
+        self.assertIn(
+            "if-none-match",
+            request.headers["authorization"],
+        )
+
+    async def test_stat_sends_if_modified_since(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+
+            return httpx2.Response(
+                304,
+                request=request,
+            )
+
+        modified_at = datetime(
+            2026,
+            8,
+            6,
+            10,
+            30,
+            tzinfo=timezone.utc,
+        )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(ObjectNotModified):
+                await client.stat(
+                    "file.txt",
+                    if_modified_since=modified_at,
+                )
+
+        request = requests[0]
+        self.assertEqual(
+            request.headers["if-modified-since"],
+            "Thu, 06 Aug 2026 10:30:00 GMT",
+        )
+        self.assertIn(
+            "if-modified-since",
+            request.headers["authorization"],
         )
