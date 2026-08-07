@@ -3,13 +3,14 @@ import os
 import sys
 from pathlib import Path
 
+import dotenv
 from blake3 import blake3
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import dotenv
+from core.r2 import AsyncR2Client, ObjectNotFound, PreconditionFailed
 
-from core.r2 import AsyncR2Client
+ROOT = Path(__file__).parent.parent
 
 
 async def f():
@@ -19,16 +20,33 @@ async def f():
         secret_key=os.getenv("STATIC_ASSET_SECRET_ACCESS_KEY", ""),
         bucket=os.getenv("STATIC_ASSET_BUCKET", ""),
     ) as s:
-        body = await s.get("test/test1.jpg")
-        async with body:
-            data = await body.read()
-            with open("/tmp/test1.jpg", "wb") as fd:
-                fd.write(data)
+        fd = open(ROOT / "manage.py", "rb")
+        raw = fd.read()
+        fd.close()
 
-        h = blake3(data).hexdigest()
+        key = "test/manage.py"
+        h = blake3(raw).hexdigest()
 
-        result = await s.put("test/test1.copy.jpg", data)
-        print(result)
+        await s.put(key, raw)
+
+        async with await s.get(key) as body:
+            assert blake3(await body.read()).hexdigest() == h
+
+        try:
+            await s.put(key, raw, if_none_match="*")
+        except PreconditionFailed:
+            pass
+        else:
+            raise Exception("failed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+        await s.delete(key)
+
+        try:
+            await s.get(key)
+        except ObjectNotFound:
+            pass
+        else:
+            raise Exception("failed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
 
 if __name__ == "__main__":

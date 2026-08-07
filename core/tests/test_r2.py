@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from core.r2 import (
     EMPTY_PAYLOAD_HASH,
     AsyncR2Client,
+    AuthenticationFailed,
     ObjectNotFound,
     PreconditionFailed,
     SigV4Signer,
@@ -424,4 +425,93 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(
             str(raised.exception),
             "R2 PUT request failed",
+        )
+
+    async def test_delete_signs_request(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            self.assertEqual(await request.aread(), b"")
+
+            return httpx2.Response(
+                204,
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            result = await client.delete("folder/file.txt")
+
+        self.assertIsNone(result)
+        self.assertEqual(len(requests), 1)
+
+        request = requests[0]
+        self.assertEqual(request.method, "DELETE")
+        self.assertEqual(
+            request.url,
+            "https://example.r2.cloudflarestorage.com/bucket/folder/file.txt",
+        )
+        self.assertEqual(
+            request.headers["x-amz-content-sha256"],
+            EMPTY_PAYLOAD_HASH,
+        )
+        self.assertIn(
+            "AWS4-HMAC-SHA256",
+            request.headers["authorization"],
+        )
+
+    async def test_delete_maps_authentication_error(self):
+        async def handler(request):
+            return httpx2.Response(
+                403,
+                headers={"x-amz-request-id": "request-1"},
+                content=(
+                    b"<Error>"
+                    b"<Code>AccessDenied</Code>"
+                    b"<Message>access denied</Message>"
+                    b"</Error>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(AuthenticationFailed) as raised:
+                await client.delete("folder/file.txt")
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(raised.exception.code, "AccessDenied")
+        self.assertEqual(raised.exception.request_id, "request-1")
+
+    async def test_delete_maps_transport_error(self):
+        async def handler(request):
+            raise httpx2.ConnectError(
+                "connection failed",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(StorageUnavailable) as raised:
+                await client.delete("folder/file.txt")
+
+        self.assertEqual(
+            str(raised.exception),
+            "R2 DELETE request failed",
         )

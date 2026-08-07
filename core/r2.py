@@ -443,6 +443,31 @@ class AsyncR2Client(AsyncObjectStore):
         await response.aclose()
         return result
 
+    async def delete(self, key: str) -> None:
+        url = self._object_url(key)
+
+        headers = {
+            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+        }
+        headers = self.signer.sign(
+            "DELETE",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+        )
+
+        try:
+            response = await self.client.request("DELETE", url, headers=headers)
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 DELETE request failed") from exc
+
+        if response.status_code >= 400:
+            error = self._map_error(response, response.content, key=key)
+            await response.aclose()
+            raise error
+
+        await response.aclose()
+
     def presign(
         self,
         method: Literal["DELETE", "GET", "HEAD", "PUT"],
