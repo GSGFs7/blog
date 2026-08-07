@@ -31,6 +31,20 @@ __all__ = (
 
 EMPTY_PAYLOAD_HASH = sha256(b"").hexdigest()
 
+UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
+
+PRESIGN_QUERY_NAMES = frozenset(
+    {
+        b"x-amz-algorithm",
+        b"x-amz-credential",
+        b"x-amz-date",
+        b"x-amz-expires",
+        b"x-amz-security-token",
+        b"x-amz-signature",
+        b"x-amz-signedheaders",
+    }
+)
+
 
 # --- results ---
 
@@ -202,6 +216,13 @@ class SyncObjectStore(Protocol):
         cursor: str | None = None,
         limit: int = 1000,
     ) -> ObjectPage: ...
+    def presign(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "PUT"],
+        key: str,
+        *,
+        expires_in: int = 300,
+    ) -> str: ...
 
 
 class AsyncObjectStore(Protocol):
@@ -231,6 +252,13 @@ class AsyncObjectStore(Protocol):
         cursor: str | None = None,
         limit: int = 1000,
     ) -> ObjectPage: ...
+    def presign(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "PUT"],
+        key: str,
+        *,
+        expires_in: int = 300,
+    ) -> str: ...
 
 
 # --- implement ---
@@ -345,6 +373,19 @@ class AsyncR2Client(AsyncObjectStore):
             key=key,
             response=response,
             metadata=ObjectMetadata.from_response(key, response),
+        )
+
+    def presign(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "PUT"],
+        key: str,
+        *,
+        expires_in: int = 300,
+    ) -> str:
+        return self.signer.presign(
+            method,
+            self._object_url(key),
+            expires_in=expires_in,
         )
 
     def _object_url(self, key: str) -> str:
@@ -483,6 +524,73 @@ class SigV4Signer:
         )
         return request_headers
 
+    # R2 presigned URL accept R2 S3 API endpoint only. (custom domain is invalid)
+    # docs: https://developers.cloudflare.com/r2/api/s3/presigned-urls/
+    # solutions: https://developers.cloudflare.com/waf/custom-rules/use-cases/configure-token-authentication/
+    def presign(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "PUT"],
+        url: str,
+        *,
+        expires_in: int = 300,
+        now: datetime | None = None,
+    ):
+        method = method.upper()
+        if method not in {"DELETE", "GET", "HEAD", "PUT"}:
+            raise ValueError("R2 does not support presigning this HTTP method")
+        if (
+            isinstance(expires_in, bool)
+            or not isinstance(expires_in, int)
+            or not 1 <= expires_in <= 604800
+        ):
+            raise ValueError("expires_in must be between 1 and 604800 seconds")
+
+        now = self._utc_now(now)
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+        credential_scope = self._credential_scope(date_stamp)
+
+        parts = urlsplit(url)
+        if parts.hostname is None:
+            raise ValueError("SigV4 presigning requires an absolute URL")
+        if parts.fragment:
+            raise ValueError("SigV4 presigned URLs cannot contain a fragment")
+
+        self._validate_presign_query(parts.query)
+
+        parameters: list[tuple[str, str]] = [
+            ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+            ("X-Amz-Credential", f"{self.access_key}/{credential_scope}"),
+            ("X-Amz-Date", amz_date),
+            ("X-Amz-Expires", str(expires_in)),
+            ("X-Amz-SignedHeaders", "host"),
+        ]
+        if self.session_token is not None:
+            parameters.append(("X-Amz-Security-Token", self.session_token))
+
+        authentication_query = "&".join(
+            f"{self._uri_encode(name)}={self._uri_encode(value)}"
+            for name, value in parameters
+        )
+        unsigned_query = "&".join(
+            query for query in (parts.query, authentication_query) if query
+        )
+        canonical_query = self._canonical_query(unsigned_query)
+        canonical_request = self._canonical_request(
+            {"host": self._host(parts)},
+            method,
+            parts.path,
+            canonical_query,
+            UNSIGNED_PAYLOAD,
+        )
+        string_to_sign = self._string_to_sign(
+            amz_date, canonical_request, credential_scope
+        )
+        signature = self._signature(self._signature_key(date_stamp), string_to_sign)
+
+        signed_query = f"{canonical_query}&X-Amz-Signature={signature}"
+        return parts._replace(query=signed_query, fragment="").geturl()
+
     def _canonical_request(
         self,
         request_headers: Mapping[str, str],
@@ -556,6 +664,18 @@ class SigV4Signer:
         if parts.port is not None and parts.port != default_port:
             host = f"{host}:{parts.port}"
         return host
+
+    @staticmethod
+    def _validate_presign_query(query: str) -> None:
+        if not query:
+            return
+
+        for query_field in query.split("&"):
+            name = query_field.partition("0")[0]
+            decoded_name = unquote_to_bytes(name).lower()
+
+            if decoded_name in PRESIGN_QUERY_NAMES:
+                raise ValueError("URL already contains SigV4 authentication parameters")
 
     @staticmethod
     def _validate_percent_encoding(value: str) -> None:

@@ -17,7 +17,7 @@ dependencies = [
     "django-storages[s3]>=1.14.6",
     "django-two-factor-auth>=1.18.1",
     "gunicorn>=23.0.0",
-    "httpx2>=2.7.0",# well maintained httpx
+    "httpx2>=2.7.0", # well maintained httpx
     # Using fork because original fxsjy/jieba is no longer maintained; this fork includes Python 3.13+ compatibility fixes
     "jieba @ git+https://github.com/GSGFs7/jieba.git@master",
     "markdown-it-rs-py",
