@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from blake3 import blake3
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import dotenv
@@ -17,17 +19,16 @@ async def f():
         secret_key=os.getenv("STATIC_ASSET_SECRET_ACCESS_KEY", ""),
         bucket=os.getenv("STATIC_ASSET_BUCKET", ""),
     ) as s:
-        body = await s.get("test/test.png")
+        body = await s.get("test/test1.jpg")
         async with body:
             data = await body.read()
-            with open("/tmp/test.png", "wb") as fd:
+            with open("/tmp/test1.jpg", "wb") as fd:
                 fd.write(data)
 
-        body = await s.get("test/test.png")
-        with open("/tmp/test1.png", "wb") as fd:
-            async with body:
-                async for chunk in body.aiter_bytes():
-                    fd.write(chunk)
+        h = blake3(data).hexdigest()
+
+        result = await s.put("test/test1.copy.jpg", data)
+        print(result)
 
 
 if __name__ == "__main__":

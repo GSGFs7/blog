@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from hashlib import sha256
 from unittest import IsolatedAsyncioTestCase
 
 import httpx2
@@ -8,7 +9,9 @@ from core.r2 import (
     EMPTY_PAYLOAD_HASH,
     AsyncR2Client,
     ObjectNotFound,
+    PreconditionFailed,
     SigV4Signer,
+    StorageUnavailable,
 )
 
 
@@ -275,4 +278,150 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             "X-Amz-Signature="
             "aeeed9bbccd4d02ee5c0109b86d86835"
             "f995330da4c265957d157751f604d404",
+        )
+
+    async def test_put_uploads_signed_body_and_returns_result(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            body = await request.aread()
+            self.assertEqual(body, b"hello")
+
+            return httpx2.Response(
+                200,
+                headers={
+                    "etag": '"abc123"',
+                    "x-amz-version-id": "version-1",
+                },
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            result = await client.put(
+                "folder/file.txt",
+                b"hello",
+                content_type="text/plain",
+                cache_control="public, max-age=3600",
+                metadata={"kind": "demo"},
+                if_none_match="*",
+            )
+
+        self.assertEqual(result.key, "folder/file.txt")
+        self.assertEqual(result.etag, '"abc123"')
+        self.assertEqual(result.version_id, "version-1")
+
+        self.assertEqual(len(requests), 1)
+        request = requests[0]
+
+        self.assertEqual(request.method, "PUT")
+        self.assertEqual(
+            request.url,
+            "https://example.r2.cloudflarestorage.com/bucket/folder/file.txt",
+        )
+        self.assertEqual(request.headers["content-length"], "5")
+        self.assertEqual(request.headers["content-type"], "text/plain")
+        self.assertEqual(
+            request.headers["cache-control"],
+            "public, max-age=3600",
+        )
+        self.assertEqual(request.headers["x-amz-meta-kind"], "demo")
+        self.assertEqual(request.headers["if-none-match"], "*")
+        self.assertEqual(
+            request.headers["x-amz-content-sha256"],
+            sha256(b"hello").hexdigest(),
+        )
+        self.assertIn(
+            "AWS4-HMAC-SHA256",
+            request.headers["authorization"],
+        )
+
+    async def test_put_supports_empty_body(self):
+        async def handler(request):
+            self.assertEqual(await request.aread(), b"")
+            self.assertEqual(
+                request.headers["x-amz-content-sha256"],
+                EMPTY_PAYLOAD_HASH,
+            )
+            return httpx2.Response(
+                200,
+                headers={"etag": '"empty"'},
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            result = await client.put("empty.txt", b"")
+
+        self.assertEqual(result.etag, '"empty"')
+
+    async def test_put_maps_precondition_failed(self):
+        async def handler(request):
+            return httpx2.Response(
+                412,
+                headers={"x-amz-request-id": "request-1"},
+                content=(
+                    b"<Error>"
+                    b"<Code>PreconditionFailed</Code>"
+                    b"<Message>object already exists</Message>"
+                    b"</Error>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(PreconditionFailed) as raised:
+                await client.put(
+                    "existing.txt",
+                    b"hello",
+                    if_none_match="*",
+                )
+
+        self.assertEqual(raised.exception.status_code, 412)
+        self.assertEqual(
+            raised.exception.code,
+            "PreconditionFailed",
+        )
+        self.assertEqual(
+            raised.exception.request_id,
+            "request-1",
+        )
+
+    async def test_put_maps_transport_error(self):
+        async def handler(request):
+            raise httpx2.ConnectError(
+                "connection failed",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(StorageUnavailable) as raised:
+                await client.put("file.txt", b"hello")
+
+        self.assertEqual(
+            str(raised.exception),
+            "R2 PUT request failed",
         )

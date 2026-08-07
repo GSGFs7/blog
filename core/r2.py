@@ -5,7 +5,13 @@ from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from types import TracebackType
 from typing import Literal, Mapping, Protocol
-from urllib.parse import quote, quote_from_bytes, unquote_to_bytes, urlsplit
+from urllib.parse import (
+    SplitResult,
+    quote,
+    quote_from_bytes,
+    unquote_to_bytes,
+    urlsplit,
+)
 from xml.etree import ElementTree
 
 import httpx2
@@ -21,6 +27,7 @@ __all__ = (
     "ObjectNotModified",
     "ObjectPage",
     "ObjectPutResult",
+    "ObjectStoreError",
     "PreconditionFailed",
     "RateLimited",
     "SignatureMismatch",
@@ -62,7 +69,7 @@ class ObjectMetadata:
     metadata: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
-    def from_response(cls, key: str, response: httpx2.Response):
+    def from_response(cls, key: str, response: httpx2.Response) -> ObjectMetadata:
         headers = response.headers
         size = None
         if value := headers.get("content-length"):
@@ -128,8 +135,17 @@ class ObjectBody:
         return await self.response.aread()
 
 
+@dataclass(frozen=True, slots=True)
 class ObjectPutResult:
-    pass
+    key: str
+    etag: str | None = None
+    # useless for R2 (newest version only)
+    version_id: str | None = None
+    # if R2 response with 200 status code.
+    # it means the integrity verification is passed.
+    # (because signer has hashed upload content as a signature)
+    # it usefully for UNSIGNED-PAYLOAD
+    checksum_crc64nvme: str | None = None
 
 
 class ObjectPage:
@@ -147,6 +163,7 @@ class ObjectStoreError(Exception):
         status_code: int | None = None,
         code: str | None = None,
         request_id: str | None = None,
+        cf_ray: str | None = None,
     ):
         self.status_code = status_code
         self.code = code
@@ -201,7 +218,7 @@ class SyncObjectStore(Protocol):
     def put(
         self,
         key: str,
-        body,
+        body: bytes,
         *,
         content_type: str | None = None,
         cache_control: str | None = None,
@@ -237,7 +254,7 @@ class AsyncObjectStore(Protocol):
     async def put(
         self,
         key: str,
-        body,
+        body: bytes,
         *,
         content_type: str | None = None,
         cache_control: str | None = None,
@@ -375,6 +392,57 @@ class AsyncR2Client(AsyncObjectStore):
             metadata=ObjectMetadata.from_response(key, response),
         )
 
+    async def put(
+        self,
+        key: str,
+        body: bytes,
+        *,
+        content_type: str | None = None,
+        cache_control: str | None = None,
+        metadata: Mapping[str, str] | None = None,
+        if_none_match: str | None = None,
+    ) -> ObjectPutResult:
+        if not isinstance(body, bytes):
+            raise TypeError("'body' must be bytes")
+
+        url = self._object_url(key)
+        payload_hash = sha256(body).hexdigest()
+
+        headers = {
+            "x-amz-content-sha256": payload_hash,
+        }
+        if content_type is not None:
+            headers["content-type"] = content_type
+        if cache_control is not None:
+            headers["cache-control"] = cache_control
+        if if_none_match is not None:
+            headers["if-none-match"] = if_none_match
+        for name, value in (metadata or {}).items():
+            headers[f"x-amz-meta-{name}"] = value
+        headers = self.signer.sign("PUT", url, headers, payload_hash)
+
+        try:
+            request = self.client.build_request(
+                "PUT", url, headers=headers, content=body
+            )
+            response = await self.client.send(request)
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 PUT request failed") from exc
+
+        if response.status_code >= 400:
+            error = self._map_error(response, response.content, key=key)
+            await response.aclose()
+            raise error
+
+        result = ObjectPutResult(
+            key=key,
+            etag=response.headers.get("etag"),
+            version_id=response.headers.get("x-amz-version-id"),
+            checksum_crc64nvme=response.headers.get("x-amz-checksum-crc64nvme"),
+        )
+        await response.aclose()
+        return result
+
     def presign(
         self,
         method: Literal["DELETE", "GET", "HEAD", "PUT"],
@@ -415,9 +483,8 @@ class AsyncR2Client(AsyncObjectStore):
     ) -> ObjectStoreError:
         code = response.headers.get("x-amz-error-code")
         message = None
-        request_id = response.headers.get("x-amz-request-id") or response.headers.get(
-            "cf-ray"
-        )
+        request_id = response.headers.get("x-amz-request-id")
+        cf_ray = response.headers.get("cf-ray")
 
         try:
             root = ElementTree.fromstring(body)
@@ -463,6 +530,7 @@ class AsyncR2Client(AsyncObjectStore):
             status_code=status_code,
             code=code,
             request_id=request_id,
+            cf_ray=cf_ray,
         )
 
 
@@ -534,7 +602,7 @@ class SigV4Signer:
         *,
         expires_in: int = 300,
         now: datetime | None = None,
-    ):
+    ) -> str:
         method = method.upper()
         if method not in {"DELETE", "GET", "HEAD", "PUT"}:
             raise ValueError("R2 does not support presigning this HTTP method")
@@ -598,7 +666,7 @@ class SigV4Signer:
         path: str,
         query: str,
         payload_hash: str,
-    ):
+    ) -> str:
         signed_header_names: list[str] = sorted(request_headers)
         signed_headers = ";".join(signed_header_names)
         canonical_headers = "".join(
@@ -616,7 +684,7 @@ class SigV4Signer:
         )
         return canonical_request
 
-    def _credential_scope(self, date_stamp: str):
+    def _credential_scope(self, date_stamp: str) -> str:
         credential_scope = f"{date_stamp}/{self.region}/{self.service}/aws4_request"
         return credential_scope
 
@@ -625,7 +693,7 @@ class SigV4Signer:
         amz_date: str,
         canonical_request: str,
         credential_scope: str,
-    ):
+    ) -> str:
         string_to_sign = (
             f"AWS4-HMAC-SHA256\n"
             f"{amz_date}\n"
@@ -641,7 +709,7 @@ class SigV4Signer:
         return self._hmac(k_service, "aws4_request")
 
     @staticmethod
-    def _signature(signing_key: bytes, string_to_sign: str):
+    def _signature(signing_key: bytes, string_to_sign: str) -> str:
         signature = hmac.new(
             signing_key,
             string_to_sign.encode("utf-8"),
@@ -652,7 +720,7 @@ class SigV4Signer:
     # --- helper ---
 
     @staticmethod
-    def _host(parts) -> str:
+    def _host(parts: SplitResult) -> str:
         if parts.hostname is None:
             raise ValueError("SigV4 signing requires an absolute URL")
 
@@ -671,7 +739,7 @@ class SigV4Signer:
             return
 
         for query_field in query.split("&"):
-            name = query_field.partition("0")[0]
+            name = query_field.partition("=")[0]
             decoded_name = unquote_to_bytes(name).lower()
 
             if decoded_name in PRESIGN_QUERY_NAMES:
