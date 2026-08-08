@@ -722,3 +722,73 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             "if-modified-since",
             request.headers["authorization"],
         )
+
+    async def test_list_returns_objects_and_next_cursor(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx2.Response(
+                200,
+                content=b"""\
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>bucket</Name>
+  <Prefix>images%2F</Prefix>
+  <KeyCount>2</KeyCount>
+  <MaxKeys>2</MaxKeys>
+  <IsTruncated>true</IsTruncated>
+  <NextContinuationToken>next/token+=</NextContinuationToken>
+  <Contents>
+    <Key>images%2Fa.png</Key>
+    <LastModified>2026-08-06T10:30:00.000Z</LastModified>
+    <ETag>&quot;etag-a&quot;</ETag>
+    <Size>123</Size>
+    <StorageClass>STANDARD</StorageClass>
+  </Contents>
+  <CommonPrefixes>
+    <Prefix>images%2Farchive%2F</Prefix>
+  </CommonPrefixes>
+</ListBucketResult>
+""",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            page = await client.list(
+                prefix="images/",
+                cursor="current/token+=",
+                limit=2,
+                delimiter="/",
+            )
+
+        self.assertTrue(page.is_truncated)
+        self.assertEqual(page.next_cursor, "next/token+=")
+        self.assertEqual(len(page.objects), 1)
+        self.assertEqual(page.objects[0].key, "images/a.png")
+        self.assertEqual(page.objects[0].size, 123)
+        self.assertEqual(page.objects[0].etag, '"etag-a"')
+        self.assertEqual(
+            page.common_prefixes,
+            ("images/archive/",),
+        )
+
+        request = requests[0]
+        self.assertEqual(request.method, "GET")
+        self.assertEqual(request.url.params["list-type"], "2")
+        self.assertEqual(request.url.params["prefix"], "images/")
+        self.assertEqual(
+            request.url.params["continuation-token"],
+            "current/token+=",
+        )
+        self.assertEqual(request.url.params["max-keys"], "2")
+        self.assertEqual(request.url.params["delimiter"], "/")
+        self.assertIn(
+            "AWS4-HMAC-SHA256",
+            request.headers["authorization"],
+        )

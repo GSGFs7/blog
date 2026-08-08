@@ -34,6 +34,8 @@ async def f():
 
         assert (await s.stat(key)).size == len(raw)
 
+        print((await s.list(prefix="test")))
+
         try:
             await s.put(key, raw, if_none_match="*")
         except PreconditionFailed:

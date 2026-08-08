@@ -9,6 +9,7 @@ from urllib.parse import (
     SplitResult,
     quote,
     quote_from_bytes,
+    unquote,
     unquote_to_bytes,
     urlsplit,
 )
@@ -148,8 +149,13 @@ class ObjectPutResult:
     checksum_crc64nvme: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
 class ObjectPage:
-    pass
+    # R2 provide `key, size, ETag, LastModified, StorageClass` only
+    objects: tuple[ObjectMetadata, ...]
+    is_truncated: bool
+    next_cursor: str | None = None
+    common_prefixes: tuple[str, ...] = ()
 
 
 # --- exceptions ---
@@ -238,6 +244,7 @@ class SyncObjectStore(Protocol):
         prefix: str = "",
         cursor: str | None = None,
         limit: int = 1000,
+        delimiter: str | None = None,
     ) -> ObjectPage: ...
     def presign(
         self,
@@ -280,6 +287,7 @@ class AsyncObjectStore(Protocol):
         prefix: str = "",
         cursor: str | None = None,
         limit: int = 1000,
+        delimiter: str | None = None,
     ) -> ObjectPage: ...
     def presign(
         self,
@@ -542,6 +550,65 @@ class AsyncR2Client(AsyncObjectStore):
         await response.aclose()
         return metadata
 
+    async def list(
+        self,
+        *,
+        prefix: str = "",
+        cursor: str | None = None,
+        limit: int = 1000,
+        delimiter: str | None = None,
+    ) -> ObjectPage:
+        if isinstance(limit, bool) or not isinstance(limit, int):
+            raise TypeError("'limit' must be an integer")
+        if not 1 <= limit <= 1000:
+            raise ValueError("'limit' must be between 1 and 1000")
+
+        parameters = [
+            ("list-type", "2"),
+            ("encoding-type", "url"),
+            ("max-keys", str(limit)),
+            ("prefix", prefix),
+        ]
+        if cursor is not None:
+            parameters.append(("continuation-token", cursor))
+        if delimiter is not None:
+            parameters.append(("delimiter", delimiter))
+
+        query = "&".join(
+            f"{quote(name, safe='-_.~')}={quote(value, safe='-_.~')}"
+            for name, value in parameters
+        )
+        url = f"{self._object_url('')}?{query}"
+
+        headers = {
+            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+        }
+        headers = self.signer.sign(
+            "GET",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+        )
+
+        try:
+            response = await self.client.request(
+                "GET",
+                url,
+                headers=headers,
+            )
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 LIST request failed") from exc
+
+        if response.status_code >= 400:
+            error = self._map_error(response, response.content)
+            await response.aclose()
+            raise error
+
+        try:
+            return self._parse_list_response(response.content)
+        finally:
+            await response.aclose()
+
     def presign(
         self,
         method: Literal["DELETE", "GET", "HEAD", "PUT"],
@@ -631,6 +698,69 @@ class AsyncR2Client(AsyncObjectStore):
             request_id=request_id,
             cf_ray=cf_ray,
         )
+
+    @staticmethod
+    def _xml_child_text(element: ElementTree.Element, name: str) -> str | None:
+        for child in element:
+            if child.tag.rsplit("}", 1)[-1] == name:
+                return child.text or ""
+        return None
+
+    @classmethod
+    def _parse_list_response(cls, body: bytes) -> ObjectPage:
+        try:
+            root = ElementTree.fromstring(body)
+            if root.tag.rsplit("}", 1)[-1] != "ListBucketResult":
+                raise ValueError("unexpected XML root")
+
+            truncated_text = cls._xml_child_text(root, "IsTruncated")
+            if truncated_text not in {"true", "false"}:
+                raise ValueError("invalid IsTruncated")
+
+            is_truncated = truncated_text == "true"
+            next_cursor = cls._xml_child_text(root, "NextContinuationToken")
+            if is_truncated and not next_cursor:
+                raise ValueError("missing NextContinuationToken")
+
+            objects = []
+            common_prefixes = []
+            for element in root:
+                name = element.tag.rsplit("}", 1)[-1]
+                if name == "Contents":
+                    key = cls._xml_child_text(element, "Key")
+                    size = cls._xml_child_text(element, "Size")
+                    last_modified = cls._xml_child_text(element, "LastModified")
+                    if key is None or size is None or last_modified is None:
+                        raise ValueError("incomplete object entry")
+
+                    modified_at = datetime.fromisoformat(
+                        last_modified.replace("Z", "+00:00")
+                    )
+                    if modified_at.tzinfo is None:
+                        modified_at = modified_at.replace(tzinfo=timezone.utc)
+                    else:
+                        modified_at = modified_at.astimezone(timezone.utc)
+
+                    objects.append(
+                        ObjectMetadata(
+                            key=unquote(key, errors="strict"),
+                            size=int(size),
+                            etag=cls._xml_child_text(element, "ETag"),
+                            last_modified=modified_at,
+                        )
+                    )
+                elif name == "CommonPrefixes":
+                    common_prefix = cls._xml_child_text(element, "Prefix")
+                    if common_prefix is not None:
+                        common_prefixes.append(unquote(common_prefix, errors="strict"))
+            return ObjectPage(
+                objects=tuple(objects),
+                is_truncated=is_truncated,
+                next_cursor=next_cursor if is_truncated else None,
+                common_prefixes=tuple(common_prefixes),
+            )
+        except (ElementTree.ParseError, TypeError, ValueError) as exc:
+            raise StorageUnavailable("R2 LIST returned an invalid response") from exc
 
 
 # --- signer ---
