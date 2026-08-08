@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from unittest import IsolatedAsyncioTestCase
+from xml.etree import ElementTree
 
 import httpx2
 from django.test import SimpleTestCase
@@ -176,6 +177,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
         for name, operation in operations:
             with self.subTest(operation=name):
+
                 async def handler(request):
                     return httpx2.Response(
                         301,
@@ -368,10 +370,10 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             result = await client.put(
                 "folder/file.txt",
                 b"hello",
-                content_type="text/plain",
                 cache_control="public, max-age=3600",
-                metadata={"kind": "demo"},
+                content_type="text/plain",
                 if_none_match="*",
+                metadata={"kind": "demo"},
             )
 
         self.assertEqual(result.key, "folder/file.txt")
@@ -449,11 +451,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             transport=httpx2.MockTransport(handler),
         ) as client:
             with self.assertRaises(PreconditionFailed) as raised:
-                await client.put(
-                    "existing.txt",
-                    b"hello",
-                    if_none_match="*",
-                )
+                await client.put("existing.txt", b"hello", if_none_match="*")
 
         self.assertEqual(raised.exception.status_code, 412)
         self.assertEqual(
@@ -486,6 +484,310 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             str(raised.exception),
             "R2 PUT request failed",
         )
+
+    async def test_put_multipart_uploads_parts_and_metadata(self):
+        part_size = 5 * 1024 * 1024
+        body = b"a" * part_size + b"tail"
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+
+            if request.method == "POST" and "uploads" in request.url.params:
+                self.assertEqual(request.headers["content-type"], "text/plain")
+                self.assertEqual(request.headers["cache-control"], "public")
+                self.assertEqual(request.headers["if-none-match"], "*")
+                self.assertEqual(request.headers["x-amz-meta-kind"], "demo")
+                return httpx2.Response(
+                    200,
+                    content=(
+                        b"<InitiateMultipartUploadResult>"
+                        b"<UploadId>upload/id+=</UploadId>"
+                        b"</InitiateMultipartUploadResult>"
+                    ),
+                    request=request,
+                )
+
+            if request.method == "PUT":
+                part_number = int(request.url.params["partNumber"])
+                self.assertEqual(request.url.params["uploadId"], "upload/id+=")
+                part = await request.aread()
+                expected = body[:part_size] if part_number == 1 else b"tail"
+                self.assertEqual(part, expected)
+                self.assertEqual(
+                    request.headers["x-amz-content-sha256"],
+                    sha256(expected).hexdigest(),
+                )
+                return httpx2.Response(
+                    200,
+                    headers={"etag": f'"part-{part_number}"'},
+                    request=request,
+                )
+
+            self.assertEqual(request.method, "POST")
+            self.assertEqual(request.url.params["uploadId"], "upload/id+=")
+            self.assertEqual(request.headers["if-none-match"], "*")
+            complete_body = await request.aread()
+            complete_root = ElementTree.fromstring(complete_body)
+            completed_parts = [
+                (
+                    int(part.findtext("PartNumber")),
+                    part.findtext("ETag"),
+                )
+                for part in complete_root.findall("Part")
+            ]
+            self.assertEqual(
+                completed_parts,
+                [(1, '"part-1"'), (2, '"part-2"')],
+            )
+            return httpx2.Response(
+                200,
+                headers={"x-amz-version-id": "version-1"},
+                content=(
+                    b"<CompleteMultipartUploadResult>"
+                    b"<ETag>&quot;complete-2&quot;</ETag>"
+                    b"<ChecksumCRC64NVME>checksum</ChecksumCRC64NVME>"
+                    b"</CompleteMultipartUploadResult>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+            multipart_part_size=part_size,
+        ) as client:
+            result = await client.put(
+                "large.txt",
+                body,
+                cache_control="public",
+                content_type="text/plain",
+                if_none_match="*",
+                metadata={"kind": "demo"},
+                strategy="multipart",
+            )
+
+        self.assertEqual(result.etag, '"complete-2"')
+        self.assertEqual(result.version_id, "version-1")
+        self.assertEqual(result.checksum_crc64nvme, "checksum")
+        self.assertEqual(
+            [request.method for request in requests],
+            ["POST", "PUT", "PUT", "POST"],
+        )
+
+    async def test_put_multipart_supports_empty_body(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+
+            if request.method == "POST" and "uploads" in request.url.params:
+                return httpx2.Response(
+                    200,
+                    content=(
+                        b"<InitiateMultipartUploadResult>"
+                        b"<UploadId>empty-upload</UploadId>"
+                        b"</InitiateMultipartUploadResult>"
+                    ),
+                    request=request,
+                )
+            if request.method == "PUT":
+                self.assertEqual(request.url.params["partNumber"], "1")
+                self.assertEqual(await request.aread(), b"")
+                return httpx2.Response(
+                    200,
+                    headers={"etag": '"empty-part"'},
+                    request=request,
+                )
+
+            complete_root = ElementTree.fromstring(await request.aread())
+            self.assertEqual(
+                complete_root.findtext("Part/PartNumber"),
+                "1",
+            )
+            self.assertEqual(
+                complete_root.findtext("Part/ETag"),
+                '"empty-part"',
+            )
+            return httpx2.Response(
+                200,
+                content=(
+                    b"<CompleteMultipartUploadResult>"
+                    b"<ETag>&quot;empty&quot;</ETag>"
+                    b"</CompleteMultipartUploadResult>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            result = await client.put("empty.txt", b"", strategy="multipart")
+
+        self.assertEqual(result.etag, '"empty"')
+        self.assertEqual(
+            [request.method for request in requests],
+            ["POST", "PUT", "POST"],
+        )
+
+    async def test_put_multipart_aborts_after_part_failure(self):
+        methods = []
+
+        async def handler(request):
+            methods.append(request.method)
+
+            if request.method == "POST":
+                return httpx2.Response(
+                    200,
+                    content=(
+                        b"<InitiateMultipartUploadResult>"
+                        b"<UploadId>failed-upload</UploadId>"
+                        b"</InitiateMultipartUploadResult>"
+                    ),
+                    request=request,
+                )
+            if request.method == "PUT":
+                return httpx2.Response(
+                    500,
+                    content=(
+                        b"<Error><Code>InternalError</Code>"
+                        b"<Message>try again</Message></Error>"
+                    ),
+                    request=request,
+                )
+
+            self.assertEqual(request.method, "DELETE")
+            self.assertEqual(request.url.params["uploadId"], "failed-upload")
+            return httpx2.Response(204, request=request)
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(StorageUnavailable):
+                await client.put("file.txt", b"data", strategy="multipart")
+
+        self.assertEqual(methods, ["POST", "PUT", "DELETE"])
+
+    async def test_put_multipart_handles_error_inside_success_response(self):
+        methods = []
+
+        async def handler(request):
+            methods.append(request.method)
+
+            if request.method == "POST" and "uploads" in request.url.params:
+                return httpx2.Response(
+                    200,
+                    content=(
+                        b"<InitiateMultipartUploadResult>"
+                        b"<UploadId>embedded-error</UploadId>"
+                        b"</InitiateMultipartUploadResult>"
+                    ),
+                    request=request,
+                )
+            if request.method == "PUT":
+                return httpx2.Response(
+                    200,
+                    headers={"etag": '"part-1"'},
+                    request=request,
+                )
+            if request.method == "DELETE":
+                return httpx2.Response(204, request=request)
+
+            return httpx2.Response(
+                200,
+                content=(
+                    b"<Error><Code>InternalError</Code>"
+                    b"<Message>completion failed</Message></Error>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(StorageUnavailable) as raised:
+                await client.put("file.txt", b"data", strategy="multipart")
+
+        self.assertEqual(raised.exception.code, "InternalError")
+        self.assertEqual(methods, ["POST", "PUT", "POST", "DELETE"])
+
+    async def test_put_reads_known_length_async_body(self):
+        async def upload_body():
+            yield b"he"
+            yield b"llo"
+
+        async def handler(request):
+            self.assertEqual(await request.aread(), b"hello")
+            return httpx2.Response(
+                200,
+                headers={"etag": '"stream"'},
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            result = await client.put(
+                "stream.txt",
+                upload_body(),
+                content_length=5,
+            )
+
+        self.assertEqual(result.etag, '"stream"')
+
+    async def test_iter_upload_parts_rechunks_async_body(self):
+        async def upload_body():
+            yield b"ab"
+            yield b"cdefg"
+            yield b"h"
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+        ) as client:
+            parts = [
+                part
+                async for part in client._iter_upload_parts(
+                    upload_body(),
+                    4,
+                    expected_length=8,
+                )
+            ]
+
+        self.assertEqual(parts, [(1, b"abcd"), (2, b"efgh")])
+
+    async def test_put_validates_strategy_and_content_length(self):
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+        ) as client:
+            with self.assertRaisesRegex(ValueError, "strategy"):
+                await client.put("file.txt", b"data", strategy="invalid")
+            with self.assertRaisesRegex(ValueError, "expected 5 bytes"):
+                await client.put("file.txt", b"data", content_length=5)
 
     async def test_delete_signs_request(self):
         requests = []
