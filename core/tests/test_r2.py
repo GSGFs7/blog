@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from core import r2
 from core.r2 import (
     EMPTY_PAYLOAD_HASH,
+    UNSIGNED_PAYLOAD,
     AsyncR2Client,
     AuthenticationFailed,
     InvalidObjectRequest,
@@ -799,6 +800,12 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             yield b"llo"
 
         async def handler(request):
+            self.assertEqual(request.headers["content-length"], "5")
+            self.assertNotIn("transfer-encoding", request.headers)
+            self.assertEqual(
+                request.headers["x-amz-content-sha256"],
+                UNSIGNED_PAYLOAD,
+            )
             self.assertEqual(await request.aread(), b"hello")
             return httpx2.Response(
                 200,

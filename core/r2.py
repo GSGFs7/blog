@@ -4,7 +4,6 @@ simple R2 service
 If unless necessary, these functions will not be implemented:
     - resume upload
     - parallel upload
-    - streaming upload
 
 reason: disgusting code
 """
@@ -231,21 +230,29 @@ class _UploadSource:
             self.length = content_length
 
     async def read_all(self) -> bytes:
+        chunks = bytearray()
+        async for chunk in self.iter_body():
+            chunks.extend(chunk)
+        return bytes(chunks)
+
+    def single_body(self) -> AsyncUploadBody:
         if isinstance(self._body, bytes):
             return self._body
-        if self.length is None:
-            raise ValueError("'content_length' is required for a single async upload")
+        return self.iter_body()
 
-        chunks = bytearray()
+    async def iter_body(self) -> AsyncIterable[bytes]:
+        if isinstance(self._body, bytes):
+            yield self._body
+            return
+
         received = 0
         async for chunk in self._body:
             received = self._validate_chunk(chunk, received)
-            if received > self.length:
+            if self.length is not None and received > self.length:
                 raise ValueError(f"expected {self.length} bytes, received more data")
-            chunks.extend(chunk)
+            yield chunk
 
         self._validate_received_length(received)
-        return bytes(chunks)
 
     async def iter_parts(
         self,
@@ -319,10 +326,15 @@ class _ObjectUpload:
         )
 
     async def run(self) -> ObjectPutResult:
-        if not self._use_multipart():
-            body = await self.source.read_all()
-            return await self.client._put_single(self.key, body, self.options)
-        return await self._put_multipart()
+        if self._use_multipart():
+            return await self._put_multipart()
+
+        return await self.client._put_single(
+            self.key,
+            self.source.single_body(),
+            self.options,
+            content_length=self.source.length,
+        )
 
     def _use_multipart(self) -> bool:
         if self.strategy == "single":
@@ -825,16 +837,27 @@ class AsyncR2Client(AsyncObjectStore):
     async def _put_single(
         self,
         key: str,
-        body: bytes,
+        body: AsyncUploadBody,
         options: _PutOptions,
+        *,
+        content_length: int | None = None,
     ) -> ObjectPutResult:
         url = self._object_url(key)
-        payload_hash = sha256(body).hexdigest()
+        if isinstance(body, bytes):
+            payload_hash = sha256(body).hexdigest()
+        else:
+            if content_length is None:
+                raise ValueError(
+                    "'content_length' is required for a single async upload"
+                )
+            payload_hash = UNSIGNED_PAYLOAD
 
         headers = {
             "x-amz-content-sha256": payload_hash,
             **options.headers(),
         }
+        if not isinstance(body, bytes):
+            headers["content-length"] = str(content_length)
         response = await self._send_signed_request(
             "PUT",
             url,
@@ -1032,7 +1055,7 @@ class AsyncR2Client(AsyncObjectStore):
         headers: Mapping[str, str],
         payload_hash: str,
         *,
-        content: bytes | None = None,
+        content: bytes | AsyncIterable[bytes] | None = None,
         stream: bool = False,
         error_message: str,
     ) -> httpx2.Response:
