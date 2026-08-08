@@ -6,6 +6,7 @@ from xml.etree import ElementTree
 import httpx2
 from django.test import SimpleTestCase
 
+from core import r2
 from core.r2 import (
     EMPTY_PAYLOAD_HASH,
     AsyncR2Client,
@@ -16,7 +17,13 @@ from core.r2 import (
     PreconditionFailed,
     SigV4Signer,
     StorageUnavailable,
+    _UploadSource,
 )
+
+
+class PublicApiTest(SimpleTestCase):
+    def test_sync_object_body_is_not_exported(self):
+        self.assertNotIn("SyncObjectBody", r2.__all__)
 
 
 class SigV4SignerTest(SimpleTestCase):
@@ -61,6 +68,41 @@ class SigV4SignerTest(SimpleTestCase):
             SigV4Signer._canonical_uri("/bucket/a%2Fb//%E7%A9%BA%20%E6%A0%BC"),
             "/bucket/a%2Fb//%E7%A9%BA%20%E6%A0%BC",
         )
+
+
+class UploadSourceTest(IsolatedAsyncioTestCase):
+    async def test_rechunks_async_body(self):
+        async def upload_body():
+            yield b"ab"
+            yield b"cdefg"
+            yield b"h"
+
+        source = _UploadSource(upload_body(), 8)
+        parts = [part async for part in source.iter_parts(4)]
+
+        self.assertEqual(parts, [(1, b"abcd"), (2, b"efgh")])
+
+    async def test_validates_async_body(self):
+        async def short_body():
+            yield b"data"
+
+        source = _UploadSource(short_body(), 5)
+        with self.assertRaisesRegex(ValueError, "expected 5 bytes, received 4"):
+            await source.read_all()
+
+        async def long_body():
+            yield b"too long"
+
+        source = _UploadSource(long_body(), 4)
+        with self.assertRaisesRegex(ValueError, "expected 4 bytes, received more data"):
+            await source.read_all()
+
+        async def invalid_body():
+            yield "not bytes"
+
+        source = _UploadSource(invalid_body(), 9)
+        with self.assertRaisesRegex(TypeError, "must yield bytes"):
+            await source.read_all()
 
 
 class AsyncR2ClientTest(IsolatedAsyncioTestCase):
@@ -165,6 +207,31 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             body = await client.get("file.txt", byte_range="bytes=0-4")
             async with body:
                 self.assertEqual(await body.read(), b"hello")
+
+    async def test_get_raises_not_modified_with_request_metadata(self):
+        async def handler(request):
+            return httpx2.Response(
+                304,
+                headers={
+                    "x-amz-request-id": "request-1",
+                    "cf-ray": "ray-1",
+                },
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(ObjectNotModified) as raised:
+                await client.get("file.txt", if_none_match='"abc123"')
+
+        self.assertEqual(raised.exception.status_code, 304)
+        self.assertEqual(raised.exception.request_id, "request-1")
+        self.assertEqual(raised.exception.cf_ray, "ray-1")
 
     async def test_rejects_redirect_responses(self):
         operations = (
@@ -754,29 +821,6 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(result.etag, '"stream"')
 
-    async def test_iter_upload_parts_rechunks_async_body(self):
-        async def upload_body():
-            yield b"ab"
-            yield b"cdefg"
-            yield b"h"
-
-        async with AsyncR2Client(
-            "https://example.r2.cloudflarestorage.com",
-            "access",
-            "secret",
-            "bucket",
-        ) as client:
-            parts = [
-                part
-                async for part in client._iter_upload_parts(
-                    upload_body(),
-                    4,
-                    expected_length=8,
-                )
-            ]
-
-        self.assertEqual(parts, [(1, b"abcd"), (2, b"efgh")])
-
     async def test_put_validates_strategy_and_content_length(self):
         async with AsyncR2Client(
             "https://example.r2.cloudflarestorage.com",
@@ -1010,7 +1054,10 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
             return httpx2.Response(
                 304,
-                headers={"x-amz-request-id": "request-1"},
+                headers={
+                    "x-amz-request-id": "request-1",
+                    "cf-ray": "ray-1",
+                },
                 request=request,
             )
 
@@ -1029,6 +1076,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 304)
         self.assertEqual(raised.exception.request_id, "request-1")
+        self.assertEqual(raised.exception.cf_ray, "ray-1")
         self.assertEqual(str(raised.exception), "file.txt")
 
         request = requests[0]

@@ -1,11 +1,21 @@
+"""
+simple R2 service
+
+If unless necessary, these functions will not be implemented:
+    - resume upload
+    - parallel upload
+    - streaming upload
+
+reason: disgusting code
+"""
+
 import hmac
-from builtins import list as _list
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import format_datetime, parsedate_to_datetime
 from hashlib import sha256
 from types import TracebackType
-from typing import AsyncIterable, Literal, Mapping, Protocol
+from typing import AsyncIterable, Literal, Mapping, Never, Protocol, Sequence
 from urllib.parse import (
     SplitResult,
     quote,
@@ -34,7 +44,6 @@ __all__ = (
     "RateLimited",
     "SignatureMismatch",
     "StorageUnavailable",
-    "SyncObjectBody",
     "SyncObjectStore",
     "SyncR2Client",
 )
@@ -63,6 +72,7 @@ MAX_MULTIPART_OBJECT_SIZE = 5 * 1024**4 - 5 * 1024**3  # 5TiB - 5GiB
 MAX_MULTIPART_PARTS = 10_000
 
 type AsyncUploadBody = bytes | AsyncIterable[bytes]
+type UploadStrategy = Literal["auto", "single", "multipart"]
 
 
 # --- results ---
@@ -171,6 +181,229 @@ class ObjectPage:
     is_truncated: bool
     next_cursor: str | None = None
     common_prefixes: tuple[str, ...] = ()
+
+
+# --- upload internals ---
+
+
+@dataclass(frozen=True, slots=True)
+class _PutOptions:
+    cache_control: str | None = None
+    content_type: str | None = None
+    if_none_match: str | None = None
+    metadata: Mapping[str, str] | None = None
+
+    def headers(self) -> dict[str, str]:
+        headers = {}
+        if self.content_type is not None:
+            headers["content-type"] = self.content_type
+        if self.cache_control is not None:
+            headers["cache-control"] = self.cache_control
+        if self.if_none_match is not None:
+            headers["if-none-match"] = self.if_none_match
+        for name, value in (self.metadata or {}).items():
+            headers[f"x-amz-meta-{name}"] = value
+        return headers
+
+
+@dataclass(frozen=True, slots=True)
+class _UploadedPart:
+    number: int
+    etag: str
+
+
+class _UploadSource:
+    def __init__(self, body: AsyncUploadBody, content_length: int | None):
+        if content_length is not None:
+            if isinstance(content_length, bool) or not isinstance(content_length, int):
+                raise TypeError("'content_length' must be an integer")
+            if content_length < 0:
+                raise ValueError("'content_length' must not be negative")
+
+        if isinstance(body, bytes):
+            length = len(body)
+            if content_length is not None and content_length != length:
+                raise ValueError(f"expected {content_length} bytes, received {length}")
+            self._body: bytes | AsyncIterable[bytes] = body
+            self.length = length
+        else:
+            self._body = aiter(body)
+            self.length = content_length
+
+    async def read_all(self) -> bytes:
+        if isinstance(self._body, bytes):
+            return self._body
+        if self.length is None:
+            raise ValueError("'content_length' is required for a single async upload")
+
+        chunks = bytearray()
+        received = 0
+        async for chunk in self._body:
+            received = self._validate_chunk(chunk, received)
+            if received > self.length:
+                raise ValueError(f"expected {self.length} bytes, received more data")
+            chunks.extend(chunk)
+
+        self._validate_received_length(received)
+        return bytes(chunks)
+
+    async def iter_parts(
+        self,
+        part_size: int,
+    ) -> AsyncIterable[tuple[int, bytes]]:
+        if isinstance(self._body, bytes):
+            for offset in range(0, len(self._body), part_size):
+                yield offset // part_size + 1, self._body[offset : offset + part_size]
+            return
+
+        buffer = bytearray()
+        received = 0
+        part_number = 1
+        async for chunk in self._body:
+            received = self._validate_chunk(chunk, received)
+            if self.length is not None and received > self.length:
+                raise ValueError(f"expected {self.length} bytes, received more data")
+
+            view = memoryview(chunk)
+            offset = 0
+            while offset < len(view):
+                take = min(part_size - len(buffer), len(view) - offset)
+                buffer.extend(view[offset : offset + take])
+                offset += take
+                if len(buffer) == part_size:
+                    yield part_number, bytes(buffer)
+                    buffer.clear()
+                    part_number += 1
+
+        self._validate_received_length(received)
+        if buffer:
+            yield part_number, bytes(buffer)
+
+    @staticmethod
+    def _validate_chunk(chunk: bytes, received: int) -> int:
+        if not isinstance(chunk, bytes):
+            raise TypeError("async upload body must yield bytes")
+        return received + len(chunk)
+
+    def _validate_received_length(self, received: int) -> None:
+        if self.length is not None and received != self.length:
+            raise ValueError(f"expected {self.length} bytes, received {received}")
+
+
+@dataclass(slots=True)
+class _ObjectUpload:
+    client: "AsyncR2Client"
+    key: str
+    source: _UploadSource
+    options: _PutOptions
+    strategy: UploadStrategy
+
+    @classmethod
+    def create(
+        cls,
+        client: "AsyncR2Client",
+        key: str,
+        body: AsyncUploadBody,
+        content_length: int | None,
+        options: _PutOptions,
+        strategy: UploadStrategy,
+    ) -> "_ObjectUpload":
+        if strategy not in {"auto", "single", "multipart"}:
+            raise ValueError("'strategy' must be 'auto', 'single', or 'multipart'")
+        return cls(
+            client=client,
+            key=key,
+            source=_UploadSource(body, content_length),
+            options=options,
+            strategy=strategy,
+        )
+
+    async def run(self) -> ObjectPutResult:
+        if not self._use_multipart():
+            body = await self.source.read_all()
+            return await self.client._put_single(self.key, body, self.options)
+        return await self._put_multipart()
+
+    def _use_multipart(self) -> bool:
+        if self.strategy == "single":
+            if self.source.length is None:
+                raise ValueError(
+                    "'content_length' is required for a single async upload"
+                )
+            return False
+        if self.strategy == "multipart":
+            return True
+        return (
+            self.source.length is None
+            or self.source.length > self.client.multipart_threshold
+        )
+
+    async def _put_multipart(self) -> ObjectPutResult:
+        part_size = self._part_size()
+        upload_id = await self.client._create_multipart(self.key, self.options)
+
+        try:
+            completed_parts = await self._upload_parts(upload_id, part_size)
+            return await self.client._complete_multipart(
+                self.key,
+                upload_id,
+                completed_parts,
+                if_none_match=self.options.if_none_match,
+            )
+        except BaseException as exc:
+            try:
+                await self.client._abort_multipart(self.key, upload_id)
+            except ObjectNotFound:
+                pass
+            except BaseException as abort_exc:
+                exc.add_note(f"multipart abort failed: {abort_exc}")
+            raise
+
+    def _part_size(self) -> int:
+        configured_size = self.client.multipart_part_size
+        if isinstance(configured_size, bool) or not isinstance(configured_size, int):
+            raise TypeError("'multipart_part_size' must be an integer")
+        if not MIN_MULTIPART_PART_SIZE <= configured_size <= MAX_MULTIPART_PART_SIZE:
+            raise ValueError(
+                "'multipart_part_size' must be between 5 MiB and 4.995 GiB"
+            )
+
+        if self.source.length is None:
+            return configured_size
+        if self.source.length > MAX_MULTIPART_OBJECT_SIZE:
+            raise ValueError("multipart object exceeds the R2 object size limit")
+
+        required_size = (
+            self.source.length + MAX_MULTIPART_PARTS - 1
+        ) // MAX_MULTIPART_PARTS
+        part_size = max(configured_size, required_size)
+        if part_size > MAX_MULTIPART_PART_SIZE:
+            raise ValueError("object cannot fit within 10,000 multipart parts")
+        return part_size
+
+    async def _upload_parts(
+        self,
+        upload_id: str,
+        part_size: int,
+    ) -> list[_UploadedPart]:
+        completed_parts = []
+        async for part_number, body in self.source.iter_parts(part_size):
+            if part_number > MAX_MULTIPART_PARTS:
+                raise ValueError("multipart upload exceeds 10,000 parts")
+            etag = await self.client._upload_part(
+                self.key,
+                upload_id,
+                part_number,
+                body,
+            )
+            completed_parts.append(_UploadedPart(part_number, etag))
+
+        # if upload content is empty (b""), the for loop will exit immediately.
+        # add this to finish this upload task.
+        if not completed_parts:
+            etag = await self.client._upload_part(self.key, upload_id, 1, b"")
+            completed_parts.append(_UploadedPart(1, etag))
+        return completed_parts
 
 
 # --- exceptions ---
@@ -303,7 +536,7 @@ class AsyncObjectStore(Protocol):
         content_type: str | None = None,
         if_none_match: str | None = None,
         metadata: Mapping[str, str] | None = None,
-        strategy: Literal["auto", "single", "multipart"] = "auto",
+        strategy: UploadStrategy = "auto",
     ) -> ObjectPutResult: ...
 
     async def delete(self, key: str) -> None: ...
@@ -419,25 +652,19 @@ class AsyncR2Client(AsyncObjectStore):
         if if_none_match is not None:
             headers["if-none-match"] = if_none_match
 
-        headers = self.signer.sign("GET", url, headers, EMPTY_PAYLOAD_HASH)
-        try:
-            request = self.client.build_request("GET", url, headers=headers)
-            response = await self.client.send(request, stream=True)
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 GET request failed") from exc
+        response = await self._send_signed_request(
+            "GET",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+            stream=True,
+            error_message="R2 GET request failed",
+        )
 
         if response.status_code == 304:
-            await response.aclose()
-            raise ObjectNotModified(key, status_code=response.status_code)
+            await self._raise_not_modified(response, key)
         if response.status_code not in {200, 206}:
-            try:
-                error_body = await response.aread()
-            except httpx2.HTTPError as exc:
-                await response.aclose()
-                raise StorageUnavailable("R2 error response could not be read") from exc
-            error = self._map_error(response, error_body, key=key)
-            await response.aclose()
-            raise error
+            await self._raise_response_error(response, key=key)
 
         return AsyncObjectBody(
             key=key,
@@ -455,81 +682,23 @@ class AsyncR2Client(AsyncObjectStore):
         content_type: str | None = None,
         if_none_match: str | None = None,
         metadata: Mapping[str, str] | None = None,
-        strategy: Literal["auto", "single", "multipart"] = "auto",
+        strategy: UploadStrategy = "auto",
     ) -> ObjectPutResult:
-        if strategy not in {"auto", "single", "multipart"}:
-            raise ValueError("'strategy' must be 'auto', 'single', or 'multipart'")
-        if content_length is not None:
-            if isinstance(content_length, bool) or not isinstance(content_length, int):
-                raise TypeError("'content_length' must be an integer")
-            if content_length < 0:
-                raise ValueError("'content_length' must not be negative")
-
-        if isinstance(body, bytes):
-            size = len(body)
-            if content_length is not None and content_length != size:
-                raise ValueError(f"expected {content_length} bytes, received {size}")
-
-            if strategy == "single" or (
-                strategy == "auto" and size <= self.multipart_threshold
-            ):
-                return await self._put_single(
-                    key,
-                    body,
-                    cache_control=cache_control,
-                    content_type=content_type,
-                    if_none_match=if_none_match,
-                    metadata=metadata,
-                )
-            return await self._put_multipart(
-                key,
-                body,
-                cache_control=cache_control,
-                content_length=content_length,
-                content_type=content_type,
-                if_none_match=if_none_match,
-                metadata=metadata,
-            )
-
-        iterator = aiter(body)
-
-        if content_length is None:
-            if strategy == "single":
-                raise ValueError(
-                    "'content_length' is required for a single async upload"
-                )
-
-            return await self._put_multipart(
-                key,
-                iterator,
-                cache_control=cache_control,
-                content_type=content_type,
-                if_none_match=if_none_match,
-                metadata=metadata,
-            )
-
-        if strategy == "single" or (
-            strategy == "auto" and content_length <= self.multipart_threshold
-        ):
-            data = await self._read_all(iterator, content_length)
-            return await self._put_single(
-                key,
-                data,
-                cache_control=cache_control,
-                content_type=content_type,
-                if_none_match=if_none_match,
-                metadata=metadata,
-            )
-
-        return await self._put_multipart(
-            key,
-            iterator,
+        options = _PutOptions(
             cache_control=cache_control,
-            content_length=content_length,
             content_type=content_type,
             if_none_match=if_none_match,
             metadata=metadata,
         )
+        upload = _ObjectUpload.create(
+            self,
+            key,
+            body,
+            content_length,
+            options,
+            strategy,
+        )
+        return await upload.run()
 
     async def delete(self, key: str) -> None:
         url = self._object_url(key)
@@ -537,22 +706,16 @@ class AsyncR2Client(AsyncObjectStore):
         headers = {
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
         }
-        headers = self.signer.sign(
+        response = await self._send_signed_request(
             "DELETE",
             url,
             headers,
             EMPTY_PAYLOAD_HASH,
+            error_message="R2 DELETE request failed",
         )
 
-        try:
-            response = await self.client.request("DELETE", url, headers=headers)
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 DELETE request failed") from exc
-
         if response.status_code != 204:
-            error = self._map_error(response, response.content, key=key)
-            await response.aclose()
-            raise error
+            await self._raise_response_error(response, key=key)
 
         await response.aclose()
 
@@ -578,41 +741,18 @@ class AsyncR2Client(AsyncObjectStore):
             headers["if-modified-since"] = format_datetime(
                 if_modified_since, usegmt=True
             )
-        headers = self.signer.sign(
+        response = await self._send_signed_request(
             "HEAD",
             url,
             headers,
             EMPTY_PAYLOAD_HASH,
+            error_message="R2 HEAD request failed",
         )
 
-        try:
-            response = await self.client.request(
-                "HEAD",
-                url,
-                headers=headers,
-            )
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 HEAD request failed") from exc
-
         if response.status_code == 304:
-            request_id = response.headers.get(
-                "x-amz-request-id"
-            ) or response.headers.get("cf-ray")
-
-            await response.aclose()
-            raise ObjectNotModified(
-                key,
-                status_code=304,
-                request_id=request_id,
-            )
+            await self._raise_not_modified(response, key)
         if response.status_code != 200:
-            error = self._map_error(
-                response,
-                response.content,
-                key=key,
-            )
-            await response.aclose()
-            raise error
+            await self._raise_response_error(response, key=key)
 
         metadata = ObjectMetadata.from_response(key, response)
         await response.aclose()
@@ -651,26 +791,16 @@ class AsyncR2Client(AsyncObjectStore):
         headers = {
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
         }
-        headers = self.signer.sign(
+        response = await self._send_signed_request(
             "GET",
             url,
             headers,
             EMPTY_PAYLOAD_HASH,
+            error_message="R2 LIST request failed",
         )
 
-        try:
-            response = await self.client.request(
-                "GET",
-                url,
-                headers=headers,
-            )
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 LIST request failed") from exc
-
         if response.status_code != 200:
-            error = self._map_error(response, response.content)
-            await response.aclose()
-            raise error
+            await self._raise_response_error(response)
 
         try:
             return self._parse_list_response(response.content)
@@ -690,46 +820,32 @@ class AsyncR2Client(AsyncObjectStore):
             expires_in=expires_in,
         )
 
-    # --- upload method ---
+    # --- upload helper method ---
 
     async def _put_single(
         self,
         key: str,
         body: bytes,
-        *,
-        cache_control: str | None = None,
-        content_type: str | None = None,
-        if_none_match: str | None = None,
-        metadata: Mapping[str, str] | None = None,
+        options: _PutOptions,
     ) -> ObjectPutResult:
         url = self._object_url(key)
         payload_hash = sha256(body).hexdigest()
 
         headers = {
             "x-amz-content-sha256": payload_hash,
+            **options.headers(),
         }
-        if content_type is not None:
-            headers["content-type"] = content_type
-        if cache_control is not None:
-            headers["cache-control"] = cache_control
-        if if_none_match is not None:
-            headers["if-none-match"] = if_none_match
-        for name, value in (metadata or {}).items():
-            headers[f"x-amz-meta-{name}"] = value
-        headers = self.signer.sign("PUT", url, headers, payload_hash)
-
-        try:
-            request = self.client.build_request(
-                "PUT", url, headers=headers, content=body
-            )
-            response = await self.client.send(request)
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 PUT request failed") from exc
+        response = await self._send_signed_request(
+            "PUT",
+            url,
+            headers,
+            payload_hash,
+            content=body,
+            error_message="R2 PUT request failed",
+        )
 
         if response.status_code != 200:
-            error = self._map_error(response, response.content, key=key)
-            await response.aclose()
-            raise error
+            await self._raise_response_error(response, key=key)
 
         result = ObjectPutResult(
             key=key,
@@ -740,120 +856,30 @@ class AsyncR2Client(AsyncObjectStore):
         await response.aclose()
         return result
 
-    async def _put_multipart(
-        self,
-        key: str,
-        body: AsyncUploadBody,
-        *,
-        cache_control: str | None = None,
-        content_length: int | None = None,
-        content_type: str | None = None,
-        if_none_match: str | None = None,
-        metadata: Mapping[str, str] | None = None,
-    ) -> ObjectPutResult:
-        expected_length = len(body) if isinstance(body, bytes) else content_length
-        part_size = self._multipart_size(expected_length)
-
-        upload_id = await self._create_multipart(
-            key,
-            cache_control=cache_control,
-            content_type=content_type,
-            if_none_match=if_none_match,
-            metadata=metadata,
-        )
-
-        try:
-            completed_parts: list[tuple[int, str]] = []
-            async for part_number, part in self._iter_upload_parts(
-                body, part_size, expected_length=expected_length
-            ):
-                if part_number > MAX_MULTIPART_PARTS:
-                    raise ValueError("multipart upload exceeds 10,000 parts")
-
-                etag = await self._upload_part(key, upload_id, part_number, part)
-                completed_parts.append((part_number, etag))
-
-            # if upload content is empty (b""), the for loop will exit immediately.
-            # add this to finish this upload task.
-            if not completed_parts:
-                etag = await self._upload_part(key, upload_id, 1, b"")
-                completed_parts.append((1, etag))
-
-            return await self._complete_multipart(
-                key,
-                upload_id,
-                completed_parts,
-                if_none_match=if_none_match,
-            )
-        except BaseException as exc:
-            try:
-                await self._abort_multipart(key, upload_id)
-            except ObjectNotFound:
-                pass
-            except BaseException as abort_exc:
-                exc.add_note(f"multipart abort failed: {abort_exc}")
-            raise
-
-    def _multipart_size(self, length: int | None) -> int:
-        part_size = self.multipart_part_size
-        if isinstance(part_size, bool) or not isinstance(part_size, int):
-            raise TypeError("'multipart_part_size' must be an integer")
-        if not MIN_MULTIPART_PART_SIZE <= part_size <= MAX_MULTIPART_PART_SIZE:
-            raise ValueError(
-                "'multipart_part_size' must be between 5 MiB and 4.995 GiB"
-            )
-
-        if length is None:
-            return part_size
-        if isinstance(length, bool) or not isinstance(length, int):
-            raise TypeError("'content_length' must be an integer")
-        if length < 0:
-            raise ValueError("'content_length' must not be negative")
-        if length > MAX_MULTIPART_OBJECT_SIZE:
-            raise ValueError("multipart object exceeds the R2 object size limit")
-
-        required_size = (length + MAX_MULTIPART_PARTS - 1) // MAX_MULTIPART_PARTS
-        part_size = max(part_size, required_size)
-        if part_size > MAX_MULTIPART_PART_SIZE:
-            raise ValueError("object cannot fit within 10,000 multipart parts")
-
-        return part_size
-
     async def _create_multipart(
         self,
         key: str,
-        *,
-        cache_control: str | None = None,
-        content_type: str | None = None,
-        if_none_match: str | None = None,
-        metadata: Mapping[str, str] | None = None,
+        options: _PutOptions,
     ) -> str:
         url = f"{self._object_url(key)}?uploads="
 
         headers = {
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+            **options.headers(),
         }
-        if content_type is not None:
-            headers["content-type"] = content_type
-        if cache_control is not None:
-            headers["cache-control"] = cache_control
-        if if_none_match is not None:
-            headers["if-none-match"] = if_none_match
-        for name, value in (metadata or {}).items():
-            headers[f"x-amz-meta-{name}"] = value
-        headers = self.signer.sign("POST", url, headers, EMPTY_PAYLOAD_HASH)
+        response = await self._send_signed_request(
+            "POST",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+            content=b"",
+            error_message="R2 multipart initialization failed",
+        )
+
+        if response.status_code != 200:
+            await self._raise_response_error(response, key=key)
 
         try:
-            response = await self.client.request(
-                "POST", url, headers=headers, content=b""
-            )
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 multipart initialization failed") from exc
-
-        try:
-            if response.status_code != 200:
-                raise self._map_error(response, response.content, key=key)
-
             try:
                 root = ElementTree.fromstring(response.content)
             except ElementTree.ParseError as exc:
@@ -874,54 +900,6 @@ class AsyncR2Client(AsyncObjectStore):
         finally:
             await response.aclose()
 
-    async def _iter_upload_parts(
-        self,
-        body: AsyncUploadBody,
-        part_size: int,
-        *,
-        expected_length: int | None = None,
-    ) -> AsyncIterable[tuple[int, bytes]]:
-        if isinstance(body, bytes):
-            if expected_length is not None and len(body) != expected_length:
-                raise ValueError(
-                    f"expected {expected_length} bytes, received {len(body)}"
-                )
-
-            for offset in range(0, len(body), part_size):
-                part_number = offset // part_size + 1
-                yield part_number, body[offset : offset + part_size]
-            return
-
-        buffer = bytearray()
-        received = 0
-        part_number = 1
-        async for chunk in body:
-            if not isinstance(chunk, bytes):
-                raise TypeError("async upload body must yield bytes")
-
-            received += len(chunk)
-            if expected_length is not None and received > expected_length:
-                raise ValueError(
-                    f"expected {expected_length} bytes, received more data"
-                )
-
-            view = memoryview(chunk)
-            offset = 0
-            while offset < len(view):
-                take = min(part_size - len(buffer), len(view) - offset)
-                buffer.extend(view[offset : offset + take])
-                offset += take
-                if len(buffer) == part_size:
-                    yield part_number, bytes(buffer)
-                    buffer.clear()
-                    part_number += 1
-
-        if expected_length is not None and received != expected_length:
-            raise ValueError(f"expected {expected_length} bytes, received {received}")
-
-        if buffer:
-            yield part_number, bytes(buffer)
-
     async def _upload_part(
         self,
         key: str,
@@ -929,36 +907,22 @@ class AsyncR2Client(AsyncObjectStore):
         part_number: int,
         body: bytes,
     ) -> str:
-        encoded_upload_id = quote(upload_id, safe="-_.~")
-        url = (
-            f"{self._object_url(key)}"
-            f"?partNumber={part_number}&uploadId={encoded_upload_id}"
-        )
+        url = self._multipart_url(key, upload_id, part_number=part_number)
         payload_hash = sha256(body).hexdigest()
 
-        headers = self.signer.sign(
+        response = await self._send_signed_request(
             "PUT",
             url,
             {"x-amz-content-sha256": payload_hash},
             payload_hash,
+            content=body,
+            error_message=f"R2 multipart part {part_number} upload failed",
         )
 
-        try:
-            response = await self.client.request(
-                "PUT",
-                url,
-                headers=headers,
-                content=body,
-            )
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable(
-                f"R2 multipart part {part_number} upload failed"
-            ) from exc
+        if response.status_code != 200:
+            await self._raise_response_error(response, key=key)
 
         try:
-            if response.status_code != 200:
-                raise self._map_error(response, response.content, key=key)
-
             etag = response.headers.get("etag")
             if not etag:
                 raise StorageUnavailable(
@@ -969,54 +933,37 @@ class AsyncR2Client(AsyncObjectStore):
             await response.aclose()
 
     async def _abort_multipart(self, key: str, upload_id: str) -> None:
-        encoded_upload_id = quote(upload_id, safe="-_.~")
-        url = f"{self._object_url(key)}?uploadId={encoded_upload_id}"
+        url = self._multipart_url(key, upload_id)
 
-        headers = self.signer.sign(
+        response = await self._send_signed_request(
             "DELETE",
             url,
             {"x-amz-content-sha256": EMPTY_PAYLOAD_HASH},
             EMPTY_PAYLOAD_HASH,
+            error_message="R2 multipart abort failed",
         )
 
-        try:
-            response = await self.client.request(
-                "DELETE",
-                url,
-                headers=headers,
-            )
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 multipart abort failed") from exc
-
-        try:
-            if response.status_code != 204:
-                raise self._map_error(
-                    response,
-                    response.content,
-                    key=key,
-                )
-        finally:
-            await response.aclose()
+        if response.status_code != 204:
+            await self._raise_response_error(response, key=key)
+        await response.aclose()
 
     async def _complete_multipart(
         self,
         key: str,
         upload_id: str,
-        # PyCharm believe this list is `AsyncR2Client.list`
-        completed_parts: _list[tuple[int, str]],
+        completed_parts: Sequence[_UploadedPart],
         *,
         if_none_match: str | None = None,
     ) -> ObjectPutResult:
         root = ElementTree.Element("CompleteMultipartUpload")
-        for part_number, etag in completed_parts:
+        for part in completed_parts:
             part_element = ElementTree.SubElement(root, "Part")
-            ElementTree.SubElement(part_element, "PartNumber").text = str(part_number)
-            ElementTree.SubElement(part_element, "ETag").text = etag
+            ElementTree.SubElement(part_element, "PartNumber").text = str(part.number)
+            ElementTree.SubElement(part_element, "ETag").text = part.etag
 
         body = ElementTree.tostring(root, encoding="utf-8")
         payload_hash = sha256(body).hexdigest()
-        encoded_upload_id = quote(upload_id, safe="-_.~")
-        url = f"{self._object_url(key)}?uploadId={encoded_upload_id}"
+        url = self._multipart_url(key, upload_id)
 
         headers = {
             "content-type": "application/xml",
@@ -1024,26 +971,19 @@ class AsyncR2Client(AsyncObjectStore):
         }
         if if_none_match is not None:
             headers["if-none-match"] = if_none_match
-        headers = self.signer.sign("POST", url, headers, payload_hash)
+        response = await self._send_signed_request(
+            "POST",
+            url,
+            headers,
+            payload_hash,
+            content=body,
+            error_message="R2 multipart completion failed",
+        )
+
+        if response.status_code != 200:
+            await self._raise_response_error(response, key=key)
 
         try:
-            response = await self.client.request(
-                "POST",
-                url,
-                headers=headers,
-                content=body,
-            )
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable("R2 multipart completion failed") from exc
-
-        try:
-            if response.status_code != 200:
-                raise self._map_error(
-                    response,
-                    response.content,
-                    key=key,
-                )
-
             try:
                 result_root = ElementTree.fromstring(response.content)
             except ElementTree.ParseError as exc:
@@ -1083,33 +1023,82 @@ class AsyncR2Client(AsyncObjectStore):
         finally:
             await response.aclose()
 
-    @staticmethod
-    async def _read_all(
-        iterator: AsyncIterable[bytes],
-        content_length: int,
-    ) -> bytes:
-        if isinstance(content_length, bool) or not isinstance(content_length, int):
-            raise TypeError("'content_length' must be an integer")
-        if content_length < 0:
-            raise ValueError("'content_length' must not be negative")
-
-        chunks = bytearray()
-        received = 0
-        async for chunk in iterator:
-            if not isinstance(chunk, bytes):
-                raise TypeError("async upload body must yield bytes")
-
-            received += len(chunk)
-            if received > content_length:
-                raise ValueError(f"expected {content_length} bytes, received more data")
-            chunks.extend(chunk)
-
-        if received != content_length:
-            raise ValueError(f"expected {content_length} bytes, received {received}")
-
-        return bytes(chunks)
-
     # --- helper ---
+
+    async def _send_signed_request(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "POST", "PUT"],
+        url: str,
+        headers: Mapping[str, str],
+        payload_hash: str,
+        *,
+        content: bytes | None = None,
+        stream: bool = False,
+        error_message: str,
+    ) -> httpx2.Response:
+        signed_headers = self.signer.sign(method, url, headers, payload_hash)
+        try:
+            if content is None:
+                request = self.client.build_request(
+                    method,
+                    url,
+                    headers=signed_headers,
+                )
+            else:
+                request = self.client.build_request(
+                    method,
+                    url,
+                    headers=signed_headers,
+                    content=content,
+                )
+            return await self.client.send(request, stream=stream)
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable(error_message) from exc
+
+    async def _raise_response_error(
+        self,
+        response: httpx2.Response,
+        *,
+        key: str | None = None,
+    ) -> Never:
+        try:
+            try:
+                body = await response.aread()
+            except httpx2.HTTPError as exc:
+                raise StorageUnavailable("R2 error response could not be read") from exc
+            error = self._map_error(response, body, key=key)
+        finally:
+            await response.aclose()
+        raise error
+
+    @staticmethod
+    async def _raise_not_modified(
+        response: httpx2.Response,
+        key: str,
+    ) -> Never:
+        error = ObjectNotModified(
+            key,
+            status_code=response.status_code,
+            request_id=response.headers.get("x-amz-request-id"),
+            cf_ray=response.headers.get("cf-ray"),
+        )
+        await response.aclose()
+        raise error
+
+    def _multipart_url(
+        self,
+        key: str,
+        upload_id: str,
+        *,
+        part_number: int | None = None,
+    ) -> str:
+        encoded_upload_id = quote(upload_id, safe="-_.~")
+        if part_number is None:
+            return f"{self._object_url(key)}?uploadId={encoded_upload_id}"
+        return (
+            f"{self._object_url(key)}"
+            f"?partNumber={part_number}&uploadId={encoded_upload_id}"
+        )
 
     def _object_url(self, key: str) -> str:
         return (
