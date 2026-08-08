@@ -9,9 +9,9 @@ from django.test import SimpleTestCase
 from core import r2
 from core.r2 import (
     EMPTY_PAYLOAD_HASH,
-    UNSIGNED_PAYLOAD,
     AsyncR2Client,
     AuthenticationFailed,
+    IntegrityCheckFailed,
     InvalidObjectRequest,
     ObjectNotFound,
     ObjectNotModified,
@@ -19,6 +19,8 @@ from core.r2 import (
     SigV4Signer,
     StorageUnavailable,
     _UploadSource,
+    crc64nvme,
+    crc64nvme_base64,
 )
 
 
@@ -413,6 +415,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
     async def test_put_uploads_signed_body_and_returns_result(self):
         requests = []
+        checksum = crc64nvme_base64(b"hello")
 
         async def handler(request):
             requests.append(request)
@@ -423,6 +426,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
                 200,
                 headers={
                     "etag": '"abc123"',
+                    "x-amz-checksum-crc64nvme": checksum,
                     "x-amz-version-id": "version-1",
                 },
                 request=request,
@@ -447,6 +451,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(result.key, "folder/file.txt")
         self.assertEqual(result.etag, '"abc123"')
         self.assertEqual(result.version_id, "version-1")
+        self.assertEqual(result.checksum_crc64nvme, checksum)
 
         self.assertEqual(len(requests), 1)
         request = requests[0]
@@ -468,21 +473,28 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             request.headers["x-amz-content-sha256"],
             sha256(b"hello").hexdigest(),
         )
+        self.assertEqual(request.headers["x-amz-checksum-crc64nvme"], checksum)
         self.assertIn(
             "AWS4-HMAC-SHA256",
             request.headers["authorization"],
         )
 
     async def test_put_supports_empty_body(self):
+        checksum = crc64nvme_base64(b"")
+
         async def handler(request):
             self.assertEqual(await request.aread(), b"")
             self.assertEqual(
                 request.headers["x-amz-content-sha256"],
                 EMPTY_PAYLOAD_HASH,
             )
+            self.assertEqual(request.headers["x-amz-checksum-crc64nvme"], checksum)
             return httpx2.Response(
                 200,
-                headers={"etag": '"empty"'},
+                headers={
+                    "etag": '"empty"',
+                    "x-amz-checksum-crc64nvme": checksum,
+                },
                 request=request,
             )
 
@@ -496,6 +508,53 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             result = await client.put("empty.txt", b"")
 
         self.assertEqual(result.etag, '"empty"')
+        self.assertEqual(result.checksum_crc64nvme, checksum)
+
+    async def test_put_rejects_mismatched_checksum_response(self):
+        async def handler(request):
+            return httpx2.Response(
+                200,
+                headers={
+                    "etag": '"bad"',
+                    "x-amz-checksum-crc64nvme": crc64nvme_base64(b"other"),
+                },
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(IntegrityCheckFailed):
+                await client.put("file.txt", b"hello")
+
+    async def test_put_maps_bad_digest(self):
+        async def handler(request):
+            return httpx2.Response(
+                400,
+                content=(
+                    b"<Error>"
+                    b"<Code>BadDigest</Code>"
+                    b"<Message>checksum mismatch</Message>"
+                    b"</Error>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(IntegrityCheckFailed) as raised:
+                await client.put("file.txt", b"hello")
+
+        self.assertEqual(raised.exception.code, "BadDigest")
 
     async def test_put_maps_precondition_failed(self):
         async def handler(request):
@@ -556,6 +615,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
     async def test_put_multipart_uploads_parts_and_metadata(self):
         part_size = 5 * 1024 * 1024
         body = b"a" * part_size + b"tail"
+        checksum = crc64nvme_base64(body)
         requests = []
 
         async def handler(request):
@@ -566,6 +626,11 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
                 self.assertEqual(request.headers["cache-control"], "public")
                 self.assertEqual(request.headers["if-none-match"], "*")
                 self.assertEqual(request.headers["x-amz-meta-kind"], "demo")
+                self.assertEqual(
+                    request.headers["x-amz-checksum-algorithm"],
+                    "CRC64NVME",
+                )
+                self.assertEqual(request.headers["x-amz-checksum-type"], "FULL_OBJECT")
                 return httpx2.Response(
                     200,
                     content=(
@@ -595,6 +660,11 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             self.assertEqual(request.method, "POST")
             self.assertEqual(request.url.params["uploadId"], "upload/id+=")
             self.assertEqual(request.headers["if-none-match"], "*")
+            self.assertEqual(
+                request.headers["x-amz-checksum-crc64nvme"],
+                checksum,
+            )
+            self.assertEqual(request.headers["x-amz-checksum-type"], "FULL_OBJECT")
             complete_body = await request.aread()
             complete_root = ElementTree.fromstring(complete_body)
             completed_parts = [
@@ -614,7 +684,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
                 content=(
                     b"<CompleteMultipartUploadResult>"
                     b"<ETag>&quot;complete-2&quot;</ETag>"
-                    b"<ChecksumCRC64NVME>checksum</ChecksumCRC64NVME>"
+                    b"<ChecksumCRC64NVME>" + checksum.encode() + b"</ChecksumCRC64NVME>"
                     b"</CompleteMultipartUploadResult>"
                 ),
                 request=request,
@@ -640,19 +710,25 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(result.etag, '"complete-2"')
         self.assertEqual(result.version_id, "version-1")
-        self.assertEqual(result.checksum_crc64nvme, "checksum")
+        self.assertEqual(result.checksum_crc64nvme, checksum)
         self.assertEqual(
             [request.method for request in requests],
             ["POST", "PUT", "PUT", "POST"],
         )
 
     async def test_put_multipart_supports_empty_body(self):
+        checksum = crc64nvme_base64(b"")
         requests = []
 
         async def handler(request):
             requests.append(request)
 
             if request.method == "POST" and "uploads" in request.url.params:
+                self.assertEqual(
+                    request.headers["x-amz-checksum-algorithm"],
+                    "CRC64NVME",
+                )
+                self.assertEqual(request.headers["x-amz-checksum-type"], "FULL_OBJECT")
                 return httpx2.Response(
                     200,
                     content=(
@@ -672,6 +748,8 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
                 )
 
             complete_root = ElementTree.fromstring(await request.aread())
+            self.assertEqual(request.headers["x-amz-checksum-crc64nvme"], checksum)
+            self.assertEqual(request.headers["x-amz-checksum-type"], "FULL_OBJECT")
             self.assertEqual(
                 complete_root.findtext("Part/PartNumber"),
                 "1",
@@ -700,6 +778,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             result = await client.put("empty.txt", b"", strategy="multipart")
 
         self.assertEqual(result.etag, '"empty"')
+        self.assertEqual(result.checksum_crc64nvme, checksum)
         self.assertEqual(
             [request.method for request in requests],
             ["POST", "PUT", "POST"],
@@ -794,22 +873,44 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "InternalError")
         self.assertEqual(methods, ["POST", "PUT", "POST", "DELETE"])
 
-    async def test_put_reads_known_length_async_body(self):
+    async def test_put_known_length_async_body_uses_multipart(self):
         async def upload_body():
             yield b"he"
             yield b"llo"
 
+        requests = []
+        checksum = crc64nvme_base64(b"hello")
+
         async def handler(request):
-            self.assertEqual(request.headers["content-length"], "5")
-            self.assertNotIn("transfer-encoding", request.headers)
-            self.assertEqual(
-                request.headers["x-amz-content-sha256"],
-                UNSIGNED_PAYLOAD,
-            )
-            self.assertEqual(await request.aread(), b"hello")
+            requests.append(request)
+            if request.method == "POST" and "uploads" in request.url.params:
+                return httpx2.Response(
+                    200,
+                    content=(
+                        b"<InitiateMultipartUploadResult>"
+                        b"<UploadId>stream-upload</UploadId>"
+                        b"</InitiateMultipartUploadResult>"
+                    ),
+                    request=request,
+                )
+            if request.method == "PUT":
+                self.assertEqual(request.headers["content-length"], "5")
+                self.assertEqual(await request.aread(), b"hello")
+                return httpx2.Response(
+                    200,
+                    headers={"etag": '"stream-part"'},
+                    request=request,
+                )
+
+            self.assertEqual(request.headers["x-amz-checksum-crc64nvme"], checksum)
             return httpx2.Response(
                 200,
-                headers={"etag": '"stream"'},
+                content=(
+                    b"<CompleteMultipartUploadResult>"
+                    b"<ETag>&quot;stream&quot;</ETag>"
+                    b"<ChecksumCRC64NVME>" + checksum.encode() + b"</ChecksumCRC64NVME>"
+                    b"</CompleteMultipartUploadResult>"
+                ),
                 request=request,
             )
 
@@ -827,6 +928,11 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.etag, '"stream"')
+        self.assertEqual(result.checksum_crc64nvme, checksum)
+        self.assertEqual(
+            [request.method for request in requests],
+            ["POST", "PUT", "POST"],
+        )
 
     async def test_put_validates_strategy_and_content_length(self):
         async with AsyncR2Client(
@@ -839,6 +945,17 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
                 await client.put("file.txt", b"data", strategy="invalid")
             with self.assertRaisesRegex(ValueError, "expected 5 bytes"):
                 await client.put("file.txt", b"data", content_length=5)
+
+            async def upload_body():
+                yield b"data"
+
+            with self.assertRaisesRegex(ValueError, "integrity verification"):
+                await client.put(
+                    "file.txt",
+                    upload_body(),
+                    content_length=4,
+                    strategy="single",
+                )
 
     async def test_delete_signs_request(self):
         requests = []
@@ -1208,3 +1325,8 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             "AWS4-HMAC-SHA256",
             request.headers["authorization"],
         )
+
+    def test_crc(self):
+        assert crc64nvme(b"") == 0
+        assert crc64nvme(b"123456789") == 0xAE8B14860A799888
+        assert crc64nvme_base64(crc64nvme(b"123456789")) == "rosUhgp5mIg="

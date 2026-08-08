@@ -9,6 +9,7 @@ reason: disgusting code
 """
 
 import hmac
+from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import format_datetime, parsedate_to_datetime
@@ -32,6 +33,7 @@ __all__ = (
     "AsyncObjectStore",
     "AsyncR2Client",
     "AuthenticationFailed",
+    "IntegrityCheckFailed",
     "InvalidObjectRequest",
     "ObjectMetadata",
     "ObjectNotFound",
@@ -166,10 +168,6 @@ class ObjectPutResult:
     etag: str | None = None
     # useless for R2 (newest version only)
     version_id: str | None = None
-    # if R2 response with 200 status code.
-    # it means the integrity verification is passed.
-    # (because signer has hashed upload content as a signature)
-    # it usefully for UNSIGNED-PAYLOAD
     checksum_crc64nvme: str | None = None
 
 
@@ -229,16 +227,20 @@ class _UploadSource:
             self._body = aiter(body)
             self.length = content_length
 
+    @property
+    def is_stream(self) -> bool:
+        return not isinstance(self._body, bytes)
+
     async def read_all(self) -> bytes:
         chunks = bytearray()
         async for chunk in self.iter_body():
             chunks.extend(chunk)
         return bytes(chunks)
 
-    def single_body(self) -> AsyncUploadBody:
-        if isinstance(self._body, bytes):
-            return self._body
-        return self.iter_body()
+    def single_body(self) -> bytes:
+        if not isinstance(self._body, bytes):
+            raise RuntimeError("async upload body requires multipart upload")
+        return self._body
 
     async def iter_body(self) -> AsyncIterable[bytes]:
         if isinstance(self._body, bytes):
@@ -333,20 +335,19 @@ class _ObjectUpload:
             self.key,
             self.source.single_body(),
             self.options,
-            content_length=self.source.length,
         )
 
     def _use_multipart(self) -> bool:
         if self.strategy == "single":
-            if self.source.length is None:
+            if self.source.is_stream:
                 raise ValueError(
-                    "'content_length' is required for a single async upload"
+                    "single async upload cannot provide atomic integrity verification"
                 )
             return False
         if self.strategy == "multipart":
             return True
         return (
-            self.source.length is None
+            self.source.is_stream
             or self.source.length > self.client.multipart_threshold
         )
 
@@ -355,11 +356,12 @@ class _ObjectUpload:
         upload_id = await self.client._create_multipart(self.key, self.options)
 
         try:
-            completed_parts = await self._upload_parts(upload_id, part_size)
+            completed_parts, checksum = await self._upload_parts(upload_id, part_size)
             return await self.client._complete_multipart(
                 self.key,
                 upload_id,
                 completed_parts,
+                checksum_crc64nvme=checksum,
                 if_none_match=self.options.if_none_match,
             )
         except BaseException as exc:
@@ -397,11 +399,13 @@ class _ObjectUpload:
         self,
         upload_id: str,
         part_size: int,
-    ) -> list[_UploadedPart]:
+    ) -> tuple[list[_UploadedPart], str]:
         completed_parts = []
+        checksum = 0
         async for part_number, body in self.source.iter_parts(part_size):
             if part_number > MAX_MULTIPART_PARTS:
                 raise ValueError("multipart upload exceeds 10,000 parts")
+            checksum = crc64nvme(body, checksum)
             etag = await self.client._upload_part(
                 self.key,
                 upload_id,
@@ -415,7 +419,7 @@ class _ObjectUpload:
         if not completed_parts:
             etag = await self.client._upload_part(self.key, upload_id, 1, b"")
             completed_parts.append(_UploadedPart(1, etag))
-        return completed_parts
+        return completed_parts, self.client._encode_crc64nvme(checksum)
 
 
 # --- exceptions ---
@@ -455,6 +459,10 @@ class RateLimited(ObjectStoreError):
 
 
 class StorageUnavailable(ObjectStoreError):
+    pass
+
+
+class IntegrityCheckFailed(ObjectStoreError):
     pass
 
 
@@ -837,27 +845,18 @@ class AsyncR2Client(AsyncObjectStore):
     async def _put_single(
         self,
         key: str,
-        body: AsyncUploadBody,
+        body: bytes,
         options: _PutOptions,
-        *,
-        content_length: int | None = None,
     ) -> ObjectPutResult:
         url = self._object_url(key)
-        if isinstance(body, bytes):
-            payload_hash = sha256(body).hexdigest()
-        else:
-            if content_length is None:
-                raise ValueError(
-                    "'content_length' is required for a single async upload"
-                )
-            payload_hash = UNSIGNED_PAYLOAD
+        payload_hash = sha256(body).hexdigest()
+        checksum = self._encode_crc64nvme(crc64nvme(body))
 
         headers = {
             "x-amz-content-sha256": payload_hash,
+            "x-amz-checksum-crc64nvme": checksum,
             **options.headers(),
         }
-        if not isinstance(body, bytes):
-            headers["content-length"] = str(content_length)
         response = await self._send_signed_request(
             "PUT",
             url,
@@ -870,14 +869,16 @@ class AsyncR2Client(AsyncObjectStore):
         if response.status_code != 200:
             await self._raise_response_error(response, key=key)
 
-        result = ObjectPutResult(
-            key=key,
-            etag=response.headers.get("etag"),
-            version_id=response.headers.get("x-amz-version-id"),
-            checksum_crc64nvme=response.headers.get("x-amz-checksum-crc64nvme"),
-        )
-        await response.aclose()
-        return result
+        try:
+            response_checksum = self._verified_checksum(response, key, checksum)
+            return ObjectPutResult(
+                key=key,
+                etag=response.headers.get("etag"),
+                version_id=response.headers.get("x-amz-version-id"),
+                checksum_crc64nvme=response_checksum,
+            )
+        finally:
+            await response.aclose()
 
     async def _create_multipart(
         self,
@@ -888,6 +889,8 @@ class AsyncR2Client(AsyncObjectStore):
 
         headers = {
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+            "x-amz-checksum-algorithm": "CRC64NVME",
+            "x-amz-checksum-type": "FULL_OBJECT",
             **options.headers(),
         }
         response = await self._send_signed_request(
@@ -976,6 +979,7 @@ class AsyncR2Client(AsyncObjectStore):
         upload_id: str,
         completed_parts: Sequence[_UploadedPart],
         *,
+        checksum_crc64nvme: str,
         if_none_match: str | None = None,
     ) -> ObjectPutResult:
         root = ElementTree.Element("CompleteMultipartUpload")
@@ -991,6 +995,8 @@ class AsyncR2Client(AsyncObjectStore):
         headers = {
             "content-type": "application/xml",
             "x-amz-content-sha256": payload_hash,
+            "x-amz-checksum-crc64nvme": checksum_crc64nvme,
+            "x-amz-checksum-type": "FULL_OBJECT",
         }
         if if_none_match is not None:
             headers["if-none-match"] = if_none_match
@@ -1036,6 +1042,11 @@ class AsyncR2Client(AsyncObjectStore):
                 "ChecksumCRC64NVME",
             )
             checksum = checksum or response.headers.get("x-amz-checksum-crc64nvme")
+            checksum = self._verified_checksum_value(
+                checksum,
+                key,
+                checksum_crc64nvme,
+            )
 
             return ObjectPutResult(
                 key=key,
@@ -1047,6 +1058,33 @@ class AsyncR2Client(AsyncObjectStore):
             await response.aclose()
 
     # --- helper ---
+
+    @staticmethod
+    def _encode_crc64nvme(checksum: int) -> str:
+        return b64encode(checksum.to_bytes(8, "big")).decode("ascii")
+
+    @classmethod
+    def _verified_checksum(
+        cls,
+        response: httpx2.Response,
+        key: str,
+        expected: str,
+    ) -> str:
+        return cls._verified_checksum_value(
+            response.headers.get("x-amz-checksum-crc64nvme"),
+            key,
+            expected,
+        )
+
+    @staticmethod
+    def _verified_checksum_value(
+        received: str | None,
+        key: str,
+        expected: str,
+    ) -> str:
+        if received is not None and not hmac.compare_digest(received, expected):
+            raise IntegrityCheckFailed(f"R2 checksum mismatch for {key}")
+        return received or expected
 
     async def _send_signed_request(
         self,
@@ -1074,7 +1112,8 @@ class AsyncR2Client(AsyncObjectStore):
                     headers=signed_headers,
                     content=content,
                 )
-            return await self.client.send(request, stream=stream)
+            response = await self.client.send(request, stream=stream)
+            return response
         except httpx2.HTTPError as exc:
             raise StorageUnavailable(error_message) from exc
 
@@ -1176,6 +1215,8 @@ class AsyncR2Client(AsyncObjectStore):
             error_type = PreconditionFailed
         elif code == "SignatureDoesNotMatch":
             error_type = SignatureMismatch
+        elif code in {"BadDigest", "XAmzContentSHA256Mismatch"}:
+            error_type = IntegrityCheckFailed
         elif status_code in {401, 403} or code in {
             "AccessDenied",
             "InvalidAccessKeyId",
@@ -1542,3 +1583,40 @@ class SigV4Signer:
         if now.tzinfo is None:
             return now.replace(tzinfo=timezone.utc)
         return now.astimezone(timezone.utc)
+
+
+# --- CRC-64/NVME ---
+# due to python poor performance, 'awscrt' lib is recommended
+# in 16MiB data test:
+#  - python: 10.5 MiB/s
+#  - awscrt: 14 GiB/s
+# it got 1_000x faster
+
+_MASK = 0xFFFFFFFFFFFFFFFF
+_POLY = 0x9A6C9329AC4BC9B5
+
+
+def _make_crc64nvme_table() -> tuple[int, ...]:
+    table = []
+    for value in range(256):
+        crc = value
+        for _ in range(8):
+            crc = (crc >> 1) ^ (_POLY if crc & 1 else 0)
+        table.append(crc)
+    return tuple(table)
+
+
+_CRC64NVME_TABLE = _make_crc64nvme_table()
+
+
+def crc64nvme(data: bytes, previous: int = 0) -> int:
+    crc = previous ^ _MASK
+    for byte in data:
+        index = (crc ^ byte) & 0xFF
+        crc = _CRC64NVME_TABLE[index] ^ (crc >> 8)
+    return crc ^ _MASK
+
+
+def crc64nvme_base64(checksum: int | bytes) -> str:
+    checksum = crc64nvme(checksum) if isinstance(checksum, bytes) else checksum
+    return b64encode(checksum.to_bytes(8, "big")).decode("ascii")

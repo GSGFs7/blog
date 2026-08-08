@@ -1,10 +1,7 @@
 import asyncio
 import os
 import sys
-import tempfile
-from io import BytesIO
 from pathlib import Path
-from tempfile import tempdir
 
 import dotenv
 from blake3 import blake3
@@ -57,19 +54,21 @@ async def f():
 
 
 async def mp():
+    class AStream:
+        async def __aiter__(self):
+            for i in range(2):
+                yield bytes(5 * 1024**2)
+
     async with AsyncR2Client(
         endpoint=os.getenv("STATIC_ASSET_ENDPOINT_URL", ""),
         access_key=os.getenv("STATIC_ASSET_ACCESS_KEY_ID", ""),
         secret_key=os.getenv("STATIC_ASSET_SECRET_ACCESS_KEY", ""),
         bucket=os.getenv("STATIC_ASSET_BUCKET", ""),
+        multipart_part_size=5 * 1024**2,
     ) as s:
-        data = bytes(10 * 1024**2)
-        h = blake3(data).hexdigest()
         key = "/test/test.bin"
 
-        await s.put(key, data, strategy="multipart")
-
-        assert blake3(await (await s.get(key)).read()).hexdigest() == h
+        await s.put(key, AStream(), strategy="multipart")
 
 
 if __name__ == "__main__":
