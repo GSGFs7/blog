@@ -18,11 +18,11 @@ from xml.etree import ElementTree
 import httpx2
 
 __all__ = (
+    "AsyncObjectBody",
     "AsyncObjectStore",
     "AsyncR2Client",
     "AuthenticationFailed",
     "InvalidObjectRequest",
-    "ObjectBody",
     "ObjectMetadata",
     "ObjectNotFound",
     "ObjectNotModified",
@@ -33,6 +33,7 @@ __all__ = (
     "RateLimited",
     "SignatureMismatch",
     "StorageUnavailable",
+    "SyncObjectBody",
     "SyncObjectStore",
     "SyncR2Client",
 )
@@ -108,7 +109,7 @@ class ObjectMetadata:
         )
 
 
-class ObjectBody:
+class AsyncObjectBody:
     def __init__(self, key: str, response: httpx2.Response, metadata: ObjectMetadata):
         self.key = key
         self.response = response
@@ -134,6 +135,10 @@ class ObjectBody:
 
     async def read(self) -> bytes:
         return await self.response.aread()
+
+
+class SyncObjectBody:
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +179,7 @@ class ObjectStoreError(Exception):
         self.status_code = status_code
         self.code = code
         self.request_id = request_id
+        self.cf_ray = cf_ray
         super().__init__(message)
 
 
@@ -226,7 +232,7 @@ class SyncObjectStore(Protocol):
         *,
         byte_range: str | None = None,
         if_none_match: str | None = None,
-    ) -> ObjectBody: ...
+    ) -> SyncObjectBody: ...
     def put(
         self,
         key: str,
@@ -269,7 +275,7 @@ class AsyncObjectStore(Protocol):
         *,
         byte_range: str | None = None,
         if_none_match: str | None = None,
-    ) -> ObjectBody: ...
+    ) -> AsyncObjectBody: ...
     async def put(
         self,
         key: str,
@@ -302,7 +308,8 @@ class AsyncObjectStore(Protocol):
 
 
 class SyncR2Client(SyncObjectStore):
-    pass
+    def __init__(self):
+        raise NotImplementedError("SyncR2Client not implemented yet")
 
 
 class AsyncR2Client(AsyncObjectStore):
@@ -375,7 +382,7 @@ class AsyncR2Client(AsyncObjectStore):
         *,
         byte_range: str | None = None,
         if_none_match: str | None = None,
-    ) -> ObjectBody:
+    ) -> AsyncObjectBody:
         url = self._object_url(key)
 
         headers = {
@@ -396,7 +403,7 @@ class AsyncR2Client(AsyncObjectStore):
         if response.status_code == 304:
             await response.aclose()
             raise ObjectNotModified(key, status_code=response.status_code)
-        if response.status_code >= 400:
+        if response.status_code not in {200, 206}:
             try:
                 error_body = await response.aread()
             except httpx2.HTTPError as exc:
@@ -406,7 +413,7 @@ class AsyncR2Client(AsyncObjectStore):
             await response.aclose()
             raise error
 
-        return ObjectBody(
+        return AsyncObjectBody(
             key=key,
             response=response,
             metadata=ObjectMetadata.from_response(key, response),
@@ -449,7 +456,7 @@ class AsyncR2Client(AsyncObjectStore):
         except httpx2.HTTPError as exc:
             raise StorageUnavailable("R2 PUT request failed") from exc
 
-        if response.status_code >= 400:
+        if response.status_code != 200:
             error = self._map_error(response, response.content, key=key)
             await response.aclose()
             raise error
@@ -481,7 +488,7 @@ class AsyncR2Client(AsyncObjectStore):
         except httpx2.HTTPError as exc:
             raise StorageUnavailable("R2 DELETE request failed") from exc
 
-        if response.status_code >= 400:
+        if response.status_code != 204:
             error = self._map_error(response, response.content, key=key)
             await response.aclose()
             raise error
@@ -537,7 +544,7 @@ class AsyncR2Client(AsyncObjectStore):
                 status_code=304,
                 request_id=request_id,
             )
-        if response.status_code >= 400:
+        if response.status_code != 200:
             error = self._map_error(
                 response,
                 response.content,
@@ -599,7 +606,7 @@ class AsyncR2Client(AsyncObjectStore):
         except httpx2.HTTPError as exc:
             raise StorageUnavailable("R2 LIST request failed") from exc
 
-        if response.status_code >= 400:
+        if response.status_code != 200:
             error = self._map_error(response, response.content)
             await response.aclose()
             raise error
@@ -771,10 +778,11 @@ class AsyncR2Client(AsyncObjectStore):
 @dataclass(frozen=True, slots=True)
 class SigV4Signer:
     access_key: str
-    secret_key: str
+    secret_key: str = field(repr=False)
     region: str = "auto"
     service: str = "s3"
-    session_token: str | None = None  # temporary certificate need this
+    # temporary certificate need this
+    session_token: str | None = field(default=None, repr=False)
 
     def sign(
         self,

@@ -9,6 +9,7 @@ from core.r2 import (
     EMPTY_PAYLOAD_HASH,
     AsyncR2Client,
     AuthenticationFailed,
+    InvalidObjectRequest,
     ObjectNotFound,
     ObjectNotModified,
     PreconditionFailed,
@@ -140,6 +141,64 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 404)
         self.assertEqual(raised.exception.code, "NoSuchKey")
         self.assertEqual(raised.exception.request_id, "request-1")
+
+    async def test_get_accepts_partial_content_response(self):
+        async def handler(request):
+            return httpx2.Response(
+                206,
+                headers={
+                    "content-length": "5",
+                    "content-range": "bytes 0-4/10",
+                },
+                content=b"hello",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            body = await client.get("file.txt", byte_range="bytes=0-4")
+            async with body:
+                self.assertEqual(await body.read(), b"hello")
+
+    async def test_rejects_redirect_responses(self):
+        operations = (
+            ("get", lambda client: client.get("file.txt")),
+            ("put", lambda client: client.put("file.txt", b"hello")),
+            ("delete", lambda client: client.delete("file.txt")),
+            ("stat", lambda client: client.stat("file.txt")),
+            ("list", lambda client: client.list()),
+        )
+
+        for name, operation in operations:
+            with self.subTest(operation=name):
+                async def handler(request):
+                    return httpx2.Response(
+                        301,
+                        headers={"location": "https://other.example/file.txt"},
+                        content=b"redirect",
+                        request=request,
+                    )
+
+                async with AsyncR2Client(
+                    "https://example.r2.cloudflarestorage.com",
+                    "access",
+                    "secret",
+                    "bucket",
+                    transport=httpx2.MockTransport(handler),
+                ) as client:
+                    with self.assertRaises(InvalidObjectRequest) as raised:
+                        await operation(client)
+
+                self.assertEqual(raised.exception.status_code, 301)
+                self.assertEqual(
+                    str(raised.exception),
+                    "R2 request failed with HTTP 301",
+                )
 
     def test_normalizes_endpoint(self):
         client = AsyncR2Client(
