@@ -299,9 +299,81 @@ class _UploadSource:
             raise ValueError(f"expected {self.length} bytes, received {received}")
 
 
+@dataclass(frozen=True, slots=True)
+class _UploadPolicy:
+    multipart_threshold: int
+    multipart_part_size: int
+
+    def use_multipart(
+        self,
+        source: _UploadSource,
+        strategy: UploadStrategy,
+    ) -> bool:
+        if strategy == "single":
+            if source.is_stream:
+                raise ValueError(
+                    "single async upload cannot provide atomic integrity verification"
+                )
+            return False
+        if strategy == "multipart":
+            return True
+        return source.is_stream or source.length > self.multipart_threshold
+
+    def part_size(self, content_length: int | None) -> int:
+        configured_size = self.multipart_part_size
+        if isinstance(configured_size, bool) or not isinstance(configured_size, int):
+            raise TypeError("'multipart_part_size' must be an integer")
+        if not MIN_MULTIPART_PART_SIZE <= configured_size <= MAX_MULTIPART_PART_SIZE:
+            raise ValueError(
+                "'multipart_part_size' must be between 5 MiB and 4.995 GiB"
+            )
+
+        if content_length is None:
+            return configured_size
+        if content_length > MAX_MULTIPART_OBJECT_SIZE:
+            raise ValueError("multipart object exceeds the R2 object size limit")
+
+        required_size = (
+            content_length + MAX_MULTIPART_PARTS - 1
+        ) // MAX_MULTIPART_PARTS
+        part_size = max(configured_size, required_size)
+        if part_size > MAX_MULTIPART_PART_SIZE:
+            raise ValueError("object cannot fit within 10,000 multipart parts")
+        return part_size
+
+
+class _MultipartSession(Protocol):
+    async def upload_part(self, number: int, body: bytes) -> _UploadedPart: ...
+
+    async def complete(
+        self,
+        parts: Sequence[_UploadedPart],
+        *,
+        checksum_crc64nvme: str,
+    ) -> ObjectPutResult: ...
+
+    async def abort(self) -> None: ...
+
+
+class _UploadBackend(Protocol):
+    async def put_single(
+        self,
+        key: str,
+        body: bytes,
+        options: _PutOptions,
+    ) -> ObjectPutResult: ...
+
+    async def begin_multipart(
+        self,
+        key: str,
+        options: _PutOptions,
+    ) -> _MultipartSession: ...
+
+
 @dataclass(slots=True)
-class _ObjectUpload:
-    client: "AsyncR2Client"
+class _UploadCoordinator:
+    backend: _UploadBackend
+    policy: _UploadPolicy
     key: str
     source: _UploadSource
     options: _PutOptions
@@ -310,17 +382,19 @@ class _ObjectUpload:
     @classmethod
     def create(
         cls,
-        client: "AsyncR2Client",
+        backend: _UploadBackend,
+        policy: _UploadPolicy,
         key: str,
         body: AsyncUploadBody,
         content_length: int | None,
         options: _PutOptions,
         strategy: UploadStrategy,
-    ) -> "_ObjectUpload":
+    ) -> "_UploadCoordinator":
         if strategy not in {"auto", "single", "multipart"}:
             raise ValueError("'strategy' must be 'auto', 'single', or 'multipart'")
         return cls(
-            client=client,
+            backend=backend,
+            policy=policy,
             key=key,
             source=_UploadSource(body, content_length),
             options=options,
@@ -328,76 +402,37 @@ class _ObjectUpload:
         )
 
     async def run(self) -> ObjectPutResult:
-        if self._use_multipart():
+        if self.policy.use_multipart(self.source, self.strategy):
             return await self._put_multipart()
 
-        return await self.client._put_single(
+        return await self.backend.put_single(
             self.key,
             self.source.single_body(),
             self.options,
         )
 
-    def _use_multipart(self) -> bool:
-        if self.strategy == "single":
-            if self.source.is_stream:
-                raise ValueError(
-                    "single async upload cannot provide atomic integrity verification"
-                )
-            return False
-        if self.strategy == "multipart":
-            return True
-        return (
-            self.source.is_stream
-            or self.source.length > self.client.multipart_threshold
-        )
-
     async def _put_multipart(self) -> ObjectPutResult:
-        part_size = self._part_size()
-        upload_id = await self.client._create_multipart(self.key, self.options)
+        part_size = self.policy.part_size(self.source.length)
+        session = await self.backend.begin_multipart(self.key, self.options)
 
         try:
-            completed_parts, checksum = await self._upload_parts(upload_id, part_size)
-            return await self.client._complete_multipart(
-                self.key,
-                upload_id,
+            completed_parts, checksum = await self._upload_parts(session, part_size)
+            return await session.complete(
                 completed_parts,
                 checksum_crc64nvme=checksum,
-                if_none_match=self.options.if_none_match,
             )
         except BaseException as exc:
             try:
-                await self.client._abort_multipart(self.key, upload_id)
+                await session.abort()
             except ObjectNotFound:
                 pass
             except BaseException as abort_exc:
                 exc.add_note(f"multipart abort failed: {abort_exc}")
             raise
 
-    def _part_size(self) -> int:
-        configured_size = self.client.multipart_part_size
-        if isinstance(configured_size, bool) or not isinstance(configured_size, int):
-            raise TypeError("'multipart_part_size' must be an integer")
-        if not MIN_MULTIPART_PART_SIZE <= configured_size <= MAX_MULTIPART_PART_SIZE:
-            raise ValueError(
-                "'multipart_part_size' must be between 5 MiB and 4.995 GiB"
-            )
-
-        if self.source.length is None:
-            return configured_size
-        if self.source.length > MAX_MULTIPART_OBJECT_SIZE:
-            raise ValueError("multipart object exceeds the R2 object size limit")
-
-        required_size = (
-            self.source.length + MAX_MULTIPART_PARTS - 1
-        ) // MAX_MULTIPART_PARTS
-        part_size = max(configured_size, required_size)
-        if part_size > MAX_MULTIPART_PART_SIZE:
-            raise ValueError("object cannot fit within 10,000 multipart parts")
-        return part_size
-
     async def _upload_parts(
         self,
-        upload_id: str,
+        session: _MultipartSession,
         part_size: int,
     ) -> tuple[list[_UploadedPart], str]:
         completed_parts = []
@@ -406,20 +441,384 @@ class _ObjectUpload:
             if part_number > MAX_MULTIPART_PARTS:
                 raise ValueError("multipart upload exceeds 10,000 parts")
             checksum = crc64nvme(body, checksum)
-            etag = await self.client._upload_part(
-                self.key,
-                upload_id,
-                part_number,
-                body,
-            )
-            completed_parts.append(_UploadedPart(part_number, etag))
+            completed_parts.append(await session.upload_part(part_number, body))
 
         # if upload content is empty (b""), the for loop will exit immediately.
         # add this to finish this upload task.
         if not completed_parts:
-            etag = await self.client._upload_part(self.key, upload_id, 1, b"")
-            completed_parts.append(_UploadedPart(1, etag))
-        return completed_parts, self.client._encode_crc64nvme(checksum)
+            completed_parts.append(await session.upload_part(1, b""))
+        return completed_parts, crc64nvme_base64(checksum)
+
+
+@dataclass(frozen=True, slots=True)
+class _R2MultipartSession:
+    transport: _R2Transport
+    key: str
+    upload_id: str
+    if_none_match: str | None
+
+    async def upload_part(self, number: int, body: bytes) -> _UploadedPart:
+        url = self.transport.multipart_url(
+            self.key,
+            self.upload_id,
+            part_number=number,
+        )
+        payload_hash = sha256(body).hexdigest()
+        response = await self.transport.send_signed_request(
+            "PUT",
+            url,
+            {"x-amz-content-sha256": payload_hash},
+            payload_hash,
+            content=body,
+            error_message=f"R2 multipart part {number} upload failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=self.key)
+
+        try:
+            etag = response.headers.get("etag")
+            if not etag:
+                raise StorageUnavailable(f"R2 multipart part {number} returned no ETag")
+            return _UploadedPart(number, etag)
+        finally:
+            await response.aclose()
+
+    async def abort(self) -> None:
+        url = self.transport.multipart_url(self.key, self.upload_id)
+        response = await self.transport.send_signed_request(
+            "DELETE",
+            url,
+            {"x-amz-content-sha256": EMPTY_PAYLOAD_HASH},
+            EMPTY_PAYLOAD_HASH,
+            error_message="R2 multipart abort failed",
+        )
+
+        if response.status_code != 204:
+            await self.transport.raise_response_error(response, key=self.key)
+        await response.aclose()
+
+    async def complete(
+        self,
+        parts: Sequence[_UploadedPart],
+        *,
+        checksum_crc64nvme: str,
+    ) -> ObjectPutResult:
+        root = ElementTree.Element("CompleteMultipartUpload")
+        for part in parts:
+            part_element = ElementTree.SubElement(root, "Part")
+            ElementTree.SubElement(part_element, "PartNumber").text = str(part.number)
+            ElementTree.SubElement(part_element, "ETag").text = part.etag
+
+        body = ElementTree.tostring(root, encoding="utf-8")
+        payload_hash = sha256(body).hexdigest()
+        url = self.transport.multipart_url(self.key, self.upload_id)
+        headers = {
+            "content-type": "application/xml",
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-checksum-crc64nvme": checksum_crc64nvme,
+            "x-amz-checksum-type": "FULL_OBJECT",
+        }
+        if self.if_none_match is not None:
+            headers["if-none-match"] = self.if_none_match
+        response = await self.transport.send_signed_request(
+            "POST",
+            url,
+            headers,
+            payload_hash,
+            content=body,
+            error_message="R2 multipart completion failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=self.key)
+
+        try:
+            try:
+                result_root = ElementTree.fromstring(response.content)
+            except ElementTree.ParseError as exc:
+                raise StorageUnavailable(
+                    "R2 multipart completion returned invalid XML"
+                ) from exc
+
+            root_name = result_root.tag.rsplit("}", 1)[-1]
+            if root_name == "Error":
+                raise self.transport.map_error(
+                    response,
+                    response.content,
+                    key=self.key,
+                )
+            if root_name != "CompleteMultipartUploadResult":
+                raise StorageUnavailable(
+                    "R2 multipart completion returned an invalid response"
+                )
+
+            etag = _xml_child_text(result_root, "ETag")
+            etag = etag or response.headers.get("etag")
+            if not etag:
+                raise StorageUnavailable("R2 multipart completion returned no ETag")
+
+            checksum = _xml_child_text(result_root, "ChecksumCRC64NVME")
+            checksum = checksum or response.headers.get("x-amz-checksum-crc64nvme")
+            checksum = _verified_checksum_value(
+                checksum,
+                self.key,
+                checksum_crc64nvme,
+            )
+
+            return ObjectPutResult(
+                key=self.key,
+                etag=etag,
+                version_id=response.headers.get("x-amz-version-id"),
+                checksum_crc64nvme=checksum,
+            )
+        finally:
+            await response.aclose()
+
+
+@dataclass(frozen=True, slots=True)
+class _R2Transport:
+    endpoint: str
+    bucket: str
+    signer: "SigV4Signer"
+    client: httpx2.AsyncClient
+
+    async def send_signed_request(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "POST", "PUT"],
+        url: str,
+        headers: Mapping[str, str],
+        payload_hash: str,
+        *,
+        content: bytes | AsyncIterable[bytes] | None = None,
+        stream: bool = False,
+        error_message: str,
+    ) -> httpx2.Response:
+        signed_headers = self.signer.sign(method, url, headers, payload_hash)
+        try:
+            if content is None:
+                request = self.client.build_request(
+                    method,
+                    url,
+                    headers=signed_headers,
+                )
+            else:
+                request = self.client.build_request(
+                    method,
+                    url,
+                    headers=signed_headers,
+                    content=content,
+                )
+            return await self.client.send(request, stream=stream)
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable(error_message) from exc
+
+    async def raise_response_error(
+        self,
+        response: httpx2.Response,
+        *,
+        key: str | None = None,
+    ) -> Never:
+        try:
+            try:
+                body = await response.aread()
+            except httpx2.HTTPError as exc:
+                raise StorageUnavailable("R2 error response could not be read") from exc
+            error = self.map_error(response, body, key=key)
+        finally:
+            await response.aclose()
+        raise error
+
+    def object_url(self, key: str) -> str:
+        return (
+            f"{self.endpoint.rstrip('/')}/"
+            f"{quote(self.bucket, safe='')}/"
+            f"{self._quote_key(key)}"
+        )
+
+    def multipart_url(
+        self,
+        key: str,
+        upload_id: str,
+        *,
+        part_number: int | None = None,
+    ) -> str:
+        encoded_upload_id = quote(upload_id, safe="-_.~")
+        if part_number is None:
+            return f"{self.object_url(key)}?uploadId={encoded_upload_id}"
+        return (
+            f"{self.object_url(key)}"
+            f"?partNumber={part_number}&uploadId={encoded_upload_id}"
+        )
+
+    @staticmethod
+    def _quote_key(key: str) -> str:
+        return "/".join(
+            "%2E"
+            if segment == "."
+            else "%2E%2E"
+            if segment == ".."
+            else quote(segment, safe="~")
+            for segment in key.split("/")
+        )
+
+    @staticmethod
+    def map_error(
+        response: httpx2.Response,
+        body: bytes,
+        *,
+        key: str | None = None,
+    ) -> ObjectStoreError:
+        code = response.headers.get("x-amz-error-code")
+        message = None
+        request_id = response.headers.get("x-amz-request-id")
+        cf_ray = response.headers.get("cf-ray")
+
+        try:
+            root = ElementTree.fromstring(body)
+        except ElementTree.ParseError:
+            root = None
+        if root is not None:
+            for element in root.iter():
+                name = element.tag.rsplit("}", 1)[-1]
+                if name == "Code" and element.text:
+                    code = element.text
+                elif name == "Message" and element.text:
+                    message = element.text
+                elif name == "RequestId" and element.text:
+                    request_id = element.text
+
+        status_code = response.status_code
+        if code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket", "NotFound"} or (
+            status_code == 404
+        ):
+            error_type = ObjectNotFound
+        elif code == "PreconditionFailed" or status_code == 412:
+            error_type = PreconditionFailed
+        elif code == "SignatureDoesNotMatch":
+            error_type = SignatureMismatch
+        elif code in {"BadDigest", "XAmzContentSHA256Mismatch"}:
+            error_type = IntegrityCheckFailed
+        elif status_code in {401, 403} or code in {
+            "AccessDenied",
+            "InvalidAccessKeyId",
+        }:
+            error_type = AuthenticationFailed
+        elif status_code == 429 or code in {"SlowDown", "Throttling"}:
+            error_type = RateLimited
+        elif (
+            status_code >= 500
+            or status_code == 408
+            or code in {"InternalError", "ServiceUnavailable"}
+        ):
+            error_type = StorageUnavailable
+        else:
+            error_type = InvalidObjectRequest
+
+        if error_type is ObjectNotFound and key:
+            detail = key
+        else:
+            detail = message or code or f"R2 request failed with HTTP {status_code}"
+        return error_type(
+            detail,
+            status_code=status_code,
+            code=code,
+            request_id=request_id,
+            cf_ray=cf_ray,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _R2UploadBackend:
+    transport: _R2Transport
+
+    async def put_single(
+        self,
+        key: str,
+        body: bytes,
+        options: _PutOptions,
+    ) -> ObjectPutResult:
+        url = self.transport.object_url(key)
+        payload_hash = sha256(body).hexdigest()
+        checksum = crc64nvme_base64(body)
+
+        headers = {
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-checksum-crc64nvme": checksum,
+            **options.headers(),
+        }
+        response = await self.transport.send_signed_request(
+            "PUT",
+            url,
+            headers,
+            payload_hash,
+            content=body,
+            error_message="R2 PUT request failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=key)
+
+        try:
+            response_checksum = _verified_checksum(response, key, checksum)
+            return ObjectPutResult(
+                key=key,
+                etag=response.headers.get("etag"),
+                version_id=response.headers.get("x-amz-version-id"),
+                checksum_crc64nvme=response_checksum,
+            )
+        finally:
+            await response.aclose()
+
+    async def begin_multipart(
+        self,
+        key: str,
+        options: _PutOptions,
+    ) -> _MultipartSession:
+        url = f"{self.transport.object_url(key)}?uploads="
+        headers = {
+            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+            "x-amz-checksum-algorithm": "CRC64NVME",
+            "x-amz-checksum-type": "FULL_OBJECT",
+            **options.headers(),
+        }
+        response = await self.transport.send_signed_request(
+            "POST",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+            content=b"",
+            error_message="R2 multipart initialization failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=key)
+
+        try:
+            try:
+                root = ElementTree.fromstring(response.content)
+            except ElementTree.ParseError as exc:
+                raise StorageUnavailable(
+                    "R2 multipart initialization returned invalid XML"
+                ) from exc
+            if root.tag.rsplit("}", 1)[-1] != "InitiateMultipartUploadResult":
+                raise StorageUnavailable(
+                    "R2 multipart initialization returned an invalid response"
+                )
+
+            upload_id = _xml_child_text(root, "UploadId")
+            if not upload_id:
+                raise StorageUnavailable(
+                    "R2 multipart initialization returned no upload ID"
+                )
+            return _R2MultipartSession(
+                transport=self.transport,
+                key=key,
+                upload_id=upload_id,
+                if_none_match=options.if_none_match,
+            )
+        finally:
+            await response.aclose()
 
 
 # --- exceptions ---
@@ -639,6 +1038,13 @@ class AsyncR2Client(AsyncObjectStore):
         )
         self.client = client or httpx2.AsyncClient(timeout=timeout, transport=transport)
         self._owns_client = client is None
+        self._transport = _R2Transport(
+            endpoint=self.endpoint,
+            bucket=self.bucket,
+            signer=self.signer,
+            client=self.client,
+        )
+        self._upload_backend = _R2UploadBackend(self._transport)
 
     async def __aenter__(self):
         return self
@@ -672,7 +1078,7 @@ class AsyncR2Client(AsyncObjectStore):
         if if_none_match is not None:
             headers["if-none-match"] = if_none_match
 
-        response = await self._send_signed_request(
+        response = await self._transport.send_signed_request(
             "GET",
             url,
             headers,
@@ -684,7 +1090,7 @@ class AsyncR2Client(AsyncObjectStore):
         if response.status_code == 304:
             await self._raise_not_modified(response, key)
         if response.status_code not in {200, 206}:
-            await self._raise_response_error(response, key=key)
+            await self._transport.raise_response_error(response, key=key)
 
         return AsyncObjectBody(
             key=key,
@@ -710,8 +1116,12 @@ class AsyncR2Client(AsyncObjectStore):
             if_none_match=if_none_match,
             metadata=metadata,
         )
-        upload = _ObjectUpload.create(
-            self,
+        upload = _UploadCoordinator.create(
+            self._upload_backend,
+            _UploadPolicy(
+                multipart_threshold=self.multipart_threshold,
+                multipart_part_size=self.multipart_part_size,
+            ),
             key,
             body,
             content_length,
@@ -726,7 +1136,7 @@ class AsyncR2Client(AsyncObjectStore):
         headers = {
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
         }
-        response = await self._send_signed_request(
+        response = await self._transport.send_signed_request(
             "DELETE",
             url,
             headers,
@@ -735,7 +1145,7 @@ class AsyncR2Client(AsyncObjectStore):
         )
 
         if response.status_code != 204:
-            await self._raise_response_error(response, key=key)
+            await self._transport.raise_response_error(response, key=key)
 
         await response.aclose()
 
@@ -761,7 +1171,7 @@ class AsyncR2Client(AsyncObjectStore):
             headers["if-modified-since"] = format_datetime(
                 if_modified_since, usegmt=True
             )
-        response = await self._send_signed_request(
+        response = await self._transport.send_signed_request(
             "HEAD",
             url,
             headers,
@@ -772,7 +1182,7 @@ class AsyncR2Client(AsyncObjectStore):
         if response.status_code == 304:
             await self._raise_not_modified(response, key)
         if response.status_code != 200:
-            await self._raise_response_error(response, key=key)
+            await self._transport.raise_response_error(response, key=key)
 
         metadata = ObjectMetadata.from_response(key, response)
         await response.aclose()
@@ -811,7 +1221,7 @@ class AsyncR2Client(AsyncObjectStore):
         headers = {
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
         }
-        response = await self._send_signed_request(
+        response = await self._transport.send_signed_request(
             "GET",
             url,
             headers,
@@ -820,7 +1230,7 @@ class AsyncR2Client(AsyncObjectStore):
         )
 
         if response.status_code != 200:
-            await self._raise_response_error(response)
+            await self._transport.raise_response_error(response)
 
         try:
             return self._parse_list_response(response.content)
@@ -840,298 +1250,7 @@ class AsyncR2Client(AsyncObjectStore):
             expires_in=expires_in,
         )
 
-    # --- upload helper method ---
-
-    async def _put_single(
-        self,
-        key: str,
-        body: bytes,
-        options: _PutOptions,
-    ) -> ObjectPutResult:
-        url = self._object_url(key)
-        payload_hash = sha256(body).hexdigest()
-        checksum = self._encode_crc64nvme(crc64nvme(body))
-
-        headers = {
-            "x-amz-content-sha256": payload_hash,
-            "x-amz-checksum-crc64nvme": checksum,
-            **options.headers(),
-        }
-        response = await self._send_signed_request(
-            "PUT",
-            url,
-            headers,
-            payload_hash,
-            content=body,
-            error_message="R2 PUT request failed",
-        )
-
-        if response.status_code != 200:
-            await self._raise_response_error(response, key=key)
-
-        try:
-            response_checksum = self._verified_checksum(response, key, checksum)
-            return ObjectPutResult(
-                key=key,
-                etag=response.headers.get("etag"),
-                version_id=response.headers.get("x-amz-version-id"),
-                checksum_crc64nvme=response_checksum,
-            )
-        finally:
-            await response.aclose()
-
-    async def _create_multipart(
-        self,
-        key: str,
-        options: _PutOptions,
-    ) -> str:
-        url = f"{self._object_url(key)}?uploads="
-
-        headers = {
-            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
-            "x-amz-checksum-algorithm": "CRC64NVME",
-            "x-amz-checksum-type": "FULL_OBJECT",
-            **options.headers(),
-        }
-        response = await self._send_signed_request(
-            "POST",
-            url,
-            headers,
-            EMPTY_PAYLOAD_HASH,
-            content=b"",
-            error_message="R2 multipart initialization failed",
-        )
-
-        if response.status_code != 200:
-            await self._raise_response_error(response, key=key)
-
-        try:
-            try:
-                root = ElementTree.fromstring(response.content)
-            except ElementTree.ParseError as exc:
-                raise StorageUnavailable(
-                    "R2 multipart initialization returned invalid XML"
-                ) from exc
-            if root.tag.rsplit("}", 1)[-1] != "InitiateMultipartUploadResult":
-                raise StorageUnavailable(
-                    "R2 multipart initialization returned an invalid response"
-                )
-
-            upload_id = self._xml_child_text(root, "UploadId")
-            if not upload_id:
-                raise StorageUnavailable(
-                    "R2 multipart initialization returned no upload ID"
-                )
-            return upload_id
-        finally:
-            await response.aclose()
-
-    async def _upload_part(
-        self,
-        key: str,
-        upload_id: str,
-        part_number: int,
-        body: bytes,
-    ) -> str:
-        url = self._multipart_url(key, upload_id, part_number=part_number)
-        payload_hash = sha256(body).hexdigest()
-
-        response = await self._send_signed_request(
-            "PUT",
-            url,
-            {"x-amz-content-sha256": payload_hash},
-            payload_hash,
-            content=body,
-            error_message=f"R2 multipart part {part_number} upload failed",
-        )
-
-        if response.status_code != 200:
-            await self._raise_response_error(response, key=key)
-
-        try:
-            etag = response.headers.get("etag")
-            if not etag:
-                raise StorageUnavailable(
-                    f"R2 multipart part {part_number} returned no ETag"
-                )
-            return etag
-        finally:
-            await response.aclose()
-
-    async def _abort_multipart(self, key: str, upload_id: str) -> None:
-        url = self._multipart_url(key, upload_id)
-
-        response = await self._send_signed_request(
-            "DELETE",
-            url,
-            {"x-amz-content-sha256": EMPTY_PAYLOAD_HASH},
-            EMPTY_PAYLOAD_HASH,
-            error_message="R2 multipart abort failed",
-        )
-
-        if response.status_code != 204:
-            await self._raise_response_error(response, key=key)
-        await response.aclose()
-
-    async def _complete_multipart(
-        self,
-        key: str,
-        upload_id: str,
-        completed_parts: Sequence[_UploadedPart],
-        *,
-        checksum_crc64nvme: str,
-        if_none_match: str | None = None,
-    ) -> ObjectPutResult:
-        root = ElementTree.Element("CompleteMultipartUpload")
-        for part in completed_parts:
-            part_element = ElementTree.SubElement(root, "Part")
-            ElementTree.SubElement(part_element, "PartNumber").text = str(part.number)
-            ElementTree.SubElement(part_element, "ETag").text = part.etag
-
-        body = ElementTree.tostring(root, encoding="utf-8")
-        payload_hash = sha256(body).hexdigest()
-        url = self._multipart_url(key, upload_id)
-
-        headers = {
-            "content-type": "application/xml",
-            "x-amz-content-sha256": payload_hash,
-            "x-amz-checksum-crc64nvme": checksum_crc64nvme,
-            "x-amz-checksum-type": "FULL_OBJECT",
-        }
-        if if_none_match is not None:
-            headers["if-none-match"] = if_none_match
-        response = await self._send_signed_request(
-            "POST",
-            url,
-            headers,
-            payload_hash,
-            content=body,
-            error_message="R2 multipart completion failed",
-        )
-
-        if response.status_code != 200:
-            await self._raise_response_error(response, key=key)
-
-        try:
-            try:
-                result_root = ElementTree.fromstring(response.content)
-            except ElementTree.ParseError as exc:
-                raise StorageUnavailable(
-                    "R2 multipart completion returned invalid XML"
-                ) from exc
-
-            root_name = result_root.tag.rsplit("}", 1)[-1]
-            if root_name == "Error":
-                raise self._map_error(
-                    response,
-                    response.content,
-                    key=key,
-                )
-            if root_name != "CompleteMultipartUploadResult":
-                raise StorageUnavailable(
-                    "R2 multipart completion returned an invalid response"
-                )
-
-            etag = self._xml_child_text(result_root, "ETag")
-            etag = etag or response.headers.get("etag")
-            if not etag:
-                raise StorageUnavailable("R2 multipart completion returned no ETag")
-
-            checksum = self._xml_child_text(
-                result_root,
-                "ChecksumCRC64NVME",
-            )
-            checksum = checksum or response.headers.get("x-amz-checksum-crc64nvme")
-            checksum = self._verified_checksum_value(
-                checksum,
-                key,
-                checksum_crc64nvme,
-            )
-
-            return ObjectPutResult(
-                key=key,
-                etag=etag,
-                version_id=response.headers.get("x-amz-version-id"),
-                checksum_crc64nvme=checksum,
-            )
-        finally:
-            await response.aclose()
-
     # --- helper ---
-
-    @staticmethod
-    def _encode_crc64nvme(checksum: int) -> str:
-        return b64encode(checksum.to_bytes(8, "big")).decode("ascii")
-
-    @classmethod
-    def _verified_checksum(
-        cls,
-        response: httpx2.Response,
-        key: str,
-        expected: str,
-    ) -> str:
-        return cls._verified_checksum_value(
-            response.headers.get("x-amz-checksum-crc64nvme"),
-            key,
-            expected,
-        )
-
-    @staticmethod
-    def _verified_checksum_value(
-        received: str | None,
-        key: str,
-        expected: str,
-    ) -> str:
-        if received is not None and not hmac.compare_digest(received, expected):
-            raise IntegrityCheckFailed(f"R2 checksum mismatch for {key}")
-        return received or expected
-
-    async def _send_signed_request(
-        self,
-        method: Literal["DELETE", "GET", "HEAD", "POST", "PUT"],
-        url: str,
-        headers: Mapping[str, str],
-        payload_hash: str,
-        *,
-        content: bytes | AsyncIterable[bytes] | None = None,
-        stream: bool = False,
-        error_message: str,
-    ) -> httpx2.Response:
-        signed_headers = self.signer.sign(method, url, headers, payload_hash)
-        try:
-            if content is None:
-                request = self.client.build_request(
-                    method,
-                    url,
-                    headers=signed_headers,
-                )
-            else:
-                request = self.client.build_request(
-                    method,
-                    url,
-                    headers=signed_headers,
-                    content=content,
-                )
-            response = await self.client.send(request, stream=stream)
-            return response
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable(error_message) from exc
-
-    async def _raise_response_error(
-        self,
-        response: httpx2.Response,
-        *,
-        key: str | None = None,
-    ) -> Never:
-        try:
-            try:
-                body = await response.aread()
-            except httpx2.HTTPError as exc:
-                raise StorageUnavailable("R2 error response could not be read") from exc
-            error = self._map_error(response, body, key=key)
-        finally:
-            await response.aclose()
-        raise error
 
     @staticmethod
     async def _raise_not_modified(
@@ -1147,124 +1266,22 @@ class AsyncR2Client(AsyncObjectStore):
         await response.aclose()
         raise error
 
-    def _multipart_url(
-        self,
-        key: str,
-        upload_id: str,
-        *,
-        part_number: int | None = None,
-    ) -> str:
-        encoded_upload_id = quote(upload_id, safe="-_.~")
-        if part_number is None:
-            return f"{self._object_url(key)}?uploadId={encoded_upload_id}"
-        return (
-            f"{self._object_url(key)}"
-            f"?partNumber={part_number}&uploadId={encoded_upload_id}"
-        )
-
     def _object_url(self, key: str) -> str:
-        return (
-            f"{self.endpoint.rstrip('/')}/"
-            f"{quote(self.bucket, safe='')}/"
-            f"{self._quote_key(key)}"
-        )
+        return self._transport.object_url(key)
 
     @staticmethod
-    def _quote_key(key: str) -> str:
-        return "/".join(
-            "%2E"
-            if segment == "."
-            else "%2E%2E"
-            if segment == ".."
-            else quote(segment, safe="~")
-            for segment in key.split("/")
-        )
-
-    @staticmethod
-    def _map_error(
-        response: httpx2.Response,
-        body: bytes,
-        *,
-        key: str | None = None,
-    ) -> ObjectStoreError:
-        code = response.headers.get("x-amz-error-code")
-        message = None
-        request_id = response.headers.get("x-amz-request-id")
-        cf_ray = response.headers.get("cf-ray")
-
-        try:
-            root = ElementTree.fromstring(body)
-        except ElementTree.ParseError:
-            root = None
-        if root is not None:
-            for element in root.iter():
-                name = element.tag.rsplit("}", 1)[-1]
-                if name == "Code" and element.text:
-                    code = element.text
-                elif name == "Message" and element.text:
-                    message = element.text
-                elif name == "RequestId" and element.text:
-                    request_id = element.text
-
-        status_code = response.status_code
-        if code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket", "NotFound"} or (
-            status_code == 404
-        ):
-            error_type = ObjectNotFound
-        elif code == "PreconditionFailed" or status_code == 412:
-            error_type = PreconditionFailed
-        elif code == "SignatureDoesNotMatch":
-            error_type = SignatureMismatch
-        elif code in {"BadDigest", "XAmzContentSHA256Mismatch"}:
-            error_type = IntegrityCheckFailed
-        elif status_code in {401, 403} or code in {
-            "AccessDenied",
-            "InvalidAccessKeyId",
-        }:
-            error_type = AuthenticationFailed
-        elif status_code == 429 or code in {"SlowDown", "Throttling"}:
-            error_type = RateLimited
-        elif (
-            status_code >= 500
-            or status_code == 408
-            or code in {"InternalError", "ServiceUnavailable"}
-        ):
-            error_type = StorageUnavailable
-        else:
-            error_type = InvalidObjectRequest
-
-        if error_type is ObjectNotFound and key:
-            detail = key
-        else:
-            detail = message or code or f"R2 request failed with HTTP {status_code}"
-        return error_type(
-            detail,
-            status_code=status_code,
-            code=code,
-            request_id=request_id,
-            cf_ray=cf_ray,
-        )
-
-    @staticmethod
-    def _xml_child_text(element: ElementTree.Element, name: str) -> str | None:
-        for child in element:
-            if child.tag.rsplit("}", 1)[-1] == name:
-                return child.text or ""
-        return None
-
-    @classmethod
-    def _parse_list_response(cls, body: bytes) -> ObjectPage:
+    def _parse_list_response(body: bytes) -> ObjectPage:
         try:
             root = ElementTree.fromstring(body)
             if root.tag.rsplit("}", 1)[-1] != "ListBucketResult":
                 raise ValueError("unexpected XML root")
 
-            truncated_text = cls._xml_child_text(root, "IsTruncated")
+            truncated_text = _xml_child_text(root, "IsTruncated")
             if truncated_text not in {"true", "false"}:
                 raise ValueError("invalid IsTruncated")
 
             is_truncated = truncated_text == "true"
-            next_cursor = cls._xml_child_text(root, "NextContinuationToken")
+            next_cursor = _xml_child_text(root, "NextContinuationToken")
             if is_truncated and not next_cursor:
                 raise ValueError("missing NextContinuationToken")
 
@@ -1273,9 +1290,9 @@ class AsyncR2Client(AsyncObjectStore):
             for element in root:
                 name = element.tag.rsplit("}", 1)[-1]
                 if name == "Contents":
-                    key = cls._xml_child_text(element, "Key")
-                    size = cls._xml_child_text(element, "Size")
-                    last_modified = cls._xml_child_text(element, "LastModified")
+                    key = _xml_child_text(element, "Key")
+                    size = _xml_child_text(element, "Size")
+                    last_modified = _xml_child_text(element, "LastModified")
                     if key is None or size is None or last_modified is None:
                         raise ValueError("incomplete object entry")
 
@@ -1291,12 +1308,12 @@ class AsyncR2Client(AsyncObjectStore):
                         ObjectMetadata(
                             key=unquote(key, errors="strict"),
                             size=int(size),
-                            etag=cls._xml_child_text(element, "ETag"),
+                            etag=_xml_child_text(element, "ETag"),
                             last_modified=modified_at,
                         )
                     )
                 elif name == "CommonPrefixes":
-                    common_prefix = cls._xml_child_text(element, "Prefix")
+                    common_prefix = _xml_child_text(element, "Prefix")
                     if common_prefix is not None:
                         common_prefixes.append(unquote(common_prefix, errors="strict"))
             return ObjectPage(
@@ -1307,6 +1324,35 @@ class AsyncR2Client(AsyncObjectStore):
             )
         except (ElementTree.ParseError, TypeError, ValueError) as exc:
             raise StorageUnavailable("R2 LIST returned an invalid response") from exc
+
+
+def _xml_child_text(element: ElementTree.Element, name: str) -> str | None:
+    for child in element:
+        if child.tag.rsplit("}", 1)[-1] == name:
+            return child.text or ""
+    return None
+
+
+def _verified_checksum_value(
+    received: str | None,
+    key: str,
+    expected: str,
+) -> str:
+    if received is not None and not hmac.compare_digest(received, expected):
+        raise IntegrityCheckFailed(f"R2 checksum mismatch for {key}")
+    return received or expected
+
+
+def _verified_checksum(
+    response: httpx2.Response,
+    key: str,
+    expected: str,
+) -> str:
+    return _verified_checksum_value(
+        response.headers.get("x-amz-checksum-crc64nvme"),
+        key,
+        expected,
+    )
 
 
 # --- signer ---
@@ -1589,7 +1635,7 @@ class SigV4Signer:
 # due to python poor performance, 'awscrt' lib is recommended
 # in 16MiB data test:
 #  - python: 10.5 MiB/s
-#  - awscrt: 14 GiB/s
+#  - awscrt: 14 GiB/s  (C impl)
 # it got 1_000x faster
 
 _MASK = 0xFFFFFFFFFFFFFFFF
