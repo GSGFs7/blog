@@ -1658,7 +1658,7 @@ def _make_crc64nvme_table() -> tuple[int, ...]:
     return tuple(table)
 
 
-_CRC64NVME_TABLE = _make_crc64nvme_table()
+_CRC64NVME_TABLE: tuple[int, ...] | None = None
 
 
 def crc64nvme(data: bytes, previous: int = 0) -> int:
@@ -1668,6 +1668,10 @@ def crc64nvme(data: bytes, previous: int = 0) -> int:
 
     if _native_crc64nvme is not None:
         return _native_crc64nvme(data, previous)
+
+    global _CRC64NVME_TABLE
+    if _CRC64NVME_TABLE is None:
+        _CRC64NVME_TABLE = _make_crc64nvme_table()
 
     crc = previous ^ _MASK
     for byte in data:
