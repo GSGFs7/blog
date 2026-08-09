@@ -1,0 +1,11 @@
+[project]
+name = "crc64nvme-native"
+version = "0.0.0"
+description = "Native CRC-64/NVME implementation for GSGFs-blog"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"

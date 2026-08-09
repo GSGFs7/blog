@@ -29,6 +29,7 @@ backups/
 *.dump
 *.sql.gz
 *.so
+*.egg-info/
 
 db.sqlite3
 django.tar.zst

@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 from xml.etree import ElementTree
 
 import httpx2
+from _crc64nvme import crc64nvme as native_crc64nvme
 from django.test import SimpleTestCase
 
 from core import r2
@@ -15,9 +17,14 @@ from core.r2 import (
     InvalidObjectRequest,
     ObjectNotFound,
     ObjectNotModified,
+    ObjectPutResult,
     PreconditionFailed,
     SigV4Signer,
     StorageUnavailable,
+    _PutOptions,
+    _UploadCoordinator,
+    _UploadedPart,
+    _UploadPolicy,
     _UploadSource,
     crc64nvme,
     crc64nvme_base64,
@@ -27,6 +34,41 @@ from core.r2 import (
 class PublicApiTest(SimpleTestCase):
     def test_sync_object_body_is_not_exported(self):
         self.assertNotIn("SyncObjectBody", r2.__all__)
+
+
+class CRC64NVMeTest(SimpleTestCase):
+    def test_native_known_vectors(self):
+        self.assertEqual(native_crc64nvme(b""), 0)
+        self.assertEqual(native_crc64nvme(b"123456789"), 0xAE8B14860A799888)
+
+    def test_native_incremental_checksum(self):
+        data = bytes(range(256)) * 257
+        checksum = 0
+        for offset in range(0, len(data), 997):
+            checksum = native_crc64nvme(data[offset : offset + 997], checksum)
+
+        self.assertEqual(checksum, native_crc64nvme(data))
+
+    def test_native_accepts_contiguous_buffers(self):
+        expected = native_crc64nvme(b"data")
+        for data in (bytearray(b"data"), memoryview(b"data")):
+            with self.subTest(buffer_type=type(data).__name__):
+                self.assertEqual(native_crc64nvme(data), expected)
+
+    def test_native_matches_python_fallback(self):
+        data = bytes(range(256)) * 257
+        expected = native_crc64nvme(data)
+
+        with patch.object(r2, "_native_crc64nvme", None):
+            self.assertEqual(r2.crc64nvme(data), expected)
+
+    def test_previous_must_fit_unsigned_64_bits(self):
+        for implementation in (native_crc64nvme, crc64nvme):
+            with self.subTest(implementation=implementation.__module__):
+                with self.assertRaises(OverflowError):
+                    implementation(b"data", -1)
+                with self.assertRaises(OverflowError):
+                    implementation(b"data", 1 << 64)
 
 
 class SigV4SignerTest(SimpleTestCase):
@@ -106,6 +148,126 @@ class UploadSourceTest(IsolatedAsyncioTestCase):
         source = _UploadSource(invalid_body(), 9)
         with self.assertRaisesRegex(TypeError, "must yield bytes"):
             await source.read_all()
+
+
+class _FakeMultipartSession:
+    def __init__(self, key: str, complete_error: Exception | None = None):
+        self.key = key
+        self.complete_error = complete_error
+        self.uploads = []
+        self.completed = None
+        self.aborted = False
+
+    async def upload_part(self, number: int, body: bytes) -> _UploadedPart:
+        self.uploads.append((number, body))
+        return _UploadedPart(number, f'"part-{number}"')
+
+    async def complete(
+        self,
+        parts: tuple[_UploadedPart, ...] | list[_UploadedPart],
+        *,
+        checksum_crc64nvme: str,
+    ) -> ObjectPutResult:
+        self.completed = (tuple(parts), checksum_crc64nvme)
+        if self.complete_error is not None:
+            raise self.complete_error
+        return ObjectPutResult(key=self.key, etag='"complete"')
+
+    async def abort(self) -> None:
+        self.aborted = True
+
+
+class _FakeUploadBackend:
+    def __init__(self, session: _FakeMultipartSession):
+        self.session = session
+        self.single_uploads = []
+        self.multipart_uploads = []
+
+    async def put_single(
+        self,
+        key: str,
+        body: bytes,
+        options: _PutOptions,
+    ) -> ObjectPutResult:
+        self.single_uploads.append((key, body, options))
+        return ObjectPutResult(key=key, etag='"single"')
+
+    async def begin_multipart(
+        self,
+        key: str,
+        options: _PutOptions,
+    ) -> _FakeMultipartSession:
+        self.multipart_uploads.append((key, options))
+        return self.session
+
+
+class UploadCoordinatorTest(IsolatedAsyncioTestCase):
+    policy = _UploadPolicy(
+        multipart_threshold=8,
+        multipart_part_size=5 * 1024**2,
+    )
+
+    async def test_single_upload_only_uses_backend_contract(self):
+        session = _FakeMultipartSession("file.txt")
+        backend = _FakeUploadBackend(session)
+        options = _PutOptions(content_type="text/plain")
+        upload = _UploadCoordinator.create(
+            backend,
+            self.policy,
+            "file.txt",
+            b"data",
+            None,
+            options,
+            "auto",
+        )
+
+        result = await upload.run()
+
+        self.assertEqual(result.etag, '"single"')
+        self.assertEqual(backend.single_uploads, [("file.txt", b"data", options)])
+        self.assertEqual(backend.multipart_uploads, [])
+
+    async def test_multipart_upload_uses_session_contract(self):
+        session = _FakeMultipartSession("file.txt")
+        backend = _FakeUploadBackend(session)
+        options = _PutOptions(if_none_match="*")
+        upload = _UploadCoordinator.create(
+            backend,
+            self.policy,
+            "file.txt",
+            b"data",
+            None,
+            options,
+            "multipart",
+        )
+
+        result = await upload.run()
+
+        self.assertEqual(result.etag, '"complete"')
+        self.assertEqual(backend.multipart_uploads, [("file.txt", options)])
+        self.assertEqual(session.uploads, [(1, b"data")])
+        self.assertEqual(session.completed[1], crc64nvme_base64(b"data"))
+        self.assertFalse(session.aborted)
+
+    async def test_multipart_upload_aborts_session_after_failure(self):
+        error = StorageUnavailable("completion failed")
+        session = _FakeMultipartSession("file.txt", complete_error=error)
+        backend = _FakeUploadBackend(session)
+        upload = _UploadCoordinator.create(
+            backend,
+            self.policy,
+            "file.txt",
+            b"data",
+            None,
+            _PutOptions(),
+            "multipart",
+        )
+
+        with self.assertRaises(StorageUnavailable) as raised:
+            await upload.run()
+
+        self.assertIs(raised.exception, error)
+        self.assertTrue(session.aborted)
 
 
 class AsyncR2ClientTest(IsolatedAsyncioTestCase):

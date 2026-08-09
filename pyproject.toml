@@ -8,6 +8,7 @@ dependencies = [
     "blake3>=1.0.8",
     "boto3>=1.40.63",
     "celery>=5.6.3",
+    "crc64nvme-native",
     "cryptography>=49.0.0",
     "django>=6.0.6",
     "django-celery-beat>=2.8.1",
@@ -52,6 +53,7 @@ model-download = ["filelock>=3.25.2", "huggingface-hub>=1.20.1"]
 
 
 [tool.uv.sources]
+crc64nvme-native = { path = "native/crc64nvme" }
 markdown-it-rs-py = { path = "native/markdown" }
 torch = { index = "pytorch" }
 

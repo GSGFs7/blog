@@ -1,0 +1,49 @@
+---
+Language: C
+BasedOnStyle: LLVM
+
+# base.
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+ColumnLimit: 80
+
+# Keep braces on the same line.
+BreakBeforeBraces: Attach
+IndentCaseLabels: true
+
+# When a declaration wraps, put each parameter on its own block-indented line.
+AlignAfterOpenBracket: BlockIndent
+AlignOperands: DontAlign
+BinPackArguments: false
+BinPackParameters: OnePerLine
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# Avoid visually aligned whitespace that changes unrelated lines.
+AlignConsecutiveAssignments: false
+AlignTrailingComments: false
+SpacesBeforeTrailingComments: 1
+
+# Only keep genuinely empty bodies on one line.
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+Cpp11BracedListStyle: true
+
+# Keep idiomatic C pointer declarations and avoid splitting off return types.
+DerivePointerAlignment: false
+PointerAlignment: Right
+PenaltyReturnTypeOnItsOwnLine: 1000
+
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SortIncludes: CaseSensitive
+...

@@ -30,6 +30,10 @@ __pycache__/
 **/target/
 **/.venv/
 **/.ruff_cache/
+**/build/
+**/dist/
+**/*.egg-info/
+**/*.so
 
 # database
 *.sqlite3

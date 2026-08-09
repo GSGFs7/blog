@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import format_datetime, parsedate_to_datetime
 from hashlib import sha256
+from operator import index
 from types import TracebackType
 from typing import AsyncIterable, Literal, Mapping, Never, Protocol, Sequence
 from urllib.parse import (
@@ -1634,9 +1635,14 @@ class SigV4Signer:
 # --- CRC-64/NVME ---
 # due to python poor performance, 'awscrt' lib is recommended
 # in 16MiB data test:
-#  - python: 10.5 MiB/s
+#  - pure python: 10.5 MiB/s
+#  - native/crc64nvme: 0.49 GiB/s
 #  - awscrt: 14 GiB/s  (C impl)
-# it got 1_000x faster
+
+try:
+    from _crc64nvme import crc64nvme as _native_crc64nvme
+except ModuleNotFoundError:
+    _native_crc64nvme = None
 
 _MASK = 0xFFFFFFFFFFFFFFFF
 _POLY = 0x9A6C9329AC4BC9B5
@@ -1656,10 +1662,17 @@ _CRC64NVME_TABLE = _make_crc64nvme_table()
 
 
 def crc64nvme(data: bytes, previous: int = 0) -> int:
+    previous = index(previous)
+    if not 0 <= previous <= _MASK:
+        raise OverflowError("previous must fit in an unsigned 64-bit integer")
+
+    if _native_crc64nvme is not None:
+        return _native_crc64nvme(data, previous)
+
     crc = previous ^ _MASK
     for byte in data:
-        index = (crc ^ byte) & 0xFF
-        crc = _CRC64NVME_TABLE[index] ^ (crc >> 8)
+        table_index = (crc ^ byte) & 0xFF
+        crc = _CRC64NVME_TABLE[table_index] ^ (crc >> 8)
     return crc ^ _MASK
 
 

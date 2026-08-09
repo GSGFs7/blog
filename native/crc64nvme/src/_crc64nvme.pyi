@@ -1,0 +1,3 @@
+from collections.abc import Buffer
+
+def crc64nvme(data: Buffer, previous: int = 0) -> int: ...

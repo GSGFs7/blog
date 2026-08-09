@@ -73,5 +73,5 @@ async def mp():
 
 if __name__ == "__main__":
     dotenv.load_dotenv()
-    # asyncio.run(f())
+    asyncio.run(f())
     asyncio.run(mp())
