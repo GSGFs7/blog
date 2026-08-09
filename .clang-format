@@ -1,23 +1,32 @@
 ---
+# Validated with clang-format 22.1.8.
 Language: C
 BasedOnStyle: LLVM
 
-# base.
+# PEP 7: four-space indentation, no tabs, and a maximum line length of 79.
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 ContinuationIndentWidth: 4
-ColumnLimit: 80
+ColumnLimit: 79
 
-# Keep braces on the same line.
-BreakBeforeBraces: Attach
+# PEP 7 keeps control-statement braces on the same line, puts braces for
+# multiline conditions on their own line, and starts function definitions at
+# the left margin.
+BreakBeforeBraces: Custom
+AlwaysBreakAfterDefinitionReturnType: All
+BraceWrapping:
+  AfterControlStatement: MultiLine
+  AfterFunction: true
+  BeforeElse: true
 IndentCaseLabels: true
 
-# When a declaration wraps, put each parameter on its own block-indented line.
-AlignAfterOpenBracket: BlockIndent
+# Break long argument lists after commas and align continuation lines with the
+# first argument, as shown in PEP 7.
+AlignAfterOpenBracket: Align
 AlignOperands: DontAlign
-BinPackArguments: false
-BinPackParameters: OnePerLine
+BinPackArguments: true
+BinPackParameters: BinPack
 AllowAllArgumentsOnNextLine: false
 AllowAllParametersOfDeclarationOnNextLine: false
 
@@ -26,9 +35,9 @@ AlignConsecutiveAssignments: false
 AlignTrailingComments: false
 SpacesBeforeTrailingComments: 1
 
-# Only keep genuinely empty bodies on one line.
-AllowShortBlocksOnASingleLine: Empty
-AllowShortFunctionsOnASingleLine: Empty
+# Keep function and block braces on separate lines, including empty bodies.
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortCaseLabelsOnASingleLine: false

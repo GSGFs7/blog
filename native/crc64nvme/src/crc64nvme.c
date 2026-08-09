@@ -137,11 +137,9 @@ static const uint64_t table[256] = {
     UINT64_C(0x55B4A08FDFD90E51), UINT64_C(0x2ADA5047EFEC8728),
 };
 
-static PyObject *crc64nvme(
-    PyObject *Py_UNUSED(module),
-    PyObject *args,
-    PyObject *kwargs
-) {
+static PyObject *
+crc64nvme(PyObject *Py_UNUSED(module), PyObject *args, PyObject *kwargs)
+{
     Py_buffer view;
     uint64_t previous = 0;
     PyObject *previous_object = NULL;
@@ -152,14 +150,9 @@ static PyObject *crc64nvme(
         NULL,
     };
 
-    if (!PyArg_ParseTupleAndKeywords(
-            args,
-            kwargs,
-            "y*|O:crc64nvme",
-            keywords,
-            &view,
-            &previous_object
-        )) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "y*|O:crc64nvme", keywords,
+                                     &view, &previous_object))
+    {
         return NULL;
     }
 
@@ -193,11 +186,9 @@ static PyMethodDef methods[] = {
         "crc64nvme",
         _PyCFunction_CAST(crc64nvme),
         METH_VARARGS | METH_KEYWORDS,
-        PyDoc_STR(
-            "crc64nvme($module, /, data, previous=0)\n"
-            "--\n\n"
-            "Calculate a CRC64/NVMe checksum."
-        ),
+        PyDoc_STR("crc64nvme($module, /, data, previous=0)\n"
+                  "--\n\n"
+                  "Calculate a CRC64/NVMe checksum."),
     },
     {
         NULL,
@@ -214,6 +205,8 @@ static struct PyModuleDef module = {
     .m_methods = methods,
 };
 
-PyMODINIT_FUNC PyInit__crc64nvme(void) {
+PyMODINIT_FUNC
+PyInit__crc64nvme(void)
+{
     return PyModule_Create(&module);
 }
