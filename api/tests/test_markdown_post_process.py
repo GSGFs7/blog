@@ -212,13 +212,15 @@ aGVsbG8K
 
 @override_settings(MEDIA_URL="/media/")
 class TestMarkdownImageOptimization(TestCase):
-    def test_image_resource_is_rendered_as_wrapped_picture(self):
-        checksum = "d45c3754209b10b7c7ecab223d712ddbc21dde4e58cd819f05381c92d3327aa3"
-        ImageResource.objects.create(
+    checksum = "d45c3754209b10b7c7ecab223d712ddbc21dde4e58cd819f05381c92d3327aa3"
+
+    def create_image_resource(self, checksum: str | None = None) -> ImageResource:
+        checksum = checksum or self.checksum
+        return ImageResource.objects.create(
             checksum=checksum,
-            file=f"images/raw/d4/5c/{checksum}.jpg",
-            avif_file=f"images/avif/d4/5c/{checksum}.avif",
-            webp_file=f"images/webp/d4/5c/{checksum}.webp",
+            file=f"images/raw/{checksum[:2]}/{checksum[2:4]}/{checksum}.jpg",
+            avif_file=f"images/avif/{checksum[:2]}/{checksum[2:4]}/{checksum}.avif",
+            webp_file=f"images/webp/{checksum[:2]}/{checksum[2:4]}/{checksum}.webp",
             width=916,
             height=916,
             size=1,
@@ -226,14 +228,55 @@ class TestMarkdownImageOptimization(TestCase):
             placeholder="data:image/webp;base64,test+value",
         )
 
-        html = Markdown().render(f"![caption]({checksum})")
+    def test_image_resource_is_rendered_as_wrapped_picture(self):
+        resource = self.create_image_resource()
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({resource.checksum})")
 
         self.assertIn('<span class="md-img-container" data-caption="caption">', html)
         self.assertIn("<picture>", html)
         self.assertIn('type="image/avif"', html)
         self.assertIn('type="image/webp"', html)
-        self.assertIn(f'src="/media/images/raw/d4/5c/{checksum}.jpg"', html)
+        self.assertIn(f'src="{resource.file.url}"', html)
         self.assertIn("background-image:url(data:image/webp;base64,test+value)", html)
         self.assertIn("background-size:cover", html)
         self.assertNotIn("</picture?", html)
         self.assertNotIn("\\+", html)
+
+    def test_current_storage_url_is_optimized(self):
+        resource = self.create_image_resource()
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({resource.file.url})")
+
+        self.assertIn("<picture>", html)
+        self.assertIn(f'src="{resource.file.url}"', html)
+
+    def test_external_checksum_url_is_not_optimized(self):
+        resource = self.create_image_resource()
+        source = f"https://example.com/images/{resource.checksum}.jpg"
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({source})")
+
+        self.assertNotIn("<picture>", html)
+        self.assertIn(f'src="{source}"', html)
+        self.assertNotIn(resource.file.url, html)
+
+    def test_images_without_checksums_do_not_query_the_database(self):
+        with self.assertNumQueries(0):
+            html = Markdown().render("![caption](https://example.com/image.jpg)")
+
+        self.assertNotIn("<picture>", html)
+
+    def test_multiple_images_use_one_bulk_query(self):
+        first = self.create_image_resource()
+        second = self.create_image_resource("e" * 64)
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(
+                f"![first]({first.checksum})\n\n![second]({second.checksum})"
+            )
+
+        self.assertEqual(html.count("<picture>"), 2)

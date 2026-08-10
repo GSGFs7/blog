@@ -3,7 +3,7 @@ import re
 from collections.abc import Callable
 from copy import deepcopy
 from html import unescape
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from django.utils.html import escape
 from nh3 import nh3
@@ -18,7 +18,8 @@ HtmlPostProcessor = Callable[[str], str]
 
 IMG_RE = re.compile(r"<img\b(?P<attrs>[^>]*)>", re.IGNORECASE)
 ATTR_RE = re.compile(r'(?P<name>[\w:-]+)="(?P<value>[^"]*)"')
-CHECKSUM_RE = re.compile(r"([a-f0-9]{64})")
+CHECKSUM_RE = re.compile(r"^[a-f0-9]{64}$")
+CHECKSUM_PATH_RE = re.compile(r"(?:^|/)([a-f0-9]{64})\.[A-Za-z0-9]+$")
 
 DIRECTIVE_TAG_RE = re.compile(r"<(?P<tag>span|div)\b(?P<attrs>[^>]*)>", re.IGNORECASE)
 MARKDOWN_DIRECTIVE_ISLANDS = {
@@ -199,6 +200,18 @@ def _render_attrs(attrs: dict[str, str]) -> str:
     return " ".join(f'{name}="{escape(value)}"' for name, value in attrs.items())
 
 
+def _extract_image_checksum(src: str) -> str | None:
+    if CHECKSUM_RE.fullmatch(src):
+        return src
+
+    match = CHECKSUM_PATH_RE.search(urlsplit(src).path)
+    return match.group(1) if match else None
+
+
+def _matches_image_resource(src: str, checksum: str, resource: ImageResource) -> bool:
+    return src == checksum or src == resource.file.url
+
+
 def optimize_images(html: str) -> str:
     matches = list(IMG_RE.finditer(html))
     if not matches:
@@ -208,9 +221,8 @@ def optimize_images(html: str) -> str:
     for match in matches:
         attrs = _parse_attrs(match.group("attrs"))
         src = attrs.get("src", "")
-        checksum_match = CHECKSUM_RE.search(src)
-        if checksum_match:
-            checksum_by_match[match] = checksum_match.group(1)
+        if checksum := _extract_image_checksum(src):
+            checksum_by_match[match] = checksum
 
     if not checksum_by_match:
         return html
@@ -225,12 +237,13 @@ def optimize_images(html: str) -> str:
         parts.append(html[last_end : match.start()])
         checksum = checksum_by_match.get(match)
         resource = resources.get(checksum) if checksum else None
-        if not resource:
+        attrs = _parse_attrs(match.group("attrs"))
+        src = attrs.get("src", "")
+        if not resource or not _matches_image_resource(src, checksum, resource):
             parts.append(match.group(0))
             last_end = match.end()
             continue
 
-        attrs = _parse_attrs(match.group("attrs"))
         attrs["src"] = resource.file.url
         attrs.setdefault("loading", "lazy")
         attrs.setdefault("decoding", "async")
