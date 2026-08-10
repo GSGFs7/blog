@@ -188,7 +188,7 @@ def wrap_images(html: str) -> str:
 
 def add_pre_language_attributes(html: str) -> str:
     return re.sub(
-        r'(<pre)([^>]*>)\s*<code class="([^"]*\blanguage-(\w+))"',
+        r'(<pre)([^>]*>)\s*<code class="([^"]*\blanguage-([^\s"]+))"',
         r'\1 data-language="\4"\2<code class="\3"',
         html,
     )

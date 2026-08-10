@@ -82,6 +82,18 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertIn('data-language="python"', html)
         self.assertIn('data-language="rust"', html)
 
+    def test_pre_data_language_supports_nonword_language_names(self):
+        html = self.md.render(
+            "```c++\nint main() {}\n```\n\n"
+            "```objective-c\n@interface App\n```\n\n"
+            "```shell-session\n$ echo hello\n```\n\n"
+            '<pre><code class="language-c++">raw</code></pre>'
+        )
+
+        self.assertEqual(html.count('data-language="c++"'), 2)
+        self.assertIn('data-language="objective-c"', html)
+        self.assertIn('data-language="shell-session"', html)
+
     def test_domain_injection(self):
         """Test that data-domain is injected only into the <span> tag."""
         markdown_text = "[google](https://google.com)"
