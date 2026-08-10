@@ -29,6 +29,11 @@ MARKDOWN_DIRECTIVE_ISLANDS = {
     "chart": "Chart",
     "charts": "Chart",
 }
+MARKDOWN_DIRECTIVE_PROPS = {
+    "Counter": {"initial"},
+    "PythonREPL": set(),
+    "Chart": {"formula", "x-min", "x-max", "y-min", "y-max"},
+}
 
 HTML_TAGS = nh3.ALLOWED_TAGS | {
     "annotation",
@@ -287,7 +292,11 @@ def mount_solid_directives(html: str) -> str:
         if not component_name:
             return match.group(0)
 
-        props = {key: value for key, value in attrs.items() if key != "class"}
+        props = {
+            key: value
+            for key, value in attrs.items()
+            if key in MARKDOWN_DIRECTIVE_PROPS[component_name]
+        }
         props_json = escape(json.dumps(props, separators=(",", ":")))
         tag = match.group("tag").lower()
         return (

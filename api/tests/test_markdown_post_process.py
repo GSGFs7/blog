@@ -174,6 +174,27 @@ class TestMarkdownPostProcess(SimpleTestCase):
 
         self.assertIn('data-solid-island="PythonREPL"', html)
 
+    def test_directives_only_forward_allowed_component_props(self):
+        html = self.md.render(
+            '<div class="directive counter" initial="1024" onclick="alert(1)"></div>'
+            '<div class="directive chart" formula="x^2" x-min="-1" '
+            'y-max="2" ignored="value"></div>'
+        )
+
+        self.assertIn(
+            'data-solid-island="Counter" '
+            'data-props="{&quot;initial&quot;:&quot;1024&quot;}"',
+            html,
+        )
+        self.assertIn(
+            'data-solid-island="Chart" '
+            'data-props="{&quot;formula&quot;:&quot;x^2&quot;,'
+            '&quot;x-min&quot;:&quot;-1&quot;,&quot;y-max&quot;:&quot;2&quot;}"',
+            html,
+        )
+        self.assertNotIn("onclick", html)
+        self.assertNotIn("ignored", html)
+
     def test_terminal_directive_is_rendered(self):
         markdown_text = """
 :::terminal{title="数据库迁移" shell="bash" prompt="$"}

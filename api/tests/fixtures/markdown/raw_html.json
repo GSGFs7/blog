@@ -1,4 +1,4 @@
 {
   "markdown": "<div class=\"directive python-wasm\" onclick=\"alert(1)\"></div>\n\n<a href=\"javascript:alert(1)\">bad</a>\n\n<img src=\"raw.png\" onerror=\"alert(2)\">",
-  "html": "<div data-solid-island=\"PythonREPL\" data-props=\"{&quot;onclick&quot;:&quot;alert(1)&quot;}\"></div>\n<p><a rel=\"noopener noreferrer\">bad</a></p>\n<span class=\"md-img-container\" data-caption=\"\"><img src=\"raw.png\"></span>\n"
+  "html": "<div data-solid-island=\"PythonREPL\" data-props=\"{}\"></div>\n<p><a rel=\"noopener noreferrer\">bad</a></p>\n<span class=\"md-img-container\" data-caption=\"\"><img src=\"raw.png\"></span>\n"
 }
