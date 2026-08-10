@@ -4,11 +4,5 @@
     "rootDir": ".",
     "types": ["node", "@playwright/test"]
   },
-  "include": [
-    "playwright.config.ts",
-    "playwright.native.config.ts",
-    "playwright.shared.config.ts",
-    "playwright.ssr.config.ts",
-    "web/e2e/**/*.ts"
-  ]
+  "include": ["playwright.config.ts", "web/e2e/**/*.ts"]
 }

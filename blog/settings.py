@@ -110,11 +110,14 @@ else:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
 
+VITE_PORT = _env_int("VITE_PORT", 5173)
+VITE_DEV_SERVER_URL = f"http://localhost:{VITE_PORT}"
+
 # CSP
 _static_src = "https://static.gsgfs.moe"
 _img_src = "https://img.gsgfs.moe"
-_vite_src = "http://localhost:5173"
-_vite_ws_src = "ws://localhost:5173"
+_vite_src = VITE_DEV_SERVER_URL
+_vite_ws_src = f"ws://localhost:{VITE_PORT}"
 IMAGE_PICTURE_URL_PREFIXES = {
     f"{_img_src}/images/raw/": {
         "avif": f"{_img_src}/images/avif/",

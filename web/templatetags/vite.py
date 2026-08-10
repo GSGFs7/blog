@@ -19,7 +19,7 @@ def _load_manifest():
 @register.simple_tag
 def vite_asset(entry_point: str):
     if settings.DEBUG:
-        return f"http://localhost:5173/{entry_point}"
+        return f"{settings.VITE_DEV_SERVER_URL}/{entry_point}"
 
     try:
         manifest = _load_manifest()
@@ -38,6 +38,7 @@ def vite_asset(entry_point: str):
 def vite_hmr():
     if settings.DEBUG:
         return mark_safe(
-            '<script type="module" src="http://localhost:5173/@vite/client"></script>'
+            f'<script type="module" src="{settings.VITE_DEV_SERVER_URL}'
+            '/@vite/client"></script>'
         )
     return ""

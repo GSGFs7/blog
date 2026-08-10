@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import Sonda from "sonda/vite";
-import type { Plugin } from "vite";
+import { loadEnv, type Plugin } from "vite";
 import solidPlugin from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
@@ -38,7 +38,18 @@ const djangoTemplateReload = (): Plugin => ({
   },
 });
 
+function getPort(value: string | undefined, defaultPort: number): number {
+  const port = value ? Number(value) : defaultPort;
+
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error("VITE_PORT must be a valid normal port");
+  }
+
+  return port;
+}
+
 export default defineConfig(({ command, isSsrBuild, mode }) => {
+  const vitePort = getPort(loadEnv(mode, process.cwd(), "").VITE_PORT, 5173);
   let rolldownInputs: Record<string, string>;
   if (isSsrBuild) {
     rolldownInputs = {
@@ -95,9 +106,9 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
       noExternal: true,
     },
     server: {
-      port: 5173,
+      port: vitePort,
       strictPort: true,
-      origin: "http://localhost:5173",
+      origin: `http://localhost:${vitePort}`,
       headers: {
         "Cross-Origin-Resource-Policy": "cross-origin",
       },

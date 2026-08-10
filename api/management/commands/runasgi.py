@@ -1,3 +1,5 @@
+import os
+
 from django.conf import settings
 from django.core.management import BaseCommand, CommandError
 from uvicorn import run
@@ -11,7 +13,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "addr",
             nargs="?",
-            default="127.0.0.1:8000",
+            default=f"127.0.0.1:{os.environ.get('DJANGO_PORT', '8000')}",
             help="Optional address and port, for example 0.0.0.0:8000 or 8000.",
         )
         parser.add_argument(

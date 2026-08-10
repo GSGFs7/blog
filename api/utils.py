@@ -515,15 +515,3 @@ def convert_openapi(func):
         return _openapi_convert(spec)
 
     return wrapper
-
-
-if __name__ == "__main__":
-    import json
-
-    import requests
-
-    result = requests.get("http://localhost:8000/api/openapi.json")
-    json_result = result.json()
-    converted_result = _openapi_convert(json_result)
-    with open("./openapi.json", "w") as f:
-        f.write(json.dumps(converted_result))
