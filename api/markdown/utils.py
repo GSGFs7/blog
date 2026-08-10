@@ -1,6 +1,7 @@
 import re
 import tomllib
 from collections.abc import Sequence
+from html import unescape
 from typing import Any
 
 import yaml
@@ -27,7 +28,7 @@ def extract_toc_item(html: str) -> dict[str, Any] | None:
     return {
         "level": int(match.group(1)),
         "slug": match.group(2),
-        "text": re.sub(r"<[^>]*>", "", match.group(3)),
+        "text": unescape(re.sub(r"<[^>]*>", "", match.group(3))),
     }
 
 
