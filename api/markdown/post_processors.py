@@ -175,7 +175,7 @@ def wrap_images(html: str) -> str:
 
         alt = alt_match.group(1) if alt_match else ""
         title = title_match.group(1) if title_match else ""
-        caption = title if title else alt
+        caption = unescape(title if title else alt)
 
         return (
             f'<span class="md-img-container" data-caption="{escape(caption)}">'

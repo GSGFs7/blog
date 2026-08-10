@@ -30,6 +30,12 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertIn('alt="alt text"', html)
         self.assertIn('title="title text"', html)
 
+    def test_caption_escapes_special_characters_once(self):
+        html = self.md.render('![alt &](test.png "title &")')
+
+        self.assertIn('data-caption="title &amp;"', html)
+        self.assertNotIn("&amp;amp;", html)
+
     def test_caption_only_title(self):
         """Test that data-caption works when only title is provided."""
         markdown_text = '![](test.png "only title")'
