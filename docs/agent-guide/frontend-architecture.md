@@ -148,13 +148,17 @@ Frontend tests stay next to the code they exercise and use the narrowest runtime
 | `web/typescript/**/*.test.ts(x)`         | Vitest with jsdom  | Logic, Solid component behavior, and small DOM enhancements      |
 | `web/typescript/**/*.browser.test.ts(x)` | Vitest Browser     | Canvas, pointer events, layout, and other real browser APIs      |
 | `web/tests/test_*.py`                    | Django test runner | Views, template tags, middleware, and server-rendering contracts |
-| `web/e2e/*.spec.ts`                      | Playwright         | HTMX and native navigation, and critical browser journeys        |
+| `web/e2e/base/*.spec.ts`                 | Playwright         | Adapter-independent critical browser journeys                    |
+| `web/e2e/htmx/*.spec.ts`                 | Playwright         | HTMX request, history cache, and adapter behavior                |
+| `web/e2e/native/*.spec.ts`               | Playwright         | Native Navigation API adapter behavior                           |
 | `web/e2e/ssr/*.ssr.spec.ts`              | Playwright         | Built SSR output and real hydration                              |
 | `web/typescript/test/`                   | Shared test code   | Reusable setup and fixtures; no test cases                       |
 
 Vitest runs in two projects defined by `vite.config.mts`: a jsdom `unit` project and a `browser` project (Playwright provider, firefox and chromium) that only picks up `*.browser.test.ts(x)` files.
 
 Generated SSR markup is not hand-copied, and Solid hydration markers are not asserted. Device and viewport selection lives in Playwright projects so each E2E test runs only in the environments it needs.
+
+Playwright separates suite selection (`E2E_SUITE`) from the server navigation mode (`E2E_NAVIGATION_MODE`). The base suite defaults to `auto` and asserts only user-visible behavior plus the public `app:*` lifecycle. HTMX and native suites own adapter-specific request, cache, fetch, and same-document assertions. The forced base commands run the shared journeys against each adapter explicitly.
 
 Development commands:
 
@@ -170,7 +174,10 @@ pnpm test
 pnpm test:unit
 pnpm test:browser
 pnpm test:e2e
+pnpm test:e2e:htmx
 pnpm test:e2e:native
+pnpm test:e2e:base:htmx
+pnpm test:e2e:base:native
 pnpm test:ssr
 pnpm typecheck
 pnpm lint

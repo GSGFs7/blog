@@ -34,4 +34,4 @@ Frontend architecture maybe is a bit complex. Read `../docs/agent-guide/frontend
 
 ## Verification
 
-Run the checks that match the change: `pnpm test`, `pnpm test:e2e`, `pnpm test:e2e:native` (native navigation mode), `pnpm test:ssr`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`.
+Run the checks that match the change: `pnpm test`, `pnpm test:e2e` (adapter-independent journeys), `pnpm test:e2e:htmx`, `pnpm test:e2e:native`, `pnpm test:ssr`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`. Use `pnpm test:e2e:base:htmx` and `pnpm test:e2e:base:native` to verify the shared journeys against a forced adapter.

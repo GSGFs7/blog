@@ -1,10 +1,11 @@
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 import { loadEnv } from "vite";
 
-type E2EMode = "htmx" | "native" | "ssr";
+type E2ESuite = "base" | "htmx" | "native" | "ssr";
+type NavigationMode = "auto" | "htmx" | "native";
 
 type WebServerOptions = {
-  pageNavigationMode?: "htmx" | "native";
+  pageNavigationMode?: NavigationMode;
   debug?: boolean;
   solidIslandsSsr?: boolean;
   reuseViteServer?: boolean;
@@ -28,18 +29,35 @@ const djangoPort = getPort("DJANGO_PORT", 8001);
 const vitePort = getPort("VITE_PORT", 5174);
 const djangoBaseUrl = `http://127.0.0.1:${djangoPort}`;
 
-function getE2EMode(): E2EMode {
-  const mode = process.env.E2E_MODE ?? "htmx";
+function getE2ESuite(): E2ESuite {
+  const suite = process.env.E2E_SUITE ?? "base";
 
-  if (mode === "htmx" || mode === "native" || mode === "ssr") {
-    return mode;
+  if (suite === "base" || suite === "htmx" || suite === "native" || suite === "ssr") {
+    return suite;
   }
 
-  throw new Error(`Unsupported E2E_MODE: ${mode}`);
+  throw new Error(`Unsupported E2E_SUITE: ${suite}`);
+}
+
+function getNavigationMode(suite: E2ESuite): NavigationMode {
+  const defaultMode = suite === "base" ? "auto" : suite === "native" ? "native" : "htmx";
+  const mode = process.env.E2E_NAVIGATION_MODE ?? defaultMode;
+
+  if (mode !== "auto" && mode !== "htmx" && mode !== "native") {
+    throw new Error(`Unsupported E2E_NAVIGATION_MODE: ${mode}`);
+  }
+  if (suite === "htmx" && mode !== "htmx") {
+    throw new Error("The HTMX E2E suite requires E2E_NAVIGATION_MODE=htmx");
+  }
+  if (suite === "native" && mode !== "native") {
+    throw new Error("The native E2E suite requires E2E_NAVIGATION_MODE=native");
+  }
+
+  return mode;
 }
 
 function createWebServers({
-  pageNavigationMode = "htmx",
+  pageNavigationMode = "auto",
   debug = false,
   solidIslandsSsr = false,
   reuseViteServer = !process.env.CI,
@@ -70,11 +88,50 @@ function createWebServers({
   ];
 }
 
-function createModeConfig(mode: E2EMode): PlaywrightTestConfig {
-  switch (mode) {
+function createSuiteConfig(suite: E2ESuite, navigationMode: NavigationMode): PlaywrightTestConfig {
+  switch (suite) {
+    case "base":
+      return {
+        testDir: "./web/e2e/base",
+        projects: [
+          {
+            name: "desktop-chromium",
+            testIgnore: ["**/*.mobile.spec.ts"],
+            use: { ...devices["Desktop Chrome"] },
+          },
+          {
+            name: "mobile-chromium",
+            testMatch: ["**/*.mobile.spec.ts"],
+            use: { ...devices["Pixel 10"] },
+          },
+          {
+            name: "firefox-smoke",
+            testMatch: ["**/island-navigation.spec.ts"],
+            use: { ...devices["Desktop Firefox"] },
+          },
+        ],
+        webServer: createWebServers({
+          pageNavigationMode: navigationMode,
+          reuseDjangoServer: false,
+        }),
+      };
+    case "htmx":
+      return {
+        testDir: "./web/e2e/htmx",
+        projects: [
+          {
+            name: "htmx-chromium",
+            use: { ...devices["Desktop Chrome"] },
+          },
+        ],
+        webServer: createWebServers({
+          pageNavigationMode: navigationMode,
+          reuseDjangoServer: false,
+        }),
+      };
     case "native":
       return {
-        testMatch: ["**/native-navigation.spec.ts"],
+        testDir: "./web/e2e/native",
         workers: 1,
         projects: [
           {
@@ -86,7 +143,7 @@ function createModeConfig(mode: E2EMode): PlaywrightTestConfig {
           baseURL: djangoBaseUrl,
         },
         webServer: createWebServers({
-          pageNavigationMode: "native",
+          pageNavigationMode: navigationMode,
           debug: true,
           reuseDjangoServer: false,
         }),
@@ -101,33 +158,12 @@ function createModeConfig(mode: E2EMode): PlaywrightTestConfig {
           },
         ],
         webServer: createWebServers({
+          pageNavigationMode: navigationMode,
           debug: true,
           solidIslandsSsr: true,
           reuseViteServer: false,
           reuseDjangoServer: false,
         }),
-      };
-    case "htmx":
-      return {
-        testIgnore: ["**/native-navigation.spec.ts", "**/ssr/**"],
-        projects: [
-          {
-            name: "desktop-chromium",
-            testIgnore: ["**/*.mobile.spec.ts", "**/native-navigation.spec.ts", "**/ssr/**"],
-            use: { ...devices["Desktop Chrome"] },
-          },
-          {
-            name: "mobile-chromium",
-            testMatch: ["**/*.mobile.spec.ts"],
-            use: { ...devices["Pixel 10"] },
-          },
-          {
-            name: "firefox-smoke",
-            testMatch: ["**/island-navigation.spec.ts"],
-            use: { ...devices["Desktop Firefox"] },
-          },
-        ],
-        webServer: createWebServers(),
       };
   }
 }
@@ -143,4 +179,6 @@ const sharedConfig: PlaywrightTestConfig = {
   },
 };
 
-export default defineConfig(sharedConfig, createModeConfig(getE2EMode()));
+const suite = getE2ESuite();
+
+export default defineConfig(sharedConfig, createSuiteConfig(suite, getNavigationMode(suite)));

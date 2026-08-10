@@ -7,7 +7,7 @@ const navigationItems = [
   { label: "About", href: "/about" },
 ] as const;
 
-test("shows desktop navigation", async ({ page }) => {
+test("shows desktop navigation links", async ({ page }) => {
   await page.goto("/about");
 
   const navbar = page.locator(".site-navbar");

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("cleans up and remounts Counter after HTMX history navigation", async ({ page }) => {
+test("cleans up and remounts Counter after history navigation", async ({ page }) => {
   const pageErrors: Error[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
 
@@ -17,13 +17,8 @@ test("cleans up and remounts Counter after HTMX history navigation", async ({ pa
   const aboutLink = page
     .locator(".site-navbar__links")
     .getByRole("link", { name: "About", exact: true });
-  const htmxRequest = page.waitForRequest(
-    (request) =>
-      new URL(request.url()).pathname === "/about" && request.headers()["hx-request"] === "true",
-  );
 
   await aboutLink.click();
-  await htmxRequest;
   await expect(page).toHaveURL(/\/about$/);
   await expect(page.getByRole("heading", { name: "关于我" })).toBeVisible();
   await expect(page.locator('[data-solid-island="Counter"]')).toHaveCount(0);

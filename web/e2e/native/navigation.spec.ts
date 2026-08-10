@@ -101,7 +101,7 @@ async function openNativeTestPage(page: Page, path = "/test"): Promise<string> {
   return (await probe(page)).documentId;
 }
 
-test("navigates a regular page without replacing the document", async ({ page }) => {
+test("navigates a regular page without replacing the document in native mode", async ({ page }) => {
   const initialDocumentId = await openNativeTestPage(page);
   const requestPromise = page.waitForRequest(
     (request) => new URL(request.url()).pathname === "/about" && request.resourceType() === "fetch",

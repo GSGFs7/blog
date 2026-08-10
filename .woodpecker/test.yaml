@@ -56,8 +56,11 @@ steps:
       - pnpm run test --coverage
       - uv run coverage run manage.py test -v 2
       - uv run coverage xml -i
-      - pnpm run test:e2e
-      - pnpm exec playwright test --config=playwright.ssr.config.ts
+      - pnpm run test:e2e:base:htmx
+      - pnpm run test:e2e:htmx
+      - pnpm run test:e2e:base:native
+      - pnpm run test:e2e:native
+      - E2E_SUITE=ssr pnpm exec playwright test
 
   - name: scan
     image: sonarsource/sonar-scanner-cli:latest

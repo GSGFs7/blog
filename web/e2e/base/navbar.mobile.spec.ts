@@ -7,7 +7,7 @@ const navigationItems = [
   { label: "About", href: "/about" },
 ] as const;
 
-test.describe("mobile navigation", () => {
+test.describe("mobile navigation menu", () => {
   test("opens and dismisses the menu", async ({ page }) => {
     await page.goto("/about");
 

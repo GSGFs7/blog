@@ -12,7 +12,7 @@ function behaviorNameFromUrl(url: string): (typeof behaviorNames)[number] | unde
   );
 }
 
-test("loads behavior chunks on demand and remounts after navigation", async ({ page }) => {
+test("loads behavior chunks on demand and remounts after enhanced navigation", async ({ page }) => {
   const requestedBehaviors: string[] = [];
   const pageErrors: Error[] = [];
 
