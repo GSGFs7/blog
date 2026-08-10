@@ -83,6 +83,29 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertIn('<span data-domain="google.com">google</span>', html)
         self.assertNotIn('<a data-domain="google.com"', html)
 
+    def test_domain_injection_uses_hostname_without_credentials_or_port(self):
+        html = self.md.render("[private](https://user:password@example.com:8443/path)")
+
+        self.assertIn('<span data-domain="example.com">private</span>', html)
+        self.assertNotIn('data-domain="user:password@example.com:8443"', html)
+        self.assertNotIn('data-domain="example.com:8443"', html)
+
+    def test_domain_injection_supports_ipv6_and_idn(self):
+        html = self.md.render(
+            "[ipv6](https://[2001:db8::1]:8443/path) [idn](https://例子.测试/path)"
+        )
+
+        self.assertIn('<span data-domain="2001:db8::1">ipv6</span>', html)
+        self.assertIn('<span data-domain="xn--fsqu00a.xn--0zwm56d">idn</span>', html)
+
+    def test_domain_injection_ignores_non_http_and_invalid_urls(self):
+        html = self.md.render(
+            '<a href="mailto:test@example.com">mail</a> '
+            '<a href="https://[invalid">invalid</a>'
+        )
+
+        self.assertNotIn("data-domain=", html)
+
     def test_sanitizes_dangerous_html(self):
         markdown_text = """
 <span class="heimu" onclick="alert(1)">secret</span>

@@ -137,7 +137,9 @@ def inject_link_domains(html: str) -> str:
         try:
             parsed = urlparse(href)
             if parsed.scheme in ("http", "https") and parsed.netloc:
-                domain = parsed.netloc
+                domain = parsed.hostname
+                if not domain:
+                    return full_tag
                 if "data-domain=" not in full_tag:
                     tag_pattern = re.compile(
                         r'(<a\s+[^>]*href="[^"]*"[^>]*>)(.*?)(</a>)', re.DOTALL
