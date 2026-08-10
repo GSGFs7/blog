@@ -1,0 +1,4 @@
+{
+  "markdown": "| Name | Value |\n| --- | ---: |\n| alpha | 1 |",
+  "html": "<table>\n<thead>\n<tr>\n<th>Name</th>\n<th>Value</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>alpha</td>\n<td>1</td>\n</tr>\n</tbody>\n</table>\n"
+}

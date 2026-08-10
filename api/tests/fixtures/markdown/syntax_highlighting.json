@@ -1,0 +1,4 @@
+{
+  "markdown": "```python\nprint(1)\n```",
+  "html": "<pre data-language=\"python\"><code class=\"syntect-code language-python\"><span class=\"syntect-line\"><span class=\"syntect-source syntect-python\"><span class=\"syntect-meta syntect-function-call syntect-python\"><span class=\"syntect-meta syntect-qualified-name syntect-python\"><span class=\"syntect-support syntect-function syntect-builtin syntect-python\">print</span></span><span class=\"syntect-punctuation syntect-section syntect-arguments syntect-begin syntect-python\">(</span><span class=\"syntect-meta syntect-function-call syntect-arguments syntect-python\"><span class=\"syntect-constant syntect-numeric syntect-integer syntect-decimal syntect-python\">1</span></span><span class=\"syntect-punctuation syntect-section syntect-arguments syntect-end syntect-python\">)</span></span>\n</span></span></code></pre>"
+}

@@ -1,0 +1,4 @@
+{
+  "markdown": "A note[^1].\n\n[^1]: Footnote text.",
+  "html": "<p>A note<sup class=\"footnote-ref\"><a href=\"#fn1\" id=\"fnref1\" rel=\"noopener noreferrer\">[1]</a></sup>.</p>\n<hr class=\"footnotes-sep\">\n<section class=\"footnotes\">\n<ol class=\"footnotes-list\">\n<li id=\"fn1\" class=\"footnote-item\">\n<p>Footnote text. <a href=\"#fnref1\" class=\"footnote-backref\" rel=\"noopener noreferrer\">↩</a></p>\n</li>\n</ol>\n</section>\n"
+}

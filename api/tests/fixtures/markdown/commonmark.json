@@ -1,0 +1,4 @@
+{
+  "markdown": "# Hello\n\nA **bold** and _emphasized_ [link](https://example.com).\n\n> quoted",
+  "html": "<h1 id=\"hello\">Hello</h1>\n<p>A <strong>bold</strong> and <em>emphasized</em> <a href=\"https://example.com\" rel=\"noopener noreferrer\"><span data-domain=\"example.com\">link</span></a>.</p>\n<blockquote>\n<p>quoted</p>\n</blockquote>\n"
+}
