@@ -133,6 +133,11 @@ TERMINAL_SHELL_RE = re.compile(r"^[a-z0-9][a-z0-9_+-]{0,31}$")
 TERMINAL_PROMPT_RE = re.compile(r"^[\w@:/~.+#>$%?❯-]{1,16}$")
 # '❯' is the default prompt in my terminal
 TERMINAL_PROMPT_STYLE_RE = re.compile(r'^--terminal-prompt:"[\w@:/~.+#>$%?❯-]{1,16} "$')
+CSS_DATA_URL_RE = re.compile(r"url\(\s*['\"]?(?P<url>data:[^'\"\s)]+)", re.IGNORECASE)
+SAFE_IMAGE_DATA_URL_RE = re.compile(
+    r"data:image/(?:avif|gif|jpe?g|png|webp);base64,[A-Za-z0-9+/=]+$",
+    re.IGNORECASE,
+)
 
 
 def inject_link_domains(html: str) -> str:
@@ -350,6 +355,11 @@ def render_terminal_directives(html: str) -> str:
 
 
 def filter_html_attribute(tag: str, attr: str, value: str) -> str | None:
+    if attr == "style" and any(
+        not SAFE_IMAGE_DATA_URL_RE.fullmatch(unescape(match.group("url")))
+        for match in CSS_DATA_URL_RE.finditer(value)
+    ):
+        return None
     if tag == "div" and attr == "style":
         if not TERMINAL_PROMPT_STYLE_RE.fullmatch(value):
             return None

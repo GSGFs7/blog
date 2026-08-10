@@ -141,6 +141,28 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertNotIn("onerror", html)
         self.assertNotIn("<script", html)
 
+    def test_sanitizer_rejects_svg_and_non_image_data_urls(self):
+        html = self.md.render(
+            '<svg onload="alert(1)"><circle></circle></svg>'
+            "<math><mrow><mi>x</mi></mrow></math>"
+            '<img src="safe.png" '
+            'style="background-image:url(data:text/html,boom);width:1px">'
+        )
+
+        self.assertNotIn("<svg", html)
+        self.assertNotIn("alert(1)", html)
+        self.assertIn("<math><mrow><mi>x</mi></mrow></math>", html)
+        self.assertIn('<img src="safe.png">', html)
+        self.assertNotIn("data:text/html", html)
+        self.assertNotIn("style=", html)
+
+    def test_sanitizer_handles_malformed_html(self):
+        html = self.md.render(
+            '<script><p>hidden</p></script><div><span onclick="alert(1)">safe'
+        )
+
+        self.assertEqual(html, "<div><span>safe\n</span></div>")
+
     def test_task_list_survives_sanitizer(self):
         html = self.md.render("- [x] done\n- [ ] todo")
 
