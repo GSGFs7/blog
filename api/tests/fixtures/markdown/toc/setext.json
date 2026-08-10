@@ -1,0 +1,16 @@
+{
+  "markdown": "Setext one\n==========\n\nSetext two\n----------",
+  "html": "<h1 id=\"setext-one\">Setext one</h1>\n<h2 id=\"setext-two\">Setext two</h2>\n",
+  "toc": [
+    {
+      "level": 1,
+      "slug": "setext-one",
+      "text": "Setext one"
+    },
+    {
+      "level": 2,
+      "slug": "setext-two",
+      "text": "Setext two"
+    }
+  ]
+}
