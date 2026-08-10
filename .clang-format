@@ -1,6 +1,5 @@
 ---
 # Validated with clang-format 22.1.8.
-Language: C
 BasedOnStyle: LLVM
 
 # PEP 7: four-space indentation, no tabs, and a maximum line length of 79.

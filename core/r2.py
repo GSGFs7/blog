@@ -181,647 +181,6 @@ class ObjectPage:
     common_prefixes: tuple[str, ...] = ()
 
 
-# --- upload internals ---
-
-
-@dataclass(frozen=True, slots=True)
-class _PutOptions:
-    cache_control: str | None = None
-    content_type: str | None = None
-    if_none_match: str | None = None
-    metadata: Mapping[str, str] | None = None
-
-    def headers(self) -> dict[str, str]:
-        headers = {}
-        if self.content_type is not None:
-            headers["content-type"] = self.content_type
-        if self.cache_control is not None:
-            headers["cache-control"] = self.cache_control
-        if self.if_none_match is not None:
-            headers["if-none-match"] = self.if_none_match
-        for name, value in (self.metadata or {}).items():
-            headers[f"x-amz-meta-{name}"] = value
-        return headers
-
-
-@dataclass(frozen=True, slots=True)
-class _UploadedPart:
-    number: int
-    etag: str
-
-
-class _UploadSource:
-    def __init__(self, body: AsyncUploadBody, content_length: int | None):
-        if content_length is not None:
-            if isinstance(content_length, bool) or not isinstance(content_length, int):
-                raise TypeError("'content_length' must be an integer")
-            if content_length < 0:
-                raise ValueError("'content_length' must not be negative")
-
-        if isinstance(body, bytes):
-            length = len(body)
-            if content_length is not None and content_length != length:
-                raise ValueError(f"expected {content_length} bytes, received {length}")
-            self._body: bytes | AsyncIterable[bytes] = body
-            self.length = length
-        else:
-            self._body = aiter(body)
-            self.length = content_length
-
-    @property
-    def is_stream(self) -> bool:
-        return not isinstance(self._body, bytes)
-
-    async def read_all(self) -> bytes:
-        chunks = bytearray()
-        async for chunk in self.iter_body():
-            chunks.extend(chunk)
-        return bytes(chunks)
-
-    def single_body(self) -> bytes:
-        if not isinstance(self._body, bytes):
-            raise RuntimeError("async upload body requires multipart upload")
-        return self._body
-
-    async def iter_body(self) -> AsyncIterable[bytes]:
-        if isinstance(self._body, bytes):
-            yield self._body
-            return
-
-        received = 0
-        async for chunk in self._body:
-            received = self._validate_chunk(chunk, received)
-            if self.length is not None and received > self.length:
-                raise ValueError(f"expected {self.length} bytes, received more data")
-            yield chunk
-
-        self._validate_received_length(received)
-
-    async def iter_parts(
-        self,
-        part_size: int,
-    ) -> AsyncIterable[tuple[int, bytes]]:
-        if isinstance(self._body, bytes):
-            for offset in range(0, len(self._body), part_size):
-                yield offset // part_size + 1, self._body[offset : offset + part_size]
-            return
-
-        buffer = bytearray()
-        received = 0
-        part_number = 1
-        async for chunk in self._body:
-            received = self._validate_chunk(chunk, received)
-            if self.length is not None and received > self.length:
-                raise ValueError(f"expected {self.length} bytes, received more data")
-
-            view = memoryview(chunk)
-            offset = 0
-            while offset < len(view):
-                take = min(part_size - len(buffer), len(view) - offset)
-                buffer.extend(view[offset : offset + take])
-                offset += take
-                if len(buffer) == part_size:
-                    yield part_number, bytes(buffer)
-                    buffer.clear()
-                    part_number += 1
-
-        self._validate_received_length(received)
-        if buffer:
-            yield part_number, bytes(buffer)
-
-    @staticmethod
-    def _validate_chunk(chunk: bytes, received: int) -> int:
-        if not isinstance(chunk, bytes):
-            raise TypeError("async upload body must yield bytes")
-        return received + len(chunk)
-
-    def _validate_received_length(self, received: int) -> None:
-        if self.length is not None and received != self.length:
-            raise ValueError(f"expected {self.length} bytes, received {received}")
-
-
-@dataclass(frozen=True, slots=True)
-class _UploadPolicy:
-    multipart_threshold: int
-    multipart_part_size: int
-
-    def use_multipart(
-        self,
-        source: _UploadSource,
-        strategy: UploadStrategy,
-    ) -> bool:
-        if strategy == "single":
-            if source.is_stream:
-                raise ValueError(
-                    "single async upload cannot provide atomic integrity verification"
-                )
-            return False
-        if strategy == "multipart":
-            return True
-        return source.is_stream or source.length > self.multipart_threshold
-
-    def part_size(self, content_length: int | None) -> int:
-        configured_size = self.multipart_part_size
-        if isinstance(configured_size, bool) or not isinstance(configured_size, int):
-            raise TypeError("'multipart_part_size' must be an integer")
-        if not MIN_MULTIPART_PART_SIZE <= configured_size <= MAX_MULTIPART_PART_SIZE:
-            raise ValueError(
-                "'multipart_part_size' must be between 5 MiB and 4.995 GiB"
-            )
-
-        if content_length is None:
-            return configured_size
-        if content_length > MAX_MULTIPART_OBJECT_SIZE:
-            raise ValueError("multipart object exceeds the R2 object size limit")
-
-        required_size = (
-            content_length + MAX_MULTIPART_PARTS - 1
-        ) // MAX_MULTIPART_PARTS
-        part_size = max(configured_size, required_size)
-        if part_size > MAX_MULTIPART_PART_SIZE:
-            raise ValueError("object cannot fit within 10,000 multipart parts")
-        return part_size
-
-
-class _MultipartSession(Protocol):
-    async def upload_part(self, number: int, body: bytes) -> _UploadedPart: ...
-
-    async def complete(
-        self,
-        parts: Sequence[_UploadedPart],
-        *,
-        checksum_crc64nvme: str,
-    ) -> ObjectPutResult: ...
-
-    async def abort(self) -> None: ...
-
-
-class _UploadBackend(Protocol):
-    async def put_single(
-        self,
-        key: str,
-        body: bytes,
-        options: _PutOptions,
-    ) -> ObjectPutResult: ...
-
-    async def begin_multipart(
-        self,
-        key: str,
-        options: _PutOptions,
-    ) -> _MultipartSession: ...
-
-
-@dataclass(slots=True)
-class _UploadCoordinator:
-    backend: _UploadBackend
-    policy: _UploadPolicy
-    key: str
-    source: _UploadSource
-    options: _PutOptions
-    strategy: UploadStrategy
-
-    @classmethod
-    def create(
-        cls,
-        backend: _UploadBackend,
-        policy: _UploadPolicy,
-        key: str,
-        body: AsyncUploadBody,
-        content_length: int | None,
-        options: _PutOptions,
-        strategy: UploadStrategy,
-    ) -> "_UploadCoordinator":
-        if strategy not in {"auto", "single", "multipart"}:
-            raise ValueError("'strategy' must be 'auto', 'single', or 'multipart'")
-        return cls(
-            backend=backend,
-            policy=policy,
-            key=key,
-            source=_UploadSource(body, content_length),
-            options=options,
-            strategy=strategy,
-        )
-
-    async def run(self) -> ObjectPutResult:
-        if self.policy.use_multipart(self.source, self.strategy):
-            return await self._put_multipart()
-
-        return await self.backend.put_single(
-            self.key,
-            self.source.single_body(),
-            self.options,
-        )
-
-    async def _put_multipart(self) -> ObjectPutResult:
-        part_size = self.policy.part_size(self.source.length)
-        session = await self.backend.begin_multipart(self.key, self.options)
-
-        try:
-            completed_parts, checksum = await self._upload_parts(session, part_size)
-            return await session.complete(
-                completed_parts,
-                checksum_crc64nvme=checksum,
-            )
-        except BaseException as exc:
-            try:
-                await session.abort()
-            except ObjectNotFound:
-                pass
-            except BaseException as abort_exc:
-                exc.add_note(f"multipart abort failed: {abort_exc}")
-            raise
-
-    async def _upload_parts(
-        self,
-        session: _MultipartSession,
-        part_size: int,
-    ) -> tuple[list[_UploadedPart], str]:
-        completed_parts = []
-        checksum = 0
-        async for part_number, body in self.source.iter_parts(part_size):
-            if part_number > MAX_MULTIPART_PARTS:
-                raise ValueError("multipart upload exceeds 10,000 parts")
-            checksum = crc64nvme(body, checksum)
-            completed_parts.append(await session.upload_part(part_number, body))
-
-        # if upload content is empty (b""), the for loop will exit immediately.
-        # add this to finish this upload task.
-        if not completed_parts:
-            completed_parts.append(await session.upload_part(1, b""))
-        return completed_parts, crc64nvme_base64(checksum)
-
-
-@dataclass(frozen=True, slots=True)
-class _R2MultipartSession:
-    transport: _R2Transport
-    key: str
-    upload_id: str
-    if_none_match: str | None
-
-    async def upload_part(self, number: int, body: bytes) -> _UploadedPart:
-        url = self.transport.multipart_url(
-            self.key,
-            self.upload_id,
-            part_number=number,
-        )
-        payload_hash = sha256(body).hexdigest()
-        response = await self.transport.send_signed_request(
-            "PUT",
-            url,
-            {"x-amz-content-sha256": payload_hash},
-            payload_hash,
-            content=body,
-            error_message=f"R2 multipart part {number} upload failed",
-        )
-
-        if response.status_code != 200:
-            await self.transport.raise_response_error(response, key=self.key)
-
-        try:
-            etag = response.headers.get("etag")
-            if not etag:
-                raise StorageUnavailable(f"R2 multipart part {number} returned no ETag")
-            return _UploadedPart(number, etag)
-        finally:
-            await response.aclose()
-
-    async def abort(self) -> None:
-        url = self.transport.multipart_url(self.key, self.upload_id)
-        response = await self.transport.send_signed_request(
-            "DELETE",
-            url,
-            {"x-amz-content-sha256": EMPTY_PAYLOAD_HASH},
-            EMPTY_PAYLOAD_HASH,
-            error_message="R2 multipart abort failed",
-        )
-
-        if response.status_code != 204:
-            await self.transport.raise_response_error(response, key=self.key)
-        await response.aclose()
-
-    async def complete(
-        self,
-        parts: Sequence[_UploadedPart],
-        *,
-        checksum_crc64nvme: str,
-    ) -> ObjectPutResult:
-        root = ElementTree.Element("CompleteMultipartUpload")
-        for part in parts:
-            part_element = ElementTree.SubElement(root, "Part")
-            ElementTree.SubElement(part_element, "PartNumber").text = str(part.number)
-            ElementTree.SubElement(part_element, "ETag").text = part.etag
-
-        body = ElementTree.tostring(root, encoding="utf-8")
-        payload_hash = sha256(body).hexdigest()
-        url = self.transport.multipart_url(self.key, self.upload_id)
-        headers = {
-            "content-type": "application/xml",
-            "x-amz-content-sha256": payload_hash,
-            "x-amz-checksum-crc64nvme": checksum_crc64nvme,
-            "x-amz-checksum-type": "FULL_OBJECT",
-        }
-        if self.if_none_match is not None:
-            headers["if-none-match"] = self.if_none_match
-        response = await self.transport.send_signed_request(
-            "POST",
-            url,
-            headers,
-            payload_hash,
-            content=body,
-            error_message="R2 multipart completion failed",
-        )
-
-        if response.status_code != 200:
-            await self.transport.raise_response_error(response, key=self.key)
-
-        try:
-            try:
-                result_root = ElementTree.fromstring(response.content)
-            except ElementTree.ParseError as exc:
-                raise StorageUnavailable(
-                    "R2 multipart completion returned invalid XML"
-                ) from exc
-
-            root_name = result_root.tag.rsplit("}", 1)[-1]
-            if root_name == "Error":
-                raise self.transport.map_error(
-                    response,
-                    response.content,
-                    key=self.key,
-                )
-            if root_name != "CompleteMultipartUploadResult":
-                raise StorageUnavailable(
-                    "R2 multipart completion returned an invalid response"
-                )
-
-            etag = _xml_child_text(result_root, "ETag")
-            etag = etag or response.headers.get("etag")
-            if not etag:
-                raise StorageUnavailable("R2 multipart completion returned no ETag")
-
-            checksum = _xml_child_text(result_root, "ChecksumCRC64NVME")
-            checksum = checksum or response.headers.get("x-amz-checksum-crc64nvme")
-            checksum = _verified_checksum_value(
-                checksum,
-                self.key,
-                checksum_crc64nvme,
-            )
-
-            return ObjectPutResult(
-                key=self.key,
-                etag=etag,
-                version_id=response.headers.get("x-amz-version-id"),
-                checksum_crc64nvme=checksum,
-            )
-        finally:
-            await response.aclose()
-
-
-@dataclass(frozen=True, slots=True)
-class _R2Transport:
-    endpoint: str
-    bucket: str
-    signer: "SigV4Signer"
-    client: httpx2.AsyncClient
-
-    async def send_signed_request(
-        self,
-        method: Literal["DELETE", "GET", "HEAD", "POST", "PUT"],
-        url: str,
-        headers: Mapping[str, str],
-        payload_hash: str,
-        *,
-        content: bytes | AsyncIterable[bytes] | None = None,
-        stream: bool = False,
-        error_message: str,
-    ) -> httpx2.Response:
-        signed_headers = self.signer.sign(method, url, headers, payload_hash)
-        try:
-            if content is None:
-                request = self.client.build_request(
-                    method,
-                    url,
-                    headers=signed_headers,
-                )
-            else:
-                request = self.client.build_request(
-                    method,
-                    url,
-                    headers=signed_headers,
-                    content=content,
-                )
-            return await self.client.send(request, stream=stream)
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable(error_message) from exc
-
-    async def raise_response_error(
-        self,
-        response: httpx2.Response,
-        *,
-        key: str | None = None,
-    ) -> Never:
-        try:
-            try:
-                body = await response.aread()
-            except httpx2.HTTPError as exc:
-                raise StorageUnavailable("R2 error response could not be read") from exc
-            error = self.map_error(response, body, key=key)
-        finally:
-            await response.aclose()
-        raise error
-
-    def object_url(self, key: str) -> str:
-        return (
-            f"{self.endpoint.rstrip('/')}/"
-            f"{quote(self.bucket, safe='')}/"
-            f"{self._quote_key(key)}"
-        )
-
-    def multipart_url(
-        self,
-        key: str,
-        upload_id: str,
-        *,
-        part_number: int | None = None,
-    ) -> str:
-        encoded_upload_id = quote(upload_id, safe="-_.~")
-        if part_number is None:
-            return f"{self.object_url(key)}?uploadId={encoded_upload_id}"
-        return (
-            f"{self.object_url(key)}"
-            f"?partNumber={part_number}&uploadId={encoded_upload_id}"
-        )
-
-    @staticmethod
-    def _quote_key(key: str) -> str:
-        return "/".join(
-            "%2E"
-            if segment == "."
-            else "%2E%2E"
-            if segment == ".."
-            else quote(segment, safe="~")
-            for segment in key.split("/")
-        )
-
-    @staticmethod
-    def map_error(
-        response: httpx2.Response,
-        body: bytes,
-        *,
-        key: str | None = None,
-    ) -> ObjectStoreError:
-        code = response.headers.get("x-amz-error-code")
-        message = None
-        request_id = response.headers.get("x-amz-request-id")
-        cf_ray = response.headers.get("cf-ray")
-
-        try:
-            root = ElementTree.fromstring(body)
-        except ElementTree.ParseError:
-            root = None
-        if root is not None:
-            for element in root.iter():
-                name = element.tag.rsplit("}", 1)[-1]
-                if name == "Code" and element.text:
-                    code = element.text
-                elif name == "Message" and element.text:
-                    message = element.text
-                elif name == "RequestId" and element.text:
-                    request_id = element.text
-
-        status_code = response.status_code
-        if code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket", "NotFound"} or (
-            status_code == 404
-        ):
-            error_type = ObjectNotFound
-        elif code == "PreconditionFailed" or status_code == 412:
-            error_type = PreconditionFailed
-        elif code == "SignatureDoesNotMatch":
-            error_type = SignatureMismatch
-        elif code in {"BadDigest", "XAmzContentSHA256Mismatch"}:
-            error_type = IntegrityCheckFailed
-        elif status_code in {401, 403} or code in {
-            "AccessDenied",
-            "InvalidAccessKeyId",
-        }:
-            error_type = AuthenticationFailed
-        elif status_code == 429 or code in {"SlowDown", "Throttling"}:
-            error_type = RateLimited
-        elif (
-            status_code >= 500
-            or status_code == 408
-            or code in {"InternalError", "ServiceUnavailable"}
-        ):
-            error_type = StorageUnavailable
-        else:
-            error_type = InvalidObjectRequest
-
-        if error_type is ObjectNotFound and key:
-            detail = key
-        else:
-            detail = message or code or f"R2 request failed with HTTP {status_code}"
-        return error_type(
-            detail,
-            status_code=status_code,
-            code=code,
-            request_id=request_id,
-            cf_ray=cf_ray,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _R2UploadBackend:
-    transport: _R2Transport
-
-    async def put_single(
-        self,
-        key: str,
-        body: bytes,
-        options: _PutOptions,
-    ) -> ObjectPutResult:
-        url = self.transport.object_url(key)
-        payload_hash = sha256(body).hexdigest()
-        checksum = crc64nvme_base64(body)
-
-        headers = {
-            "x-amz-content-sha256": payload_hash,
-            "x-amz-checksum-crc64nvme": checksum,
-            **options.headers(),
-        }
-        response = await self.transport.send_signed_request(
-            "PUT",
-            url,
-            headers,
-            payload_hash,
-            content=body,
-            error_message="R2 PUT request failed",
-        )
-
-        if response.status_code != 200:
-            await self.transport.raise_response_error(response, key=key)
-
-        try:
-            response_checksum = _verified_checksum(response, key, checksum)
-            return ObjectPutResult(
-                key=key,
-                etag=response.headers.get("etag"),
-                version_id=response.headers.get("x-amz-version-id"),
-                checksum_crc64nvme=response_checksum,
-            )
-        finally:
-            await response.aclose()
-
-    async def begin_multipart(
-        self,
-        key: str,
-        options: _PutOptions,
-    ) -> _MultipartSession:
-        url = f"{self.transport.object_url(key)}?uploads="
-        headers = {
-            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
-            "x-amz-checksum-algorithm": "CRC64NVME",
-            "x-amz-checksum-type": "FULL_OBJECT",
-            **options.headers(),
-        }
-        response = await self.transport.send_signed_request(
-            "POST",
-            url,
-            headers,
-            EMPTY_PAYLOAD_HASH,
-            content=b"",
-            error_message="R2 multipart initialization failed",
-        )
-
-        if response.status_code != 200:
-            await self.transport.raise_response_error(response, key=key)
-
-        try:
-            try:
-                root = ElementTree.fromstring(response.content)
-            except ElementTree.ParseError as exc:
-                raise StorageUnavailable(
-                    "R2 multipart initialization returned invalid XML"
-                ) from exc
-            if root.tag.rsplit("}", 1)[-1] != "InitiateMultipartUploadResult":
-                raise StorageUnavailable(
-                    "R2 multipart initialization returned an invalid response"
-                )
-
-            upload_id = _xml_child_text(root, "UploadId")
-            if not upload_id:
-                raise StorageUnavailable(
-                    "R2 multipart initialization returned no upload ID"
-                )
-            return _R2MultipartSession(
-                transport=self.transport,
-                key=key,
-                upload_id=upload_id,
-                if_none_match=options.if_none_match,
-            )
-        finally:
-            await response.aclose()
-
-
 # --- exceptions ---
 
 
@@ -1354,6 +713,647 @@ def _verified_checksum(
         key,
         expected,
     )
+
+
+# --- upload internals ---
+
+
+@dataclass(frozen=True, slots=True)
+class _PutOptions:
+    cache_control: str | None = None
+    content_type: str | None = None
+    if_none_match: str | None = None
+    metadata: Mapping[str, str] | None = None
+
+    def headers(self) -> dict[str, str]:
+        headers = {}
+        if self.content_type is not None:
+            headers["content-type"] = self.content_type
+        if self.cache_control is not None:
+            headers["cache-control"] = self.cache_control
+        if self.if_none_match is not None:
+            headers["if-none-match"] = self.if_none_match
+        for name, value in (self.metadata or {}).items():
+            headers[f"x-amz-meta-{name}"] = value
+        return headers
+
+
+@dataclass(frozen=True, slots=True)
+class _UploadedPart:
+    number: int
+    etag: str
+
+
+class _UploadSource:
+    def __init__(self, body: AsyncUploadBody, content_length: int | None):
+        if content_length is not None:
+            if isinstance(content_length, bool) or not isinstance(content_length, int):
+                raise TypeError("'content_length' must be an integer")
+            if content_length < 0:
+                raise ValueError("'content_length' must not be negative")
+
+        if isinstance(body, bytes):
+            length = len(body)
+            if content_length is not None and content_length != length:
+                raise ValueError(f"expected {content_length} bytes, received {length}")
+            self._body: bytes | AsyncIterable[bytes] = body
+            self.length = length
+        else:
+            self._body = aiter(body)
+            self.length = content_length
+
+    @property
+    def is_stream(self) -> bool:
+        return not isinstance(self._body, bytes)
+
+    async def read_all(self) -> bytes:
+        chunks = bytearray()
+        async for chunk in self.iter_body():
+            chunks.extend(chunk)
+        return bytes(chunks)
+
+    def single_body(self) -> bytes:
+        if not isinstance(self._body, bytes):
+            raise RuntimeError("async upload body requires multipart upload")
+        return self._body
+
+    async def iter_body(self) -> AsyncIterable[bytes]:
+        if isinstance(self._body, bytes):
+            yield self._body
+            return
+
+        received = 0
+        async for chunk in self._body:
+            received = self._validate_chunk(chunk, received)
+            if self.length is not None and received > self.length:
+                raise ValueError(f"expected {self.length} bytes, received more data")
+            yield chunk
+
+        self._validate_received_length(received)
+
+    async def iter_parts(
+        self,
+        part_size: int,
+    ) -> AsyncIterable[tuple[int, bytes]]:
+        if isinstance(self._body, bytes):
+            for offset in range(0, len(self._body), part_size):
+                yield offset // part_size + 1, self._body[offset : offset + part_size]
+            return
+
+        buffer = bytearray()
+        received = 0
+        part_number = 1
+        async for chunk in self._body:
+            received = self._validate_chunk(chunk, received)
+            if self.length is not None and received > self.length:
+                raise ValueError(f"expected {self.length} bytes, received more data")
+
+            view = memoryview(chunk)
+            offset = 0
+            while offset < len(view):
+                take = min(part_size - len(buffer), len(view) - offset)
+                buffer.extend(view[offset : offset + take])
+                offset += take
+                if len(buffer) == part_size:
+                    yield part_number, bytes(buffer)
+                    buffer.clear()
+                    part_number += 1
+
+        self._validate_received_length(received)
+        if buffer:
+            yield part_number, bytes(buffer)
+
+    @staticmethod
+    def _validate_chunk(chunk: bytes, received: int) -> int:
+        if not isinstance(chunk, bytes):
+            raise TypeError("async upload body must yield bytes")
+        return received + len(chunk)
+
+    def _validate_received_length(self, received: int) -> None:
+        if self.length is not None and received != self.length:
+            raise ValueError(f"expected {self.length} bytes, received {received}")
+
+
+@dataclass(frozen=True, slots=True)
+class _UploadPolicy:
+    multipart_threshold: int
+    multipart_part_size: int
+
+    def use_multipart(
+        self,
+        source: _UploadSource,
+        strategy: UploadStrategy,
+    ) -> bool:
+        if strategy == "single":
+            if source.is_stream:
+                raise ValueError(
+                    "single async upload cannot provide atomic integrity verification"
+                )
+            return False
+        if strategy == "multipart":
+            return True
+        return source.is_stream or source.length > self.multipart_threshold
+
+    def part_size(self, content_length: int | None) -> int:
+        configured_size = self.multipart_part_size
+        if isinstance(configured_size, bool) or not isinstance(configured_size, int):
+            raise TypeError("'multipart_part_size' must be an integer")
+        if not MIN_MULTIPART_PART_SIZE <= configured_size <= MAX_MULTIPART_PART_SIZE:
+            raise ValueError(
+                "'multipart_part_size' must be between 5 MiB and 4.995 GiB"
+            )
+
+        if content_length is None:
+            return configured_size
+        if content_length > MAX_MULTIPART_OBJECT_SIZE:
+            raise ValueError("multipart object exceeds the R2 object size limit")
+
+        required_size = (
+            content_length + MAX_MULTIPART_PARTS - 1
+        ) // MAX_MULTIPART_PARTS
+        part_size = max(configured_size, required_size)
+        if part_size > MAX_MULTIPART_PART_SIZE:
+            raise ValueError("object cannot fit within 10,000 multipart parts")
+        return part_size
+
+
+class _MultipartSession(Protocol):
+    async def upload_part(self, number: int, body: bytes) -> _UploadedPart: ...
+
+    async def complete(
+        self,
+        parts: Sequence[_UploadedPart],
+        *,
+        checksum_crc64nvme: str,
+    ) -> ObjectPutResult: ...
+
+    async def abort(self) -> None: ...
+
+
+class _UploadBackend(Protocol):
+    async def put_single(
+        self,
+        key: str,
+        body: bytes,
+        options: _PutOptions,
+    ) -> ObjectPutResult: ...
+
+    async def begin_multipart(
+        self,
+        key: str,
+        options: _PutOptions,
+    ) -> _MultipartSession: ...
+
+
+@dataclass(slots=True)
+class _UploadCoordinator:
+    backend: _UploadBackend
+    policy: _UploadPolicy
+    key: str
+    source: _UploadSource
+    options: _PutOptions
+    strategy: UploadStrategy
+
+    @classmethod
+    def create(
+        cls,
+        backend: _UploadBackend,
+        policy: _UploadPolicy,
+        key: str,
+        body: AsyncUploadBody,
+        content_length: int | None,
+        options: _PutOptions,
+        strategy: UploadStrategy,
+    ) -> _UploadCoordinator:
+        if strategy not in {"auto", "single", "multipart"}:
+            raise ValueError("'strategy' must be 'auto', 'single', or 'multipart'")
+        return cls(
+            backend=backend,
+            policy=policy,
+            key=key,
+            source=_UploadSource(body, content_length),
+            options=options,
+            strategy=strategy,
+        )
+
+    async def run(self) -> ObjectPutResult:
+        if self.policy.use_multipart(self.source, self.strategy):
+            return await self._put_multipart()
+
+        return await self.backend.put_single(
+            self.key,
+            self.source.single_body(),
+            self.options,
+        )
+
+    async def _put_multipart(self) -> ObjectPutResult:
+        part_size = self.policy.part_size(self.source.length)
+        session = await self.backend.begin_multipart(self.key, self.options)
+
+        try:
+            completed_parts, checksum = await self._upload_parts(session, part_size)
+            return await session.complete(
+                completed_parts,
+                checksum_crc64nvme=checksum,
+            )
+        except BaseException as exc:
+            try:
+                await session.abort()
+            except ObjectNotFound:
+                pass
+            except BaseException as abort_exc:
+                exc.add_note(f"multipart abort failed: {abort_exc}")
+            raise
+
+    async def _upload_parts(
+        self,
+        session: _MultipartSession,
+        part_size: int,
+    ) -> tuple[list[_UploadedPart], str]:
+        completed_parts = []
+        checksum = 0
+        async for part_number, body in self.source.iter_parts(part_size):
+            if part_number > MAX_MULTIPART_PARTS:
+                raise ValueError("multipart upload exceeds 10,000 parts")
+            checksum = crc64nvme(body, checksum)
+            completed_parts.append(await session.upload_part(part_number, body))
+
+        # if upload content is empty (b""), the for loop will exit immediately.
+        # add this to finish this upload task.
+        if not completed_parts:
+            completed_parts.append(await session.upload_part(1, b""))
+        return completed_parts, crc64nvme_base64(checksum)
+
+
+@dataclass(frozen=True, slots=True)
+class _R2MultipartSession:
+    transport: _R2Transport
+    key: str
+    upload_id: str
+    if_none_match: str | None
+
+    async def upload_part(self, number: int, body: bytes) -> _UploadedPart:
+        url = self.transport.multipart_url(
+            self.key,
+            self.upload_id,
+            part_number=number,
+        )
+        payload_hash = sha256(body).hexdigest()
+        response = await self.transport.send_signed_request(
+            "PUT",
+            url,
+            {"x-amz-content-sha256": payload_hash},
+            payload_hash,
+            content=body,
+            error_message=f"R2 multipart part {number} upload failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=self.key)
+
+        try:
+            etag = response.headers.get("etag")
+            if not etag:
+                raise StorageUnavailable(f"R2 multipart part {number} returned no ETag")
+            return _UploadedPart(number, etag)
+        finally:
+            await response.aclose()
+
+    async def abort(self) -> None:
+        url = self.transport.multipart_url(self.key, self.upload_id)
+        response = await self.transport.send_signed_request(
+            "DELETE",
+            url,
+            {"x-amz-content-sha256": EMPTY_PAYLOAD_HASH},
+            EMPTY_PAYLOAD_HASH,
+            error_message="R2 multipart abort failed",
+        )
+
+        if response.status_code != 204:
+            await self.transport.raise_response_error(response, key=self.key)
+        await response.aclose()
+
+    async def complete(
+        self,
+        parts: Sequence[_UploadedPart],
+        *,
+        checksum_crc64nvme: str,
+    ) -> ObjectPutResult:
+        root = ElementTree.Element("CompleteMultipartUpload")
+        for part in parts:
+            part_element = ElementTree.SubElement(root, "Part")
+            ElementTree.SubElement(part_element, "PartNumber").text = str(part.number)
+            ElementTree.SubElement(part_element, "ETag").text = part.etag
+
+        body = ElementTree.tostring(root, encoding="utf-8")
+        payload_hash = sha256(body).hexdigest()
+        url = self.transport.multipart_url(self.key, self.upload_id)
+        headers = {
+            "content-type": "application/xml",
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-checksum-crc64nvme": checksum_crc64nvme,
+            "x-amz-checksum-type": "FULL_OBJECT",
+        }
+        if self.if_none_match is not None:
+            headers["if-none-match"] = self.if_none_match
+        response = await self.transport.send_signed_request(
+            "POST",
+            url,
+            headers,
+            payload_hash,
+            content=body,
+            error_message="R2 multipart completion failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=self.key)
+
+        try:
+            try:
+                result_root = ElementTree.fromstring(response.content)
+            except ElementTree.ParseError as exc:
+                raise StorageUnavailable(
+                    "R2 multipart completion returned invalid XML"
+                ) from exc
+
+            root_name = result_root.tag.rsplit("}", 1)[-1]
+            if root_name == "Error":
+                raise self.transport.map_error(
+                    response,
+                    response.content,
+                    key=self.key,
+                )
+            if root_name != "CompleteMultipartUploadResult":
+                raise StorageUnavailable(
+                    "R2 multipart completion returned an invalid response"
+                )
+
+            etag = _xml_child_text(result_root, "ETag")
+            etag = etag or response.headers.get("etag")
+            if not etag:
+                raise StorageUnavailable("R2 multipart completion returned no ETag")
+
+            checksum = _xml_child_text(result_root, "ChecksumCRC64NVME")
+            checksum = checksum or response.headers.get("x-amz-checksum-crc64nvme")
+            checksum = _verified_checksum_value(
+                checksum,
+                self.key,
+                checksum_crc64nvme,
+            )
+
+            return ObjectPutResult(
+                key=self.key,
+                etag=etag,
+                version_id=response.headers.get("x-amz-version-id"),
+                checksum_crc64nvme=checksum,
+            )
+        finally:
+            await response.aclose()
+
+
+@dataclass(frozen=True, slots=True)
+class _R2Transport:
+    endpoint: str
+    bucket: str
+    signer: SigV4Signer
+    client: httpx2.AsyncClient
+
+    async def send_signed_request(
+        self,
+        method: Literal["DELETE", "GET", "HEAD", "POST", "PUT"],
+        url: str,
+        headers: Mapping[str, str],
+        payload_hash: str,
+        *,
+        content: bytes | AsyncIterable[bytes] | None = None,
+        stream: bool = False,
+        error_message: str,
+    ) -> httpx2.Response:
+        signed_headers = self.signer.sign(method, url, headers, payload_hash)
+        try:
+            if content is None:
+                request = self.client.build_request(
+                    method,
+                    url,
+                    headers=signed_headers,
+                )
+            else:
+                request = self.client.build_request(
+                    method,
+                    url,
+                    headers=signed_headers,
+                    content=content,
+                )
+            return await self.client.send(request, stream=stream)
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable(error_message) from exc
+
+    async def raise_response_error(
+        self,
+        response: httpx2.Response,
+        *,
+        key: str | None = None,
+    ) -> Never:
+        try:
+            try:
+                body = await response.aread()
+            except httpx2.HTTPError as exc:
+                raise StorageUnavailable("R2 error response could not be read") from exc
+            error = self.map_error(response, body, key=key)
+        finally:
+            await response.aclose()
+        raise error
+
+    def object_url(self, key: str) -> str:
+        return (
+            f"{self.endpoint.rstrip('/')}/"
+            f"{quote(self.bucket, safe='')}/"
+            f"{self._quote_key(key)}"
+        )
+
+    def multipart_url(
+        self,
+        key: str,
+        upload_id: str,
+        *,
+        part_number: int | None = None,
+    ) -> str:
+        encoded_upload_id = quote(upload_id, safe="-_.~")
+        if part_number is None:
+            return f"{self.object_url(key)}?uploadId={encoded_upload_id}"
+        return (
+            f"{self.object_url(key)}"
+            f"?partNumber={part_number}&uploadId={encoded_upload_id}"
+        )
+
+    @staticmethod
+    def _quote_key(key: str) -> str:
+        return "/".join(
+            "%2E"
+            if segment == "."
+            else "%2E%2E"
+            if segment == ".."
+            else quote(segment, safe="~")
+            for segment in key.split("/")
+        )
+
+    @staticmethod
+    def map_error(
+        response: httpx2.Response,
+        body: bytes,
+        *,
+        key: str | None = None,
+    ) -> ObjectStoreError:
+        code = response.headers.get("x-amz-error-code")
+        message = None
+        request_id = response.headers.get("x-amz-request-id")
+        cf_ray = response.headers.get("cf-ray")
+
+        try:
+            root = ElementTree.fromstring(body)
+        except ElementTree.ParseError:
+            root = None
+        if root is not None:
+            for element in root.iter():
+                name = element.tag.rsplit("}", 1)[-1]
+                if name == "Code" and element.text:
+                    code = element.text
+                elif name == "Message" and element.text:
+                    message = element.text
+                elif name == "RequestId" and element.text:
+                    request_id = element.text
+
+        status_code = response.status_code
+        if code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket", "NotFound"} or (
+            status_code == 404
+        ):
+            error_type = ObjectNotFound
+        elif code == "PreconditionFailed" or status_code == 412:
+            error_type = PreconditionFailed
+        elif code == "SignatureDoesNotMatch":
+            error_type = SignatureMismatch
+        elif code in {"BadDigest", "XAmzContentSHA256Mismatch"}:
+            error_type = IntegrityCheckFailed
+        elif status_code in {401, 403} or code in {
+            "AccessDenied",
+            "InvalidAccessKeyId",
+        }:
+            error_type = AuthenticationFailed
+        elif status_code == 429 or code in {"SlowDown", "Throttling"}:
+            error_type = RateLimited
+        elif (
+            status_code >= 500
+            or status_code == 408
+            or code in {"InternalError", "ServiceUnavailable"}
+        ):
+            error_type = StorageUnavailable
+        else:
+            error_type = InvalidObjectRequest
+
+        if error_type is ObjectNotFound and key:
+            detail = key
+        else:
+            detail = message or code or f"R2 request failed with HTTP {status_code}"
+        return error_type(
+            detail,
+            status_code=status_code,
+            code=code,
+            request_id=request_id,
+            cf_ray=cf_ray,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _R2UploadBackend:
+    transport: _R2Transport
+
+    async def put_single(
+        self,
+        key: str,
+        body: bytes,
+        options: _PutOptions,
+    ) -> ObjectPutResult:
+        url = self.transport.object_url(key)
+        payload_hash = sha256(body).hexdigest()
+        checksum = crc64nvme_base64(body)
+
+        headers = {
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-checksum-crc64nvme": checksum,
+            **options.headers(),
+        }
+        response = await self.transport.send_signed_request(
+            "PUT",
+            url,
+            headers,
+            payload_hash,
+            content=body,
+            error_message="R2 PUT request failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=key)
+
+        try:
+            response_checksum = _verified_checksum(response, key, checksum)
+            return ObjectPutResult(
+                key=key,
+                etag=response.headers.get("etag"),
+                version_id=response.headers.get("x-amz-version-id"),
+                checksum_crc64nvme=response_checksum,
+            )
+        finally:
+            await response.aclose()
+
+    async def begin_multipart(
+        self,
+        key: str,
+        options: _PutOptions,
+    ) -> _MultipartSession:
+        url = f"{self.transport.object_url(key)}?uploads="
+        headers = {
+            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+            "x-amz-checksum-algorithm": "CRC64NVME",
+            "x-amz-checksum-type": "FULL_OBJECT",
+            **options.headers(),
+        }
+        response = await self.transport.send_signed_request(
+            "POST",
+            url,
+            headers,
+            EMPTY_PAYLOAD_HASH,
+            content=b"",
+            error_message="R2 multipart initialization failed",
+        )
+
+        if response.status_code != 200:
+            await self.transport.raise_response_error(response, key=key)
+
+        try:
+            try:
+                root = ElementTree.fromstring(response.content)
+            except ElementTree.ParseError as exc:
+                raise StorageUnavailable(
+                    "R2 multipart initialization returned invalid XML"
+                ) from exc
+            if root.tag.rsplit("}", 1)[-1] != "InitiateMultipartUploadResult":
+                raise StorageUnavailable(
+                    "R2 multipart initialization returned an invalid response"
+                )
+
+            upload_id = _xml_child_text(root, "UploadId")
+            if not upload_id:
+                raise StorageUnavailable(
+                    "R2 multipart initialization returned no upload ID"
+                )
+            return _R2MultipartSession(
+                transport=self.transport,
+                key=key,
+                upload_id=upload_id,
+                if_none_match=options.if_none_match,
+            )
+        finally:
+            await response.aclose()
 
 
 # --- signer ---

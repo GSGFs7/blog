@@ -18,6 +18,14 @@ setup(
         Extension(
             "_crc64nvme",
             ["src/crc64nvme.c"],
+            extra_compile_args=[
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Wpedantic",
+                "-Wmissing-prototypes",
+                "-Wmissing-declarations",
+            ],
         )
     ],
     cmdclass={"build_ext": build_ext_with_stub},
