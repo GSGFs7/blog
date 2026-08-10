@@ -348,6 +348,15 @@ class TestMarkdownImageOptimization(TestCase):
         self.assertIn(f'src="{source}"', html)
         self.assertNotIn(resource.file.url, html)
 
+    def test_unknown_checksum_is_not_optimized(self):
+        checksum = "a" * 64
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({checksum})")
+
+        self.assertNotIn("<picture>", html)
+        self.assertIn(f'src="{checksum}"', html)
+
     def test_images_without_checksums_do_not_query_the_database(self):
         with self.assertNumQueries(0):
             html = Markdown().render("![caption](https://example.com/image.jpg)")
