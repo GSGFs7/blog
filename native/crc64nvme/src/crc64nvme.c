@@ -185,12 +185,19 @@ crc64nvme(PyObject *Py_UNUSED(module), PyObject *args, PyObject *kwargs)
     const unsigned char *data = view.buf;
     const Py_ssize_t length = view.len;
 
-    // release GIL, async calculate the result
-    Py_BEGIN_ALLOW_THREADS;
-    for (Py_ssize_t i = 0; i < length; i++) {
-        crc = table[(crc ^ data[i]) & 0xff] ^ (crc >> 8);
+    // if data very small, do not release GIL
+    if (length > 8 * 1024) {
+        Py_BEGIN_ALLOW_THREADS;
+        for (Py_ssize_t i = 0; i < length; i++) {
+            crc = table[(crc ^ data[i]) & 0xff] ^ (crc >> 8);
+        }
+        Py_END_ALLOW_THREADS;
     }
-    Py_END_ALLOW_THREADS;
+    else {
+        for (Py_ssize_t i = 0; i < length; i++) {
+            crc = table[(crc ^ data[i]) & 0xff] ^ (crc >> 8);
+        }
+    }
 
     PyBuffer_Release(&view);
     return PyLong_FromUnsignedLongLong(crc ^ CRC64_MASK);
