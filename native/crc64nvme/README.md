@@ -17,3 +17,9 @@ Generate the local clangd configuration with:
 ```bash
 uv run python native/crc64nvme/scripts/configure_clangd.py
 ```
+
+Run the performance benchmark with:
+
+```bash
+uv run python native/crc64nvme/scripts/benchmark.py
+```

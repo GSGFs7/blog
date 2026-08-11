@@ -1636,7 +1636,8 @@ class SigV4Signer:
 # due to python poor performance, 'awscrt' lib is recommended
 # in 16MiB data test:
 #  - pure python: 10.5 MiB/s
-#  - native/crc64nvme: 0.49 GiB/s
+#  - native/crc64nvme (v1): 0.49 GiB/s
+#  - native/crc64nvme (slicing-by-8): 2 GiB/s
 #  - awscrt: 14 GiB/s  (C impl)
 
 try:
