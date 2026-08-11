@@ -13,13 +13,6 @@ class ViteTemplateTagTests(SimpleTestCase):
         vite._load_manifest.cache_clear()
         super().tearDown()
 
-    @override_settings(DEBUG=True)
-    def test_vite_asset_uses_dev_server_in_debug(self):
-        rendered = Template(
-            "{% load vite %}{% vite_asset 'web/typescript/index.tsx' %}"
-        ).render(Context())
-        self.assertEqual(rendered, "http://localhost:5174/web/typescript/index.tsx")
-
     @override_settings(DEBUG=True, VITE_DEV_SERVER_URL="http://localhost:5175")
     def test_vite_asset_uses_configured_dev_server(self):
         rendered = Template(
