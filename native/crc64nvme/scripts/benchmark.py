@@ -164,6 +164,7 @@ def main():
     print(f"Python: {platform.python_version()}")
     print(f"Platform: {platform.platform()}")
     print(f"Extension: {_crc64nvme.__file__}")
+    print(f"Backend: {_crc64nvme._backend}")
     print(f"Rounds: {args.rounds}, target: {args.target_ms:g} ms per batch")
     print()
     header = "{:>10} {:>12} {:>12} {:>14} {:>8}"

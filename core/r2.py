@@ -1633,12 +1633,15 @@ class SigV4Signer:
 
 
 # --- CRC-64/NVME ---
-# due to python poor performance, 'awscrt' lib is recommended
 # in 16MiB data test:
 #  - pure python: 10.5 MiB/s
 #  - native/crc64nvme (v1): 0.49 GiB/s
 #  - native/crc64nvme (slicing-by-8): 2 GiB/s
+#  - native/crc64nvme (SIMD): 26 GiB/s  (WTF??)
 #  - awscrt: 14 GiB/s  (C impl)
+# my HW:
+#  - CPU: AMD zen3
+#  - memory: 3200 MT/s
 
 try:
     from _crc64nvme import crc64nvme as _native_crc64nvme

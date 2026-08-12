@@ -23,3 +23,14 @@ Run the performance benchmark with:
 ```bash
 uv run python native/crc64nvme/scripts/benchmark.py
 ```
+
+The implementation selects the fastest supported backend at import time. Set
+`CRC64NVME_BACKEND` to `table`, `pclmul`, or `vpclmul` to force a backend for
+testing. Importing the module fails if the requested backend is unavailable.
+
+Run the correctness tests, including every supported backend, with:
+
+```bash
+uv sync --reinstall-package crc64nvme-native
+uv run python -m unittest native/crc64nvme/tests/test_crc64nvme.py
+```
