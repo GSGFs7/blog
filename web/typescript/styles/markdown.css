@@ -181,6 +181,23 @@
   text-decoration: underline;
 }
 
+.markdown-body del a,
+.markdown-body s a {
+  text-decoration-line: line-through;
+}
+
+.markdown-body del a:hover,
+.markdown-body s a:hover {
+  text-decoration-line: line-through underline;
+}
+
+.markdown-body del code::before,
+.markdown-body del code::after,
+.markdown-body s code::before,
+.markdown-body s code::after {
+  text-decoration-line: line-through;
+}
+
 .markdown-body.is-decorated a::before,
 .markdown-body.is-decorated a::after {
   content: "[";
@@ -676,6 +693,11 @@
 .markdown-body .task-list-item:has(input:checked) {
   color: var(--md-blockquote-fg);
   text-decoration: line-through;
+  text-decoration-color: var(--md-border);
+}
+
+.markdown-body .task-list-item:has(input:checked) a {
+  text-decoration-line: line-through;
   text-decoration-color: var(--md-border);
 }
 
