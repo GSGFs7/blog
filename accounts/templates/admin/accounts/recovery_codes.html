@@ -1,0 +1,33 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; 
+    <a href="{% url 'admin:account_security' %}">Account security</a>
+    &rsaquo; 
+    Save recovery codes
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div id="content-main">
+    <p class="errornote">
+      Each recovery code can be used only once. Save them in a password manager now; they will not be shown again after you leave this page.
+    </p>
+
+    <ul aria-label="Recovery codes">
+      {% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}
+    </ul>
+
+    <div class="submit-row">
+      <a class="button" href="{{ destination }}">I've saved them</a>
+    </div>
+  </div>
+{% endblock %}

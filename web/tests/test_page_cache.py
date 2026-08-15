@@ -157,7 +157,7 @@ class PageCacheMiddlewareTests(SimpleTestCase):
             lambda request: HttpResponse("<html></html>", content_type="text/html")
         )
 
-        response = middleware(self.factory.get("/account/login/"))
+        response = middleware(self.factory.get("/login"))
 
         self.assertEqual(response.headers["X-Page-Cache"], "private")
         self.assertEqual(

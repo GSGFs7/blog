@@ -1,0 +1,52 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; Account security
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div id="content-main">
+    <fieldset class="module aligned">
+      <h2>Authenticator</h2>
+      <div class="form-row">
+        {% if totp_devices %}
+          {% for device in totp_devices %}
+            <div>{{ device.name }}</div>
+          {% endfor %}
+        {% else %}
+          <div>Not configured.</div>
+        {% endif %}
+      </div>
+    </fieldset>
+
+    <div class="submit-row">
+      <a class="button" href="{% url 'admin:account_replace_authenticator' %}">
+        {% if totp_devices %}Replace authenticator{% else %}Set up authenticator{% endif %}
+      </a>
+    </div>
+
+    {% if totp_devices %}
+      <fieldset class="module aligned">
+        <h2>Recovery codes</h2>
+        <div class="form-row">
+          You have {{ recovery_count }} one-time recovery codes remaining.
+        </div>
+      </fieldset>
+
+      <div class="submit-row">
+        <a class="button" href="{% url 'admin:account_regenerate_recovery_codes' %}">
+          Regenerate recovery codes
+        </a>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

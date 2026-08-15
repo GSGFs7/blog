@@ -1,0 +1,44 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; 
+    <a href="{% url 'admin:account_security' %}">Account security</a>
+    &rsaquo; 
+    {{ title }}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div id="content-main">
+    <p>{{ description }}</p>
+    <p>Enter your current password and a new verification code. The TOTP code just used to sign in cannot be reused.</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+
+      <fieldset class="module aligned">
+        {% for field in form %}
+          <div class="form-row">
+            {{ field.errors }}
+            {{ field.label_tag }}
+            {{ field }}
+          </div>
+        {% endfor %}
+      </fieldset>
+
+      <div class="submit-row">
+        <input type="submit" value="{{ submit_label }}">
+        <a class="closelink" href="{% url 'admin:account_security' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

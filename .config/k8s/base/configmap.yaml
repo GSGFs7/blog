@@ -32,5 +32,6 @@ data:
   SENTENCE_TRANSFORMERS_HOME: "/models"
   #HF_ENDPOINT: "https://hf-mirror.com"
   K8S_ENV: "True"
+  TRUSTED_PROXY_CIDRS: "10.42.0.0/16"
   BACKUP_BUCKET: "backup"
   PAGE_NAVIGATION_MODE: "auto"

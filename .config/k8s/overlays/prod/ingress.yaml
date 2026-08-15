@@ -87,8 +87,6 @@ metadata:
     # keep the catch-all route below the protected /prometheus router
     traefik.ingress.kubernetes.io/router.priority: "1"
     traefik.ingress.kubernetes.io/router.middlewares: blog-response-compression@kubernetescrd
-    # rate limiting
-    traefik.ingress.kubernetes.io/ratelimit.average: "1000"
     # certificate management
     # install cert-manager first, https://cert-manager.io/docs/installation/
     cert-manager.io/cluster-issuer: "letsencrypt-prod"

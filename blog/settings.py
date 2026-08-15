@@ -85,6 +85,7 @@ else:
 USE_X_FORWARDED_HOST = True  # 信任头部设置
 USE_X_FORWARDED_PORT = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+TRUSTED_PROXY_CIDRS = tuple(_split_csv(os.environ.get("TRUSTED_PROXY_CIDRS", "")))
 
 # csrf配置
 CSRF_TRUSTED_ORIGINS = (
@@ -157,7 +158,7 @@ SECURE_CSP = CSP_POLICY
 
 INSTALLED_APPS = [
     "django.contrib.postgres",
-    "django.contrib.admin",
+    "accounts.apps.TwoFactorAdminConfig",
     "django.contrib.auth",  # 验证框架和默认模型
     "django.contrib.sitemaps",
     "django.contrib.contenttypes",  # 内容类型框架
@@ -168,7 +169,7 @@ INSTALLED_APPS = [
     "django_otp",
     "django_otp.plugins.otp_static",
     "django_otp.plugins.otp_totp",
-    "two_factor",
+    "accounts.apps.AccountsConfig",
     "django_celery_beat",  # Celery 定时任务
     "django_prometheus",  # 监控
     "api.apps.ApiConfig",
@@ -182,6 +183,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "api.middleware.OAuthGuestMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -394,10 +396,16 @@ FERNET_OLD_KEYS = _split_csv(os.getenv("FERNET_OLD_KEYS", ""))
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 
-LOGIN_URL = "two_factor:login"
-
-# this one is optional
-LOGIN_REDIRECT_URL = "two_factor:profile"
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "admin:index"
+OTP_LOGIN_URL = LOGIN_URL
+OTP_TOTP_ISSUER = "GSGFs's blog"
+OTP_ADMIN_HIDE_SENSITIVE_DATA = True
+TWO_FACTOR_PREAUTH_TTL = 300
+TWO_FACTOR_RECOVERY_CODE_COUNT = 10
+LOGIN_THROTTLE_WINDOW = 300
+LOGIN_THROTTLE_ACCOUNT_LIMIT = 5
+LOGIN_THROTTLE_ADDRESS_LIMIT = 25
 
 # email backend
 EMAIL_BACKEND = "api.backends.ResendEmailBackend"  # 从 __init__.py 中获取

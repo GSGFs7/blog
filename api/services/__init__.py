@@ -6,6 +6,7 @@ from .oauth import (
     OAuthToken,
     OAuthUser,
 )
+from .oauth_flow import OAuthError, safe_oauth_return_url
 
 __all__ = [
     "OAuthProviderResponseError",
@@ -14,4 +15,6 @@ __all__ = [
     "OAuthServiceError",
     "OAuthToken",
     "OAuthUser",
+    "OAuthError",
+    "safe_oauth_return_url",
 ]

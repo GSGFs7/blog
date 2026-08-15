@@ -1,6 +1,26 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
+  name: blog-traefik-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GSGFs7/blog.git
+    targetRevision: HEAD
+    path: .config/k8s/traefik
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
   name: blog-backend
   namespace: argocd
 spec:

@@ -2,14 +2,18 @@ import base64
 import hashlib
 import secrets
 import time
+from typing import Any
+from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib.auth import alogout
 from django.http import HttpRequest, HttpResponseRedirect
 from django.middleware import csrf
-from django.utils.http import url_has_allowed_host_and_scheme
+from django.urls import reverse
 from ninja import Router
 from ninja.security import APIKeyCookie
 
+from accounts.services.login_flow import aclear_auth_flow
 from api.auth import AsyncTimeBaseAuth
 from api.models import OAuthIdentity, OAuthProvider
 from api.schemas import (
@@ -19,16 +23,24 @@ from api.schemas import (
     OAuthSessionSchema,
 )
 from api.services import (
+    OAuthError,
     OAuthProviderResponseError,
     OAuthProviderUnavailable,
     OAuthService,
+    safe_oauth_return_url,
+)
+from api.services.oauth_session import (
+    OAUTH_FLOW_SESSION_KEY,
+    OAUTH_FLOW_TTL,
+    OAUTH_IDENTITY_SESSION_KEY,
+    aclear_oauth_session,
 )
 
 router = Router()
 
 
 @router.get("/me", auth=AsyncTimeBaseAuth(), response={200: ClientIdSchema})
-async def get_client_id(request):
+async def get_client_id(request: HttpRequest) -> dict[str, str]:
     return {"client_id": str(request.auth)}
 
 
@@ -39,16 +51,15 @@ oauth_router = Router()
 router.add_router("/oauth", oauth_router)
 
 
-OAUTH_FLOW_SESSION_KEY = "oauth_flows"
-OAUTH_IDENTITY_SESSION_KEY = "oauth_identity_id"
-OAUTH_FLOW_TTL = 600
-
-
 # require Django session cookie
 class OAuthSessionCookie(APIKeyCookie):
     param_name = settings.SESSION_COOKIE_NAME
 
-    def authenticate(self, request: HttpRequest, key: str | None):
+    def authenticate(
+        self,
+        request: HttpRequest,
+        key: str | None,
+    ) -> str | None:
         return key
 
 
@@ -56,7 +67,7 @@ oauth_session = OAuthSessionCookie()
 
 
 @oauth_router.get("/providers", response=list[OAuthProviderSchema])
-async def oauth_providers(request: HttpRequest):
+async def oauth_providers(request: HttpRequest) -> list[OAuthProvider]:
     return [
         provider
         async for provider in OAuthProvider.objects.filter(is_active=True).order_by(
@@ -67,14 +78,29 @@ async def oauth_providers(request: HttpRequest):
 
 @oauth_router.get(
     "/{provider_key}/login",
-    response={302: None, 404: MessageSchema},
+    response={302: None},
 )
-async def oauth_login(request: HttpRequest, provider_key: str, return_to: str = "/"):
+async def oauth_login(
+    request: HttpRequest,
+    provider_key: str,
+    return_to: str = "/",
+) -> HttpResponseRedirect:
     # 0. create the service instance
     try:
         service = await OAuthService.for_provider(provider_key)
     except OAuthProviderUnavailable:
-        return 404, {"message": "OAuth provider not found"}
+        return _oauth_error_redirect(
+            OAuthError.PROVIDER_UNAVAILABLE,
+            safe_oauth_return_url(request, return_to),
+        )
+
+    user = await request.auser()
+    if user.is_authenticated:
+        await alogout(request)
+    else:
+        await aclear_oauth_session(request.session)
+        await aclear_auth_flow(request.session)
+    await request.session.acycle_key()
 
     # random
     state = secrets.token_urlsafe(32)
@@ -92,7 +118,7 @@ async def oauth_login(request: HttpRequest, provider_key: str, return_to: str = 
             "provider_key": provider_key,
             "code_verifier": verifier,
             "redirect_uri": redirect_uri,
-            "return_to": _safe_return_url(request, return_to),
+            "return_to": safe_oauth_return_url(request, return_to),
             "created_at": int(time.time()),
         },
     )
@@ -108,7 +134,7 @@ async def oauth_login(request: HttpRequest, provider_key: str, return_to: str = 
 
 @oauth_router.get(
     "/{provider_key}/callback",
-    response={302: None, 400: MessageSchema, 404: MessageSchema, 502: MessageSchema},
+    response={302: None},
 )
 async def oauth_callback(
     request: HttpRequest,
@@ -116,25 +142,28 @@ async def oauth_callback(
     state: str = "",
     code: str = "",
     error: str = "",
-):
+) -> HttpResponseRedirect:
     if not state:
-        return 400, {"message": "Missing OAuth state"}
+        return _oauth_error_redirect(OAuthError.INVALID_REQUEST)
 
     flow = await _take_oauth_flow(request, state)
     if flow is None or flow.get("provider_key") != provider_key:
-        return 400, {"message": "Invalid or expired OAuth state"}
+        return _oauth_error_redirect(OAuthError.SESSION_EXPIRED)
 
     if error:
-        return 400, {"message": "OAuth authorization was rejected"}
+        return _oauth_error_redirect(
+            OAuthError.AUTHORIZATION_REJECTED,
+            flow["return_to"],
+        )
 
     if not code:
-        return 400, {"message": "Missing OAuth authorization code"}
+        return _oauth_error_redirect(OAuthError.INVALID_REQUEST, flow["return_to"])
 
     # find value
     redirect_uri = flow.get("redirect_uri", "")
     code_verifier = flow.get("code_verifier", "")
     if not redirect_uri or not code_verifier:
-        return 400, {"message": "invalid session state"}
+        return _oauth_error_redirect(OAuthError.SESSION_EXPIRED, flow["return_to"])
 
     # code -> user session
     try:
@@ -145,15 +174,21 @@ async def oauth_callback(
             code_verifier=code_verifier,
         )
     except OAuthProviderUnavailable:
-        return 404, {"message": "OAuth provider not found"}
+        return _oauth_error_redirect(
+            OAuthError.PROVIDER_UNAVAILABLE,
+            flow["return_to"],
+        )
     except OAuthProviderResponseError:
-        return 502, {"message": "OAuth provider request failed"}
+        return _oauth_error_redirect(OAuthError.PROVIDER_ERROR, flow["return_to"])
 
-    # session fixation protect. never trust the session id before user login
+    user = await request.auser()
+    if user.is_authenticated:
+        await alogout(request)
+    else:
+        await aclear_oauth_session(request.session)
+        await aclear_auth_flow(request.session)
     await request.session.acycle_key()
-    # set identity
     await request.session.aset(OAUTH_IDENTITY_SESSION_KEY, identity.pk)
-    # init csrf
     csrf.get_token(request)
     return HttpResponseRedirect(flow["return_to"])
 
@@ -163,7 +198,9 @@ async def oauth_callback(
     auth=oauth_session,
     response={200: OAuthSessionSchema, 401: MessageSchema},
 )
-async def oauth_me(request: HttpRequest):
+async def oauth_me(
+    request: HttpRequest,
+) -> dict[str, Any] | tuple[int, dict[str, str]]:
     identity_id = await request.session.aget(OAUTH_IDENTITY_SESSION_KEY)
     if not isinstance(identity_id, int):
         return 401, {"message": "Not authenticated"}
@@ -192,7 +229,7 @@ async def oauth_me(request: HttpRequest):
     auth=oauth_session,
     response={204: None},
 )
-async def oauth_logout(request):
+async def oauth_logout(request: HttpRequest) -> tuple[int, None]:
     await request.session.apop(OAUTH_IDENTITY_SESSION_KEY, None)
     await request.session.apop(OAUTH_FLOW_SESSION_KEY, None)
     await request.session.acycle_key()
@@ -216,17 +253,11 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _safe_return_url(request: HttpRequest, return_to: str) -> str:
-    if url_has_allowed_host_and_scheme(
-        return_to,
-        allowed_hosts={request.get_host()},
-        require_https=request.is_secure(),
-    ):
-        return return_to
-    return "/"
-
-
-async def _store_oauth_flow(request: HttpRequest, state: str, flow: dict) -> None:
+async def _store_oauth_flow(
+    request: HttpRequest,
+    state: str,
+    flow: dict[str, Any],
+) -> None:
     # try get the key from session (in redis)
     flows_old = await request.session.aget(OAUTH_FLOW_SESSION_KEY, {})
     if not isinstance(flows_old, dict):
@@ -247,7 +278,10 @@ async def _store_oauth_flow(request: HttpRequest, state: str, flow: dict) -> Non
     await request.session.aset(OAUTH_FLOW_SESSION_KEY, flows)
 
 
-async def _take_oauth_flow(request: HttpRequest, state: str) -> dict | None:
+async def _take_oauth_flow(
+    request: HttpRequest,
+    state: str,
+) -> dict[str, Any] | None:
     # try get flows
     flows = await request.session.aget(OAUTH_FLOW_SESSION_KEY, {})
     if not isinstance(flows, dict):
@@ -269,3 +303,14 @@ async def _take_oauth_flow(request: HttpRequest, state: str) -> dict | None:
     except KeyError, TypeError, ValueError:
         return None
     return flow
+
+
+# if something goes wrong, back to login page and show a error message
+def _oauth_error_redirect(
+    error: OAuthError,
+    next_url: str = "",
+) -> HttpResponseRedirect:
+    params = {"oauth_error": error.value}
+    if next_url:
+        params["next"] = next_url
+    return HttpResponseRedirect(f"{reverse('login')}?{urlencode(params)}")

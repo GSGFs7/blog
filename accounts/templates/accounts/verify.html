@@ -1,0 +1,49 @@
+{% extends "accounts/base.html" %}
+
+{% block account_title %}Two-factor verification{% endblock %}
+
+{% block account_content %}
+  <h1 class="text-2xl font-semibold text-white">Two-factor verification</h1>
+
+  <form method="post" class="mt-6 space-y-5" hx-boost="false">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="text-sm text-red-300" role="alert">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <div>
+      <label for="{{ form.device.id_for_label }}" class="text-sm font-medium text-gray-200">
+        {{ form.device.label }}
+      </label>
+      {{ form.device }}
+      {% if form.device.errors %}
+        <div class="mt-1 text-sm text-red-300">{{ form.device.errors }}</div>
+      {% endif %}
+    </div>
+
+    <div>
+      <label for="{{ form.token.id_for_label }}" class="text-sm font-medium text-gray-200">
+        {{ form.token.label }}
+      </label>
+      <div class="relative [&>input]:rounded-sm [&>input]:pr-12">
+        {{ form.token }}
+        <button
+          type="submit"
+          class="absolute right-1 bottom-1 flex size-8 cursor-pointer items-center justify-center rounded-sm bg-blue-500 text-white transition-colors hover:bg-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
+          aria-label="Verify and sign in"
+          title="Verify and sign in"
+        >
+          <svg class="size-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M4 10h12m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+      </div>
+      {% if form.token.errors %}
+        <div class="mt-1 text-sm text-red-300">{{ form.token.errors }}</div>
+      {% endif %}
+    </div>
+  </form>
+{% endblock %}

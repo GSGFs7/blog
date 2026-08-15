@@ -16,7 +16,7 @@ dependencies = [
     "django-prometheus>=2.4.0",
     "django-redis>=7.0.0",
     "django-storages[s3]>=1.14.6",
-    "django-two-factor-auth>=1.18.1",
+    "django-otp>=1.7.0",
     "gunicorn>=23.0.0",
     "httpx2>=2.7.0", # well maintained httpx
     # Using fork because original fxsjy/jieba is no longer maintained; this fork includes Python 3.13+ compatibility fixes
@@ -28,6 +28,7 @@ dependencies = [
     "pillow>=11.3.0",
     "psycopg[binary]>=3.3.3",
     "pypinyin>=0.55.0",
+    "qrcode>=8.2",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "resend>=2.19.0",

@@ -15,5 +15,8 @@ else
     echo "Warning: .env file not found. Variables might not be substituted correctly."
 fi
 
+echo "Configuring Traefik..."
+./scripts/k3s-configure-traefik.sh
+
 echo "apply to Argo CD..."
 envsubst < scripts/argo-app-config.template.yaml | kubectl apply -f -

@@ -1,12 +1,12 @@
 from unittest.mock import AsyncMock, patch
 
 from django.http import HttpRequest
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from api.rate_limit import rate_limit
 
 
-class RateLimitTest(TestCase):
+class RateLimitTest(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.request = self.factory.get("/")
@@ -37,6 +37,40 @@ class RateLimitTest(TestCase):
         status, res = test_view(self.request)
         self.assertEqual(status, 429)
         self.assertEqual(res.get("message"), "Too many request")
+
+    @override_settings(TRUSTED_PROXY_CIDRS=("10.42.0.0/16",))
+    @patch("api.rate_limit.cache")
+    def test_sync_rate_limit_uses_cloudflare_client_ip(self, mock_cache):
+        mock_cache.incr.return_value = 1
+        self.request.META["REMOTE_ADDR"] = "10.42.0.33"
+        self.request.META["HTTP_CF_CONNECTING_IP"] = "203.0.113.10"
+
+        @rate_limit(key_prefix="test_sync", max_requests=2, window=60)
+        def test_view(request: HttpRequest):
+            return 200, "ok"
+
+        test_view(self.request)
+
+        mock_cache.add.assert_called_once_with(
+            "rate_limit:test_sync:203.0.113.10",
+            0,
+            timeout=60,
+        )
+
+    @override_settings(TRUSTED_PROXY_CIDRS=("10.42.0.0/16",))
+    @patch("api.rate_limit.cache")
+    def test_sync_rate_limit_skips_unattributable_proxy_request(self, mock_cache):
+        self.request.META["REMOTE_ADDR"] = "10.42.0.33"
+
+        @rate_limit(key_prefix="test_sync", max_requests=2, window=60)
+        def test_view(request: HttpRequest):
+            return 200, "ok"
+
+        status, _ = test_view(self.request)
+
+        self.assertEqual(status, 200)
+        mock_cache.add.assert_not_called()
+        mock_cache.incr.assert_not_called()
 
     @patch("api.rate_limit.cache")
     async def test_async_rate_limit_pass(self, mock_cache):

@@ -7,6 +7,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django_otp import DEVICE_ID_SESSION_KEY
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from PIL import Image as PILImage
 
 from media_service.models import Image
@@ -28,6 +30,14 @@ class ImageAdminTest(TestCase):
             password="passwd114",
         )
         self.client.force_login(self.admin_user)
+        self.otp_device = TOTPDevice.objects.create(
+            user=self.admin_user,
+            name="default",
+            confirmed=True,
+        )
+        session = self.client.session
+        session[DEVICE_ID_SESSION_KEY] = self.otp_device.persistent_id
+        session.save()
 
     @staticmethod
     def generate_test_image(name="admin-test.png", size=(100, 100), color="red"):

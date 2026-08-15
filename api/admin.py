@@ -1,3 +1,5 @@
+from typing import Any
+
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
@@ -417,10 +419,38 @@ class ApiClientAdmin(admin.ModelAdmin):
 
 
 class OAuthProviderAdmin(admin.ModelAdmin):
+    class OAuthProviderAdminForm(forms.ModelForm):
+        # redeclare it, used to enter new secret
+        client_secret = forms.CharField(
+            max_length=255,
+            label="Client Secret",
+            widget=forms.PasswordInput(render_value=False),
+        )
+
+        class Meta:
+            model = OAuthProvider
+            fields = "__all__"
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            if self.instance.pk:
+                self.fields["client_secret"].required = False
+                self.fields["client_secret"].label = "New Client Secret"
+                self.fields[
+                    "client_secret"
+                ].help_text = "Leave blank to keep the current secret."
+
+        def clean_client_secret(self) -> str:
+            value = self.cleaned_data["client_secret"]
+            if not value and self.instance.pk:
+                return self.instance.client_secret
+            return value
+
+    form = OAuthProviderAdminForm
     list_display = ["provider_key", "name", "is_active", "created_at", "updated_at"]
     list_filter = ["is_active"]
     search_fields = ["provider_key", "name"]
-    readonly_fields = ["created_at", "updated_at"]
+    readonly_fields = ["created_at", "updated_at", "masked_secret"]
 
     fieldsets = [
         (None, {"fields": ["provider_key", "name", "is_active"]}),
@@ -428,7 +458,10 @@ class OAuthProviderAdmin(admin.ModelAdmin):
             "OAuth Endpoints",
             {"fields": ["authorization_url", "token_url", "userinfo_url"]},
         ),
-        ("Credentials", {"fields": ["client_id", "masked_secret"]}),
+        (
+            "Credentials",
+            {"fields": ["client_id", "masked_secret", "client_secret"]},
+        ),
         ("Scope", {"fields": ["scope"]}),
         ("Timestamps", {"fields": ["created_at", "updated_at"]}),
     ]
@@ -451,7 +484,12 @@ class OAuthIdentityAdmin(admin.ModelAdmin):
     list_display = ["guest", "provider", "user_id", "created_at", "updated_at"]
     list_filter = ["provider"]
     search_fields = ["guest__name", "provider__provider_key", "user_id"]
-    readonly_fields = ["created_at", "updated_at"]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "masked_access_token",
+        "masked_refresh_token",
+    ]
     autocomplete_fields = ["guest", "provider"]
 
     fieldsets = [

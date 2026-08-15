@@ -1,10 +1,89 @@
-{% extends "web/layout/base.html" %}
+{% extends "accounts/base.html" %}
 
-{% block title %}Login{% endblock %}
+{% block account_title %}Login{% endblock %}
 
-{% block extra_head %}
-{% endblock %}
+{% block account_content %}
+  <h1 class="text-2xl font-semibold text-white">Login</h1>
 
-{% block content %}
-  {% include "web/partials/globals/wip.html" %}
+  {% if oauth_error %}
+    <p class="mt-5 text-sm text-red-300" role="alert">{{ oauth_error }}</p>
+  {% endif %}
+
+  {% if oauth_identity %}
+    <section class="mt-8" aria-labelledby="current-visitor-heading">
+      <h2 id="current-visitor-heading" class="text-sm text-green-300">Current visitor</h2>
+      <p class="mt-1 font-medium text-white">{{ oauth_identity.guest.name }}</p>
+      <p class="text-xs text-gray-400">Signed in with {{ oauth_identity.provider.name }}</p>
+      <div class="mt-3 flex items-center gap-5">
+        <a href="{{ oauth_return_to }}" class="text-sm text-blue-300 hover:text-blue-200">Continue</a>
+        <form method="post" action="{% url 'logout' %}" hx-boost="false">
+          {% csrf_token %}
+          <button type="submit" class="cursor-pointer text-sm text-gray-400 hover:text-gray-200">Log out</button>
+        </form>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="mt-10" aria-label="OAuth login">
+    {% if oauth_providers %}
+      <ul class="mt-4 space-y-3">
+        {% for provider in oauth_providers %}
+          <li>{% include "web/partials/auth/auth_button.html" %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="mt-4 text-sm text-gray-400">No login methods are currently available.</p>
+    {% endif %}
+  </section>
+
+  <details class="group mt-10"{% if form.is_bound %} open{% endif %}>
+    <summary
+      id="admin-login-heading"
+      class="relative flex cursor-pointer list-none items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-blue-400/60"
+    >
+      <span class="absolute inset-x-0 top-1/2 h-px bg-white/15" aria-hidden="true"></span>
+      <span class="relative inline-flex items-center gap-2 bg-[#1c1b22] px-4 text-lg font-medium text-white">
+        Admin login
+        <svg class="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" aria-hidden="true" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M5.22 7.72a.75.75 0 0 1 1.06 0L10 11.44l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 8.78a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd"></path>
+        </svg>
+      </span>
+    </summary>
+
+    <form method="post" action="{% url 'admin_login' %}" class="mt-5 space-y-5" hx-boost="false">
+      {% csrf_token %}
+      <input type="hidden" name="admin_next" value="{{ admin_next }}">
+      <input type="hidden" name="oauth_return_to" value="{{ oauth_return_to }}">
+
+      {% if form.non_field_errors %}
+        <div class="text-sm text-red-300" role="alert">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <div>
+        <label for="{{ form.username.id_for_label }}" class="text-sm font-medium text-gray-200">{{ form.username.label }}</label>
+        {{ form.username }}
+        {% if form.username.errors %}<div class="mt-1 text-sm text-red-300">{{ form.username.errors }}</div>{% endif %}
+      </div>
+
+      <div>
+        <label for="{{ form.password.id_for_label }}" class="text-sm font-medium text-gray-200">{{ form.password.label }}</label>
+        <div class="relative [&>input]:rounded-sm [&>input]:pr-12">
+          {{ form.password }}
+          <button
+            type="submit"
+            class="absolute right-1 bottom-1 flex size-8 cursor-pointer items-center justify-center rounded-sm bg-blue-500 text-white transition-colors hover:bg-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
+            aria-label="Continue"
+            title="Continue"
+          >
+            <svg class="size-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M4 10h12m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </button>
+        </div>
+        {% if form.password.errors %}
+          <div class="mt-1 text-sm text-red-300">{{ form.password.errors }}</div>
+        {% endif %}
+      </div>
+    </form>
+  </details>
 {% endblock %}

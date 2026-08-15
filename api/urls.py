@@ -1,8 +1,6 @@
 from typing import Any
 
 import orjson
-from django.conf import settings
-from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpRequest
 from ninja import NinjaAPI
 from ninja.errors import HttpError
@@ -10,6 +8,8 @@ from ninja.parser import Parser
 from ninja.renderers import BaseRenderer
 from ninja.responses import NinjaJSONEncoder
 from ninja.types import DictStrAny
+
+from accounts.decorators import otp_staff_required
 
 from .routers.anime import router as anime_router
 from .routers.auth import router as auth_router
@@ -50,9 +50,10 @@ api = NinjaAPI(
     title="GSGFs blog API",
     description="GSGFs blog backend API",
     version="1.0.0",
+    urls_namespace="api",
     parser=UltraSpeedJSONParser(),
     renderer=UltraSpeedJSONRender(),
-    docs_decorator=staff_member_required if not settings.DEBUG else None,
+    docs_decorator=otp_staff_required,
 )
 
 

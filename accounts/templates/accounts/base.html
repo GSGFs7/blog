@@ -1,0 +1,24 @@
+{% extends "web/layout/base.html" %}
+
+{% block title %}{% block account_title %}Accounts{% endblock %}{% endblock %}
+
+{% block seo_head %}
+  <meta name="robots" content="noindex,nofollow">
+{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-lg px-6 py-10 sm:px-8">
+    {# provide by django messages context processors. use django.contrib.messages to write a message #}
+    {% if messages %}
+      <div class="mb-6 space-y-2" aria-live="polite">
+        {% for message in messages %}
+          <p class="text-sm text-blue-200">{{ message }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div>
+      {% block account_content %}{% endblock %}
+    </div>
+  </div>
+{% endblock %}

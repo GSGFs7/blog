@@ -6,6 +6,10 @@
 {% block extra_head %}
 {% endblock %}
 
+{% block seo_head %}
+  <meta name="robots" content="noindex, follow">
+{% endblock %}
+
 {% block content %}
   {% include "web/partials/globals/wip.html" %}
 {% endblock %}

@@ -5,6 +5,7 @@
 @import "./footer.css";
 
 @source "../../../templates/";
+@source "../../../accounts/templates/";
 @source "../../templates/";
 @source "../";
 

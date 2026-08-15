@@ -23,4 +23,9 @@
   {% endif %}
 {% endblock %}
 
+{% block userlinks %}
+  <a href="{% url 'admin:account_security' %}">Account security</a> /
+  {{ block.super }}
+{% endblock %}
+
 {% block nav-global %}{% endblock %} 
