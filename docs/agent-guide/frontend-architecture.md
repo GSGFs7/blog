@@ -14,7 +14,7 @@ This project is not a single SPA. Django server-renders pages, a protocol-driven
 
 | Location                                          | Owns                                                                  |
 | ------------------------------------------------- | --------------------------------------------------------------------- |
-| `web/urls.py`, `web/views/`                        | Page routes, server-side data, and template responses                 |
+| `web/urls.py`, `web/views/`                       | Page routes, server-side data, and template responses                 |
 | `web/templates/web/layout/base.html`              | Site shell, Vite entries, navigation protocol meta tags, HTMX wiring  |
 | `web/templates/web/pages/`                        | Server-rendered page bodies                                           |
 | `web/templates/web/partials/`                     | Reusable template fragments (navigation, footer, etc.)                |

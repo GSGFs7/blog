@@ -15,9 +15,9 @@ ColumnLimit: 79
 BreakBeforeBraces: Custom
 AlwaysBreakAfterDefinitionReturnType: All
 BraceWrapping:
-  AfterControlStatement: MultiLine
-  AfterFunction: true
-  BeforeElse: true
+    AfterControlStatement: MultiLine
+    AfterFunction: true
+    BeforeElse: true
 IndentCaseLabels: true
 
 # Break long argument lists after commas and align continuation lines with the

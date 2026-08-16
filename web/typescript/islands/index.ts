@@ -8,4 +8,6 @@ export const COMPONENTS: Record<string, () => Promise<SolidComponent<ComponentPr
   PythonREPL: async () => (await import("./PythonREPL")).default,
   Chart: async () => (await import("./Chart")).default,
   WIP: async () => (await import("./WIP")).default,
+  MusicTrack: async () => (await import("./MusicPlayer/MusicTrack.island")).default,
+  MusicDock: async () => (await import("./MusicPlayer/MusicDock.island")).default,
 } as const;

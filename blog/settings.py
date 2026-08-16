@@ -117,6 +117,7 @@ VITE_DEV_SERVER_URL = f"http://localhost:{VITE_PORT}"
 # CSP
 _static_src = "https://static.gsgfs.moe"
 _img_src = "https://img.gsgfs.moe"
+_music_src = "https://music.gsgfs.moe"
 _vite_src = VITE_DEV_SERVER_URL
 _vite_ws_src = f"ws://localhost:{VITE_PORT}"
 IMAGE_PICTURE_URL_PREFIXES = {
@@ -139,9 +140,9 @@ CSP_POLICY = {
     "style-src-attr": [CSP.UNSAFE_INLINE],
     "img-src": [CSP.SELF, "data:", "blob:", _img_src, _static_src],
     "font-src": [CSP.SELF, "data:", _static_src],
-    "connect-src": [CSP.SELF, _static_src],
+    "connect-src": [CSP.SELF, _static_src, _music_src],
     "worker-src": [CSP.SELF, "blob:", _static_src],
-    "media-src": [CSP.SELF],
+    "media-src": [CSP.SELF, _music_src],
     "manifest-src": [CSP.SELF],
 }
 if DEBUG:
