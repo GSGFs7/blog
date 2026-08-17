@@ -1,7 +1,5 @@
 # Frontend Agent Guide
 
-Frontend architecture maybe is a bit complex. Read `../docs/agent-guide/frontend-architecture.md` before making a frontend change. It explains the rendering lifecycle, ownership boundaries, and build steps.
-
 ## No-JS baseline
 
 - Keep main page content fully readable and basic navigation functional without JavaScript.

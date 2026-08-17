@@ -2,7 +2,7 @@
 
 ## Core Tech Stack
 
-Asynchronous Django + Django-Ninja + pgvector + Celery + HTMX + solid.js + uv/ruff.
+Asynchronous Django + Django-Ninja + pgvector + Celery + HTMX/Native Navigation API + Solid.js + Vite/pnpm + uv/ruff.
 
 ## CLI Workflow
 
@@ -20,9 +20,13 @@ ruff check --fix && ruff format .       # Lint and format
 - `api/routers/`: Django-Ninja routers mounted under `/api/`.
 - `api/schemas/`: Request/response schemas for Ninja endpoints.
 - `api/tests/`: API and app-level tests, including upload/auth/rate-limit coverage.
+- `accounts/`: Authentication, account forms, admin views, and account URLs.
+- `core/`: Shared security, request, storage, and field utilities.
 - `media_service/`: Dedicated media app for image resources, processing, admin, signals, and tests.
 - `blog/settings.py`: Global settings, environment detection, Redis/Celery/database configuration.
-- `web/`: Frontend, powered by django template & HTMX & solid.js
+- `web/`: Django views, templates, HTMX, Native Navigation API, Solid islands, Vite assets, and frontend tests.
+- `templates/`: Shared Django templates and admin templates.
+- `native/`: Native extensions for CRC64-NVMe and Markdown processing.
 - `scripts/`: Deployment, backup/restore, model download, embedding regeneration, and env/build helpers.
 
 ## Documentation & Comments

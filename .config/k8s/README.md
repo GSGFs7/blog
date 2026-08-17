@@ -59,7 +59,7 @@
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.19.4/cert-manager.yaml
 
 # 部署 ClusterIssuer（用于 Let's Encrypt 证书）
-envsubst < .config/k8s/cluster-issuer.yaml | kubectl apply -f -
+envsubst < .config/k8s/overlays/prod/cluster-issuer.yaml | kubectl apply -f -
 ```
 
 关于私有 Registry 镜像的拉取, 需要在 k3s 节点上创建 `/etc/rancher/k3s/registries.yaml`, 并进行配置

@@ -82,7 +82,7 @@
 │   ├── models.py   # Django ORM
 │   ├── schemas.py  # schema 定义
 │   ├── signals.py  # Django 信号处理
-│   ├── task.py     # celery 任务
+│   ├── tasks.py     # celery 任务
 │   └── urls.py     # URL 汇总
 ├── blog/           # Django project
 ├── scripts/        # 辅助脚本

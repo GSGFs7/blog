@@ -19,6 +19,8 @@
     "**/templates/**/*.html",
     "web/static/*",
     ".config/k8s/overlays/prod/kustomization.yaml",
-    "native/markdown/upstream"
+    "native/markdown/upstream",
+    ".agents/*",
+    ".clang-format"
   ]
 }
