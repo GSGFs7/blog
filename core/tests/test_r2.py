@@ -19,6 +19,7 @@ from core.r2 import (
     ObjectNotModified,
     ObjectPutResult,
     PreconditionFailed,
+    RateLimited,
     SigV4Signer,
     StorageUnavailable,
     _PutOptions,
@@ -350,6 +351,129 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "NoSuchKey")
         self.assertEqual(raised.exception.request_id, "request-1")
 
+    async def test_copy_merges_cache_control_with_conditions(self):
+        requests = []
+
+        async def handler(request):
+            requests.append(request)
+            return httpx2.Response(
+                200,
+                content=(
+                    b"<CopyObjectResult>"
+                    b"<ETag>&quot;copied&quot;</ETag>"
+                    b"</CopyObjectResult>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            result = await client.copy(
+                "images/source image.png",
+                "images/source image.png",
+                cache_control="public, max-age=3600",
+                metadata_directive="MERGE",
+                source_if_match='"abc"',
+                destination_if_match='"abc"',
+                storage_class="STANDARD_IA",
+            )
+
+        self.assertEqual(result.key, "images/source image.png")
+        self.assertEqual(result.etag, '"copied"')
+        self.assertEqual(len(requests), 1)
+        request = requests[0]
+        self.assertEqual(request.method, "PUT")
+        self.assertEqual(
+            request.headers["x-amz-copy-source"],
+            "/bucket/images/source%20image.png",
+        )
+        self.assertEqual(request.headers["x-amz-metadata-directive"], "MERGE")
+        self.assertEqual(request.headers["cache-control"], "public, max-age=3600")
+        self.assertEqual(request.headers["x-amz-copy-source-if-match"], '"abc"')
+        self.assertEqual(request.headers["cf-copy-destination-if-match"], '"abc"')
+        self.assertEqual(request.headers["x-amz-storage-class"], "STANDARD_IA")
+        signed_headers = (
+            request.headers["authorization"]
+            .split("SignedHeaders=", 1)[1]
+            .split(",", 1)[0]
+            .split(";")
+        )
+        self.assertIn("cache-control", signed_headers)
+        self.assertIn("cf-copy-destination-if-match", signed_headers)
+        self.assertIn("x-amz-copy-source", signed_headers)
+
+    async def test_copy_maps_precondition_failure(self):
+        async def handler(request):
+            return httpx2.Response(
+                412,
+                content=b"<Error><Code>PreconditionFailed</Code></Error>",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(PreconditionFailed):
+                await client.copy("source.txt", "target.txt")
+
+    async def test_copy_maps_embedded_error_in_success_response(self):
+        async def handler(request):
+            return httpx2.Response(
+                200,
+                content=(
+                    b"<Error>"
+                    b"<Code>SlowDown</Code>"
+                    b"<Message>try later</Message>"
+                    b"<RequestId>request-1</RequestId>"
+                    b"</Error>"
+                ),
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(RateLimited) as raised:
+                await client.copy("source.txt", "target.txt")
+
+        self.assertEqual(str(raised.exception), "try later")
+        self.assertEqual(raised.exception.status_code, 200)
+        self.assertEqual(raised.exception.code, "SlowDown")
+        self.assertEqual(raised.exception.request_id, "request-1")
+
+    async def test_copy_reports_missing_source_key(self):
+        async def handler(request):
+            return httpx2.Response(
+                404,
+                content=b"<Error><Code>NoSuchKey</Code></Error>",
+                request=request,
+            )
+
+        async with AsyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            with self.assertRaises(ObjectNotFound) as raised:
+                await client.copy("source.txt", "target.txt")
+
+        self.assertEqual(str(raised.exception), "source.txt")
+
     async def test_get_accepts_partial_content_response(self):
         async def handler(request):
             return httpx2.Response(
@@ -402,6 +526,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         operations = (
             ("get", lambda client: client.get("file.txt")),
             ("put", lambda client: client.put("file.txt", b"hello")),
+            ("copy", lambda client: client.copy("file.txt", "copy.txt")),
             ("delete", lambda client: client.delete("file.txt")),
             ("stat", lambda client: client.stat("file.txt")),
             ("list", lambda client: client.list()),
@@ -1222,6 +1347,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
                     "cache-control": "public, max-age=3600",
                     "content-disposition": 'inline; filename="image.png"',
                     "content-encoding": "gzip",
+                    "x-amz-storage-class": "STANDARD_IA",
                     "etag": '"abc123"',
                     "last-modified": "Thu, 06 Aug 2026 10:30:00 GMT",
                     "x-amz-meta-kind": "avatar",
@@ -1252,6 +1378,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             'inline; filename="image.png"',
         )
         self.assertEqual(metadata.content_encoding, "gzip")
+        self.assertEqual(metadata.storage_class, "STANDARD_IA")
         self.assertEqual(
             metadata.last_modified,
             datetime(
@@ -1468,6 +1595,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(page.objects[0].key, "images/a.png")
         self.assertEqual(page.objects[0].size, 123)
         self.assertEqual(page.objects[0].etag, '"etag-a"')
+        self.assertEqual(page.objects[0].storage_class, "STANDARD")
         self.assertEqual(
             page.common_prefixes,
             ("images/archive/",),

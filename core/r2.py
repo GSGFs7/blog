@@ -89,6 +89,7 @@ class ObjectMetadata:
     cache_control: str | None = None
     content_disposition: str | None = None
     content_encoding: str | None = None
+    storage_class: str | None = None
     last_modified: datetime | None = None
     metadata: Mapping[str, str] = field(default_factory=dict)
 
@@ -126,6 +127,7 @@ class ObjectMetadata:
             cache_control=headers.get("cache-control"),
             content_disposition=headers.get("content-disposition"),
             content_encoding=headers.get("content-encoding"),
+            storage_class=headers.get("x-amz-storage-class"),
             last_modified=last_modified,
             metadata=metadata,
         )
@@ -270,6 +272,18 @@ class SyncObjectStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
+    def copy(
+        self,
+        source_key: str,
+        key: str,
+        *,
+        cache_control: str | None = None,
+        metadata_directive: Literal["COPY", "MERGE", "REPLACE"] = "COPY",
+        source_if_match: str | None = None,
+        destination_if_match: str | None = None,
+        storage_class: Literal["STANDARD", "STANDARD_IA"] | None = None,
+    ) -> ObjectPutResult: ...
+
     def list(
         self,
         *,
@@ -319,6 +333,18 @@ class AsyncObjectStore(Protocol):
     ) -> ObjectPutResult: ...
 
     async def delete(self, key: str) -> None: ...
+
+    async def copy(
+        self,
+        source_key: str,
+        key: str,
+        *,
+        cache_control: str | None = None,
+        metadata_directive: Literal["COPY", "MERGE", "REPLACE"] = "COPY",
+        source_if_match: str | None = None,
+        destination_if_match: str | None = None,
+        storage_class: Literal["STANDARD", "STANDARD_IA"] | None = None,
+    ) -> ObjectPutResult: ...
 
     async def list(
         self,
@@ -509,6 +535,72 @@ class AsyncR2Client(AsyncObjectStore):
 
         await response.aclose()
 
+    async def copy(
+        self,
+        source_key: str,
+        key: str,
+        *,
+        cache_control: str | None = None,
+        metadata_directive: Literal["COPY", "MERGE", "REPLACE"] = "COPY",
+        source_if_match: str | None = None,
+        destination_if_match: str | None = None,
+        storage_class: Literal["STANDARD", "STANDARD_IA"] | None = None,
+    ) -> ObjectPutResult:
+        if metadata_directive not in {"COPY", "MERGE", "REPLACE"}:
+            raise ValueError("unsupported metadata directive")
+        if storage_class not in {None, "STANDARD", "STANDARD_IA"}:
+            raise ValueError("unsupported R2 storage class")
+
+        headers = {
+            "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
+            "x-amz-copy-source": urlsplit(self._object_url(source_key)).path,
+            "x-amz-metadata-directive": metadata_directive,
+        }
+        if cache_control is not None:
+            headers["cache-control"] = cache_control
+        if source_if_match is not None:
+            headers["x-amz-copy-source-if-match"] = source_if_match
+        if destination_if_match is not None:
+            headers["cf-copy-destination-if-match"] = destination_if_match
+        if storage_class is not None:
+            headers["x-amz-storage-class"] = storage_class
+
+        response = await self._transport.send_signed_request(
+            "PUT",
+            self._object_url(key),
+            headers,
+            EMPTY_PAYLOAD_HASH,
+            error_message="R2 COPY request failed",
+        )
+        if response.status_code != 200:
+            await self._transport.raise_response_error(response, key=source_key)
+
+        try:
+            try:
+                root = ElementTree.fromstring(response.content)
+            except ElementTree.ParseError as exc:
+                raise StorageUnavailable("R2 COPY returned invalid XML") from exc
+            root_name = root.tag.rsplit("}", 1)[-1]
+            if root_name == "Error":
+                raise self._transport.map_error(
+                    response,
+                    response.content,
+                    key=source_key,
+                )
+            if root_name != "CopyObjectResult":
+                raise StorageUnavailable("R2 COPY returned an invalid response")
+
+            etag = _xml_child_text(root, "ETag") or response.headers.get("etag")
+            if not etag:
+                raise StorageUnavailable("R2 COPY returned no ETag")
+            return ObjectPutResult(
+                key=key,
+                etag=etag,
+                version_id=response.headers.get("x-amz-version-id"),
+            )
+        finally:
+            await response.aclose()
+
     async def stat(
         self,
         key: str,
@@ -669,6 +761,7 @@ class AsyncR2Client(AsyncObjectStore):
                             key=unquote(key, errors="strict"),
                             size=int(size),
                             etag=_xml_child_text(element, "ETag"),
+                            storage_class=_xml_child_text(element, "StorageClass"),
                             last_modified=modified_at,
                         )
                     )
