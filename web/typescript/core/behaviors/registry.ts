@@ -1,4 +1,5 @@
-import type { LazyBehavior } from "./types";
+import { createImagePlaceholderBehavior } from "./implementations/image-placeholder";
+import type { BehaviorDefinition } from "./types";
 
 export const behaviorRegistry = [
   {
@@ -16,8 +17,7 @@ export const behaviorRegistry = [
   },
   {
     selector: "img.image-placeholder",
-    load: async () =>
-      (await import("./implementations/image-placeholder")).createImagePlaceholderBehavior,
+    inline: createImagePlaceholderBehavior,
   },
   {
     selector: ".markdown-body img",
@@ -27,4 +27,4 @@ export const behaviorRegistry = [
     selector: ".markdown-body a[href]",
     load: async () => (await import("./implementations/article-links")).createArticleLinkBehavior,
   },
-] satisfies readonly LazyBehavior[];
+] satisfies readonly BehaviorDefinition[];

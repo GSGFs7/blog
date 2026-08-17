@@ -1,12 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const behaviorNames = [
-  "blog-header",
-  "code-expander",
-  "image-placeholder",
-  "mobile-decoration",
-  "zoom",
-] as const;
+const behaviorNames = ["blog-header", "code-expander", "mobile-decoration", "zoom"] as const;
 
 function behaviorNameFromUrl(url: string): (typeof behaviorNames)[number] | undefined {
   const pathname = new URL(url).pathname;

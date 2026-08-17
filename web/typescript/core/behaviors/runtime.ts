@@ -1,5 +1,5 @@
 import { APP_PAGE_EVENT } from "../navigation";
-import type { Behavior, BehaviorContext, BehaviorFactory, LazyBehavior } from "./types";
+import type { Behavior, BehaviorContext, BehaviorDefinition, BehaviorFactory } from "./types";
 
 const rootContainsSelector = (root: ParentNode, selector: string): boolean => {
   return (
@@ -7,7 +7,10 @@ const rootContainsSelector = (root: ParentNode, selector: string): boolean => {
   );
 };
 
-export function startBehaviorRuntime(document: Document, definitions: LazyBehavior[]): () => void {
+export function startBehaviorRuntime(
+  document: Document,
+  definitions: readonly BehaviorDefinition[],
+): () => void {
   // Controller 0: control current runtime lifecycle
   const runtimeController = new AbortController();
   let stopped = false;
@@ -49,18 +52,13 @@ export function startBehaviorRuntime(document: Document, definitions: LazyBehavi
     const matchingDefinitions = definitions.filter(({ selector }) =>
       rootContainsSelector(root, selector),
     );
+    const context: BehaviorContext = {
+      document,
+      signal: pageBehaviors.controller.signal,
+    };
 
     // load the behaviors
-    void Promise.all(
-      matchingDefinitions.map(async (definition): Promise<BehaviorFactory | undefined> => {
-        try {
-          return await definition.load();
-        } catch (e) {
-          console.error(`[Behavior] Failed to load behavior for ${definition.selector}:`, e);
-          return undefined;
-        }
-      }),
-    ).then((factories) => {
+    const mountBehavior = (factory: BehaviorFactory) => {
       if (
         stopped ||
         activePageBehaviors !== pageBehaviors ||
@@ -69,33 +67,49 @@ export function startBehaviorRuntime(document: Document, definitions: LazyBehavi
         return;
       }
 
-      // add to list
-      for (const factory of factories) {
-        if (!factory) {
-          continue;
-        }
-
-        try {
-          pageBehaviors.behaviors.push(factory());
-        } catch (e) {
-          console.error("[Behavior] Failed to create behavior:", e);
-        }
+      let behavior: Behavior;
+      try {
+        behavior = factory();
+        pageBehaviors.behaviors.push(behavior);
+      } catch (e) {
+        console.error("[Behavior] Failed to create behavior:", e);
+        return;
       }
 
-      const context: BehaviorContext = {
-        document,
-        signal: pageBehaviors.controller.signal,
-      };
-
-      // mount the behaviors
-      for (const behavior of pageBehaviors.behaviors) {
-        try {
-          behavior.mount(root, context);
-        } catch (e) {
-          console.error("[Behavior] Failed to mount behavior:", e);
-        }
+      try {
+        behavior.mount(root, context);
+      } catch (e) {
+        console.error("[Behavior] Failed to mount behavior:", e);
       }
-    });
+    };
+
+    for (const definition of matchingDefinitions) {
+      // inline
+      if ("inline" in definition) {
+        mountBehavior(definition.inline);
+        continue;
+      }
+
+      // lazy
+      let loading: Promise<BehaviorFactory>;
+      try {
+        loading = definition.load();
+      } catch (e) {
+        console.error(`[Behavior] Failed to load behavior for ${definition.selector}:`, e);
+        continue;
+      }
+
+      void loading.then(mountBehavior).catch((e) => {
+        if (
+          stopped ||
+          activePageBehaviors !== pageBehaviors ||
+          pageBehaviors.controller.signal.aborted
+        ) {
+          return;
+        }
+        console.error(`[Behavior] Failed to load behavior for ${definition.selector}:`, e);
+      });
+    }
   };
 
   document.addEventListener(APP_PAGE_EVENT.beforeSwap, destroyPage, {

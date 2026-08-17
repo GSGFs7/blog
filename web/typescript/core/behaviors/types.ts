@@ -11,7 +11,14 @@ export interface Behavior {
 
 export type BehaviorFactory = () => Behavior;
 
+export interface InlineBehavior {
+  selector: string;
+  inline: BehaviorFactory;
+}
+
 export interface LazyBehavior {
   selector: string;
   load: () => Promise<BehaviorFactory>;
 }
+
+export type BehaviorDefinition = InlineBehavior | LazyBehavior;
