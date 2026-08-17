@@ -14,6 +14,7 @@ test-results/
 __screenshots__/
 __traces__/
 target/
+artifacts/
 
 .vscode/
 .idea/
