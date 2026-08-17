@@ -3,7 +3,7 @@ import type { Behavior, BehaviorContext } from "../types";
 
 export function createZoomBehavior(): Behavior {
   // mounted images
-  const mounted = new WeakSet<HTMLImageElement>();
+  const mounted = new Set<HTMLImageElement>();
   // exit animation timers
   const classRemovalTimers = new Map<HTMLImageElement, number>();
   // behavior context
@@ -160,6 +160,7 @@ export function createZoomBehavior(): Behavior {
         }
 
         mounted.add(image);
+        image.classList.add("is-zoomable");
         image.addEventListener(
           "click",
           (event) => {
@@ -181,6 +182,10 @@ export function createZoomBehavior(): Behavior {
         image.classList.remove("is-zoomed");
       }
       classRemovalTimers.clear();
+      for (const image of mounted) {
+        image.classList.remove("is-zoomable");
+      }
+      mounted.clear();
       overlay?.remove();
       overlay = undefined;
       context = undefined;

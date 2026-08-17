@@ -41,6 +41,7 @@ test("zooms an image and closes it with Escape", async () => {
   teardown = setupBehaviors();
   await waitForBehaviorMount();
 
+  expect(image).toHaveClass("is-zoomable");
   fireEvent.click(image);
   expect(image).toHaveClass("is-zoomed");
   expect(document.getElementById("zoom-overlay")).toHaveClass("is-visible");
@@ -126,12 +127,14 @@ test("teardown restores the zoomed image and removes the overlay", async () => {
   prepareImage(image);
   teardown = setupBehaviors();
   await waitForBehaviorMount();
+  expect(image).toHaveClass("is-zoomable");
   fireEvent.click(image);
 
   teardown();
   teardown = undefined;
 
   expect(image).not.toHaveClass("is-zoomed");
+  expect(image).not.toHaveClass("is-zoomable");
   expect(image.style.transform).toBe("");
   expect(document.getElementById("zoom-overlay")).not.toBeInTheDocument();
 });

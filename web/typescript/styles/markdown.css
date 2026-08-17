@@ -629,8 +629,11 @@
 
 /* Image zoom */
 .markdown-body img {
-  cursor: zoom-in;
   transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.markdown-body img.is-zoomable {
+  cursor: zoom-in;
 }
 
 .markdown-body:has(img.is-zoomed) {
