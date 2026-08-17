@@ -200,6 +200,12 @@ def _render_metadata_image(
             ' width="{}" height="{}"', metadata["width"], metadata["height"]
         )
 
+    # "image-placeholder" behavior
+    img_class = options.img_class
+    if metadata["placeholder"]:
+        img_class += " image-placeholder"
+        img_class.strip()
+
     # render <picture>
     return format_html(
         '<picture class="{}">{}<img src="{}" alt="{}"{} class="{}" '
@@ -209,7 +215,7 @@ def _render_metadata_image(
         metadata["file_url"],
         alt_text,
         img_attributes,
-        options.img_class,
+        img_class,
         options.loading,
         options.sizes,
         options.fetch_priority,

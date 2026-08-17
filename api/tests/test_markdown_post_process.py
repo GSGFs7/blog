@@ -323,6 +323,7 @@ class TestMarkdownImageOptimization(TestCase):
         self.assertIn('type="image/avif"', html)
         self.assertIn('type="image/webp"', html)
         self.assertIn(f'src="{resource.file.url}"', html)
+        self.assertIn('class="image-placeholder"', html)
         self.assertIn("background-image:url(data:image/webp;base64,test+value)", html)
         self.assertIn("background-size:cover", html)
         self.assertNotIn("</picture?", html)

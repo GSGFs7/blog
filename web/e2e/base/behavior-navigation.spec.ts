@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-const behaviorNames = ["blog-header", "code-expander", "mobile-decoration", "zoom"] as const;
+const behaviorNames = [
+  "blog-header",
+  "code-expander",
+  "image-placeholder",
+  "mobile-decoration",
+  "zoom",
+] as const;
 
 function behaviorNameFromUrl(url: string): (typeof behaviorNames)[number] | undefined {
   const pathname = new URL(url).pathname;
@@ -33,7 +39,7 @@ test("loads behavior chunks on demand and remounts after enhanced navigation", a
   const image = page.locator("[data-blog-header-image]");
   await expect(header).toBeVisible();
   await expect.poll(() => requestedBehaviors.includes("blog-header")).toBe(true);
-  expect(requestedBehaviors).toEqual(["blog-header"]);
+  const initiallyRequestedBehaviors = [...requestedBehaviors];
 
   const initialTransform = await image.evaluate((element) => element.style.transform);
   const box = await header.boundingBox();
@@ -58,6 +64,6 @@ test("loads behavior chunks on demand and remounts after enhanced navigation", a
     .click();
   await expect(page).toHaveURL(/\/blog$/);
   await expect(page.locator("[data-blog-header]")).toBeVisible();
-  expect(requestedBehaviors).toEqual(["blog-header"]);
+  expect(requestedBehaviors).toEqual(initiallyRequestedBehaviors);
   expect(pageErrors).toEqual([]);
 });

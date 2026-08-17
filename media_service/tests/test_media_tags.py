@@ -114,9 +114,12 @@ class MediaTagsTestCase(TestCase):
         self.assertIn('data-testid="hero"', result)
 
     def test_render_image_resource(self):
-        result = render_image(self.resource, class_name="picture-cls")
+        result = render_image(
+            self.resource, class_name="picture-cls", img_class="image-cls"
+        )
         self.assertIn("<picture", result)
         self.assertIn('class="picture-cls"', result)
+        self.assertIn('class="image-cls image-placeholder"', result)
         self.assertIn(f'src="{self.resource.file.url}"', result)
         self.assertIn(
             "background-image: url(data:image/webp;base64,cGxhY2Vob2xkZXI=)",

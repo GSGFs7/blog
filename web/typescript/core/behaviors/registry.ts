@@ -15,6 +15,11 @@ export const behaviorRegistry = [
       (await import("./implementations/mobile-decoration")).createMobileDecorationBehavior,
   },
   {
+    selector: "img.image-placeholder",
+    load: async () =>
+      (await import("./implementations/image-placeholder")).createImagePlaceholderBehavior,
+  },
+  {
     selector: ".markdown-body img",
     load: async () => (await import("./implementations/zoom")).createZoomBehavior,
   },

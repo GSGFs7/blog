@@ -269,6 +269,8 @@ def optimize_images(html: str) -> str:
                 + f" background-image: url({resource.placeholder});"
                 " background-size: cover;"
             ).strip()
+            # "image-placeholder" behavior
+            attrs["class"] = f"{attrs.get('class', '')} image-placeholder".strip()
 
         source = []
         if resource.avif_file:

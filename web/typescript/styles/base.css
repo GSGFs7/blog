@@ -35,6 +35,12 @@
   padding-top: 6rem;
 }
 
+.js img.image-placeholder {
+  /* cut off the overflow blur */
+  clip-path: inset(0);
+  filter: blur(16px);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .site-main {
     transition: opacity 100ms ease-in-out;
