@@ -96,7 +96,7 @@ export function createZoomBehavior(): Behavior {
     }
 
     // calculate scaling & position
-    const padding = 64;
+    const padding = window.innerWidth <= 767 ? 16 : 64;
     const viewportScaleX = (window.innerWidth - padding * 2) / rect.width;
     const viewportScaleY = (window.innerHeight - padding * 2) / rect.height;
     const naturalScaleX = image.naturalWidth / rect.width;

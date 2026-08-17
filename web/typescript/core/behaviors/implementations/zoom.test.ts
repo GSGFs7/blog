@@ -29,6 +29,7 @@ afterEach(() => {
   teardown?.();
   teardown = undefined;
   vi.useRealTimers();
+  vi.restoreAllMocks();
   document.body.innerHTML = "";
 });
 
@@ -48,6 +49,36 @@ test("zooms an image and closes it with Escape", async () => {
   expect(document.getElementById("zoom-overlay")).not.toHaveClass("is-visible");
   vi.advanceTimersByTime(300);
   expect(image).not.toHaveClass("is-zoomed");
+});
+
+test("uses the available screen width when zooming on mobile", async () => {
+  vi.spyOn(window, "innerWidth", "get").mockReturnValue(375);
+  vi.spyOn(window, "innerHeight", "get").mockReturnValue(667);
+  document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
+  const image = document.querySelector("img")!;
+  Object.defineProperties(image, {
+    naturalHeight: { configurable: true, value: 800 },
+    naturalWidth: { configurable: true, value: 1600 },
+  });
+  vi.spyOn(image, "getBoundingClientRect").mockReturnValue({
+    bottom: 255.5,
+    height: 155.5,
+    left: 32,
+    right: 343,
+    top: 100,
+    width: 311,
+    x: 32,
+    y: 100,
+    toJSON: () => ({}),
+  });
+  teardown = setupBehaviors();
+  await waitForBehaviorMount();
+
+  fireEvent.click(image);
+
+  const scale = Number(image.style.transform.match(/scale\(([^)]+)\)/)?.[1]);
+  expect(scale).toBeCloseTo(343 / 311);
+  expect(scale).toBeGreaterThan(1);
 });
 
 test("mounts swapped images once", async () => {
