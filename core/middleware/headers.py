@@ -4,8 +4,8 @@ from django.http import HttpRequest, HttpResponse
 from django.utils.cache import has_vary_header
 
 from core.inspect import is_async
+from core.type import GetResponse
 from web.cache import private_page_response
-from web.middleware.htmx import GetResponse
 
 
 class HeadersMiddleware:

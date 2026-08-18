@@ -181,7 +181,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
-    "web.middleware.HeadersMiddleware",
+    "core.middleware.HeadersMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "core.middleware.NormalizeTrailingSlashMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",

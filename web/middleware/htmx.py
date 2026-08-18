@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from inspect import markcoroutinefunction
 from typing import cast
@@ -6,10 +6,7 @@ from typing import cast
 from django.http import HttpRequest, HttpResponse
 
 from core.inspect import is_async
-
-type SyncGetResponse = Callable[[HttpRequest], HttpResponse]
-type AsyncGetResponse = Callable[[HttpRequest], Awaitable[HttpResponse]]
-type GetResponse = SyncGetResponse | AsyncGetResponse
+from core.type import AsyncGetResponse, GetResponse, SyncGetResponse
 
 
 @dataclass(frozen=True)
@@ -62,7 +59,7 @@ class HtmxMiddleware:
             return self.__acall__(request)
 
         htmx_request = self._attach_htmx_header(request)
-        sync_get_response = cast(GetResponse, self.get_response)
+        sync_get_response = cast(SyncGetResponse, self.get_response)
         return sync_get_response(htmx_request)
 
     async def __acall__(self, request: HttpRequest) -> HttpResponse:

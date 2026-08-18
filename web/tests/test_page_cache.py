@@ -9,8 +9,8 @@ from django.urls import reverse
 from django.utils.cache import patch_vary_headers
 
 from api.models import Post
+from core.middleware import HeadersMiddleware
 from web.cache import private_page_response, public_page_response
-from web.middleware import HeadersMiddleware
 from web.views import server_error
 
 SIGNED_COOKIE_SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
@@ -108,7 +108,7 @@ class PageCacheMiddlewareTests(SimpleTestCase):
         self.factory = RequestFactory()
 
     def test_headers_middleware_runs_after_session_response_processing(self):
-        headers_index = settings.MIDDLEWARE.index("web.middleware.HeadersMiddleware")
+        headers_index = settings.MIDDLEWARE.index("core.middleware.HeadersMiddleware")
         session_index = settings.MIDDLEWARE.index(
             "django.contrib.sessions.middleware.SessionMiddleware"
         )

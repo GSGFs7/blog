@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable
 from functools import partial
 from inspect import markcoroutinefunction
 from typing import cast
@@ -9,10 +9,7 @@ from django.utils.functional import SimpleLazyObject
 from api.models import Guest, OAuthIdentity
 from api.services.oauth_session import asession_identity, session_identity
 from core.inspect import is_async
-
-type SyncGetResponse = Callable[[HttpRequest], HttpResponse]
-type AsyncGetResponse = Callable[[HttpRequest], Awaitable[HttpResponse]]
-type GetResponse = SyncGetResponse | AsyncGetResponse
+from core.type import AsyncGetResponse, GetResponse, SyncGetResponse
 
 
 def get_oauth_identity(request: HttpRequest) -> OAuthIdentity | None:

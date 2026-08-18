@@ -1,5 +1,5 @@
 from inspect import markcoroutinefunction
-from typing import Awaitable, Callable, cast
+from typing import Awaitable, cast
 
 from django.http import HttpResponse
 from django.http.request import HttpRequest
@@ -7,10 +7,7 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 
 from core.inspect import is_async
-
-type SyncGetResponse = Callable[[HttpRequest], HttpResponse]
-type AsyncGetResponse = Callable[[HttpRequest], Awaitable[HttpResponse]]
-type GetResponse = SyncGetResponse | AsyncGetResponse
+from core.type import AsyncGetResponse, GetResponse, SyncGetResponse
 
 
 class NormalizeTrailingSlashMiddleware:
