@@ -7,6 +7,6 @@ from ..schemas import (
 router = Router()
 
 
-@router.get("/", response=MessageSchema)
+@router.get("", response=MessageSchema)
 async def heath_status(request):
     return {"message": "OK"}

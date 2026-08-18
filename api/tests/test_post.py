@@ -31,7 +31,7 @@ class TestPost(TestCase):
         self.assertEqual(post.content, "test content")
 
         # test API is available
-        response = self.client.get("/api/post/")
+        response = self.client.get("/api/post")
         self.assertContains(response, post.pk, status_code=200)
 
         response = self.client.get("/api/post/ids")
@@ -50,7 +50,7 @@ class TestPost(TestCase):
         self.assertContains(response, "test content", status_code=200)
 
     def test_post_list_structure(self):
-        response = self.client.get("/api/post/")
+        response = self.client.get("/api/post")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("posts", data)
@@ -141,7 +141,7 @@ class TestPost(TestCase):
         )
         generate_post_embedding(draft.id)
 
-        response = self.client.get("/api/post/")
+        response = self.client.get("/api/post")
         data = response.json()
         self.assertFalse(any(p["id"] == draft.id for p in data["posts"]))
 

@@ -17,7 +17,7 @@ from api.schemas import (
 router = Router()
 
 
-@router.get("/", response=List[GalSchema])
+@router.get("", response=List[GalSchema])
 @paginate(paginate_as("gals", GalSchema))
 async def get_all_gal(request):
     # makesure here is MainThread

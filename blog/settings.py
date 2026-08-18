@@ -81,6 +81,8 @@ else:
         os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1, localhost")
     )
 
+APPEND_SLASH = False
+
 # CDN 和代理配置
 USE_X_FORWARDED_HOST = True  # 信任头部设置
 USE_X_FORWARDED_PORT = True
@@ -181,6 +183,7 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "web.middleware.HeadersMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "core.middleware.NormalizeTrailingSlashMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "api.middleware.OAuthGuestMiddleware",

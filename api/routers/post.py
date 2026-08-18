@@ -29,7 +29,7 @@ from core.hash import calculate_blake3_hash
 router = Router()
 
 
-@router.get("/", response=List[PostCardSchema])
+@router.get("", response=List[PostCardSchema])
 @paginate(paginate_as("posts", PostCardSchema))
 async def get_all_posts(request):
     return (

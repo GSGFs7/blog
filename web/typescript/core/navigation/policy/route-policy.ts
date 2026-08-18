@@ -1,4 +1,4 @@
-const RELOAD_PREFIXES = ["/account/", "/api/", "/not-admin/", "/prometheus/"];
+const RELOAD_PREFIXES = ["/account", "/api", "/not-admin", "/prometheus"];
 const RELOAD_PATHS = new Set([
   "/blog/feed.atom",
   "/favicon.ico",

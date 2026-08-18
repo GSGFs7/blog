@@ -255,7 +255,7 @@ def main() -> None:
         choices=["render", "endpoint", "both"],
         default="render",
     )
-    parser.add_argument("--endpoint", default="/api/health/")
+    parser.add_argument("--endpoint", default="/api/health")
     parser.add_argument("--method", choices=["get"], default="get")
     parser.add_argument("--expected-status", type=int, default=200)
     parser.add_argument(

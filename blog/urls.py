@@ -44,8 +44,8 @@ if settings.DEBUG:
     # provider static files in runasgi command
     urlpatterns += staticfiles_urlpatterns()
     # debug for 404 page
-    urlpatterns += [path("__debug__/404/", page_not_found, {"exception": Http404()})]
-    urlpatterns += [path("__debug__/500/", server_error)]
+    urlpatterns += [path("__debug__/404", page_not_found, {"exception": Http404()})]
+    urlpatterns += [path("__debug__/500", server_error)]
 
     # django-debug-toolbar
     # try:
