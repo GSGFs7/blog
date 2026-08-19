@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: https://git.gsgfs.sh/GSGFs/blog.git
-    targetRevision: HEAD
+    targetRevision: main
     path: .config/k8s/overlays/prod
     kustomize:
       patches:

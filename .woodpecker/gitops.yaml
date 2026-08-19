@@ -5,38 +5,45 @@ when:
   - event: [push, manual]
     branch: [main, woodpecker-test]
 
+concurrency: 1
+
 steps:
   - name: update-kustomize
     image: docker.io/library/archlinux:latest
     environment:
-      GITOPS_TOKEN:
-        from_secret: GITOPS_TOKEN
+      GITOPS_SSH_KEY:
+        from_secret: GITOPS_SSH_KEY
+      FORGEJO_KNOWN_HOSTS:
+        from_secret: FORGEJO_KNOWN_HOSTS
       REGISTRY_DOMAIN:
         from_secret: REGISTRY_DOMAIN
+      GITOPS_REPO_URL: ssh://git@forgejo-ssh.forgejo.svc.cluster.local/GSGFs/blog.git
     commands:
-      - pacman -Syu --noconfirm
-      - pacman -S kustomize git openssh --noconfirm
-      # Setup SSH
-      - mkdir -p ~/.ssh
-      - echo "$GITOPS_TOKEN" > ~/.ssh/id_rsa
-      - chmod 600 ~/.ssh/id_rsa
-      - ssh-keyscan codeberg.org >> ~/.ssh/known_hosts
-      # set git config
-      - git config --global user.email "woodpecker-bot@local"
-      - git config --global user.name "Woodpecker CI"
-      - git remote set-url origin git@codeberg.org:GSGFs7/blog.git
-      # update kustomize
+      # install dependencies
+      - pacman -Syu kustomize git openssh --noconfirm
+      # config ssh
+      - install -d -m 700 ~/.ssh
+      - printf '%s\n' "$GITOPS_SSH_KEY" > ~/.ssh/id_ed25519
+      - chmod 600 ~/.ssh/id_ed25519
+      - printf '%s\n' "$FORGEJO_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - chmod 644 ~/.ssh/known_hosts
+      # config git
+      - git config user.email "woodpecker-bot@git.gsgfs.sh"
+      - git config user.name "Woodpecker CI"
+      - git remote remove gitops 2>/dev/null || true
+      - git remote add gitops "$GITOPS_REPO_URL"
+      # update kustomization
       - cd .config/k8s/overlays/prod
       - kustomize edit set image blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}
       - kustomize edit set image blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}
       - kustomize edit set image blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}
       - kustomize edit set image blog-pgbouncer=$REGISTRY_DOMAIN/blog-pgbouncer:${CI_COMMIT_SHA}
-      # commit and push
+      # push
       - git add kustomization.yaml
       - |
         if ! git diff --cached --quiet; then
           git commit -m "chore(gitops): update image tags to ${CI_COMMIT_SHA:0:7} [skip ci]"
-          git push origin HEAD:${CI_COMMIT_BRANCH}
+          git push gitops HEAD:${CI_COMMIT_BRANCH}
         else
           echo "No changes to commit"
         fi

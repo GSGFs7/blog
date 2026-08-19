@@ -33,7 +33,7 @@ if [ "$DEPLOY_ENV" = "prod" ]; then
     set +a
 
     missing_keys=()
-    for key in DOMAIN ADMIN_EMAIL; do
+    for key in DOMAIN; do
         if [ ! -v "$key" ] || [ -z "${!key}" ]; then
             missing_keys+=("$key")
         fi
