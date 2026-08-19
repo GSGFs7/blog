@@ -1,32 +1,12 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: blog-traefik-config
+  name: blog
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://github.com/GSGFs7/blog.git
-    targetRevision: HEAD
-    path: .config/k8s/traefik
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: kube-system
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: blog-backend
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/GSGFs7/blog.git
+    repoURL: https://git.gsgfs.sh/GSGFs/blog.git
     targetRevision: HEAD
     path: .config/k8s/overlays/prod
     kustomize:
@@ -81,13 +61,6 @@ spec:
             - op: replace
               path: /spec/routes/0/match
               value: Host(`${DOMAIN}`) && PathRegexp(`(?i)^/(?:\.(?:env|git|svn|hg|aws|ssh)(?:$|[./])|\.DS_Store$|\.npmrc$|\.ht(?:access|passwd)$|wp-(?:admin|login|content|includes)(?:/|\.php|$)|xmlrpc\.php$|phpmyadmin(?:/|$)|pma(?:/|$)|adminer(?:\.php)?$|vendor/phpunit(?:/|$)|server-(?:status|info)$|actuator(?:/|$)|cgi-bin(?:/|$)|boaform(?:/|$)|HNAP1$|composer\.(?:json|lock)$|package(?:-lock)?\.json$|pnpm-lock\.yaml$|yarn\.lock$|static/(?:\.|.*\.map$|staticfiles\.json$|dist/manifest(?:\.[0-9a-f]+)?\.json$|ssr/(?:ssr(?:\.[0-9a-f]+)?\.mjs|solid-islands(?:\.[0-9a-f]+)?\.json)$))`)
-        - target:
-            kind: ClusterIssuer
-            name: letsencrypt-prod
-          patch: |-
-            - op: replace
-              path: /spec/acme/email
-              value: ${ADMIN_EMAIL}
   destination:
     server: https://kubernetes.default.svc # current cluster
     namespace: blog

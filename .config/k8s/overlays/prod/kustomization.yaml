@@ -5,7 +5,6 @@ namespace: blog
 resources:
 - ../../base
 - ingress.yaml
-- cluster-issuer.yaml
 - middleware-whitelist.yaml
 - middleware-scanner-block.yaml
 - middleware-compress.yaml

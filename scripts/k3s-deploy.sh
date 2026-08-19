@@ -47,10 +47,6 @@ fi
 
 echo "Deploying the $DEPLOY_ENV overlay..."
 
-if [ "$DEPLOY_ENV" = "prod" ]; then
-    ./scripts/k3s-configure-traefik.sh
-fi
-
 ./scripts/k3s-sync-secrets.sh "$DEPLOY_ENV"
 kubectl delete job blog-django-migrate --namespace=blog --ignore-not-found
 
@@ -59,7 +55,7 @@ if [ "$DEPLOY_ENV" = "dev" ]; then
 else
     # shellcheck disable=SC2016
     kubectl kustomize "$OVERLAY_DIR" \
-        | envsubst '${DOMAIN} ${ADMIN_EMAIL}' \
+        | envsubst '${DOMAIN}' \
         | kubectl apply -f -
 fi
 
