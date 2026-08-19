@@ -35,6 +35,8 @@ RUN uv sync --frozen --no-dev --no-install-project --no-cache && \
 
 # Copy project files, build frontend, and collect static
 COPY --chown=user:user . .
-RUN pnpm run build:all && \
-    uv run manage.py collectstatic --noinput && \
+RUN env DATABASE_ENGINE=sqlite3 \
+        DJANGO_SECRET_KEY=build-only \
+        FERNET_KEY=MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE= \
+        pnpm run build:all && \
     rm -rf /app/node_modules

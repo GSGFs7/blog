@@ -16,9 +16,9 @@ def get_fernet(key: str | None = None) -> MultiFernet:
     if key:
         return MultiFernet([build_fernet(key)])
 
-    current = settings.FERNET_KEY or settings.API_KEY
+    current = settings.FERNET_KEY
     if not current:
-        raise ValueError("FERNET_KEY or API_KEY is required for Fernet encryption")
+        raise ValueError("FERNET_KEY is required for Fernet encryption")
 
     old_keys = settings.FERNET_OLD_KEYS
     fernets = [build_fernet(current)]

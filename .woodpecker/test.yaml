@@ -25,6 +25,7 @@ steps:
       DEBUG: "True"
       APP_BUILD_ID: test
       DJANGO_SECRET_KEY: woodpecker_test_django_secret_key
+      FERNET_KEY: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
       DATABASE_ENGINE: postgresql
       DATABASE_NAME: woodpecker_test
       DATABASE_USER: woodpecker_test_user
@@ -39,7 +40,6 @@ steps:
       REMOTE_EMBEDDING_API_KEY:
         from_secret: EMBEDDING_API_KEY
       REMOTE_EMBEDDING_MODEL_NAME: embeddinggemma-300m
-      API_KEY: woodpecker_test_api_key
       UV_VENV_COPY: "1"
       UV_LINK_MODE: "copy"
     commands:

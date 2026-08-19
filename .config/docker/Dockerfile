@@ -55,8 +55,10 @@ COPY --chown=root:root .config/supervisor/supervisord.conf /etc/supervisor/super
 # prepare environment
 RUN mkdir -p /var/log/supervisor && \
     chown -R user /var/log/supervisor && \
-    pnpm run build:all && \
-    uv run manage.py collectstatic --noinput
+    env DATABASE_ENGINE=sqlite3 \
+        DJANGO_SECRET_KEY=build-only \
+        FERNET_KEY=MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE= \
+        pnpm run build:all
 
 EXPOSE 8000
 
