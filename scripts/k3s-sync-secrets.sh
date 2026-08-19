@@ -67,7 +67,7 @@ secret_keys=(
     S3_ENDPOINT_URL
     S3_PUBLIC_DOMAIN
     S3_SECRET_ACCESS_KEY
-    SERVER_NAME
+    DOMAIN
 )
 
 missing_keys=()

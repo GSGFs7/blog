@@ -41,7 +41,7 @@ def query_vn(id: str) -> VNDBResponse:
         "https://api.vndb.org/kana/vn",
         headers={
             "Content-Type": "application/json",
-            "User-Agent": f"Django (+https://{os.getenv('SERVER_NAME', 'Unknown')})",
+            "User-Agent": f"Django (+https://{os.getenv('DOMAIN', 'Unknown')})",
         },
         json={
             "filters": ["id", "=", id],

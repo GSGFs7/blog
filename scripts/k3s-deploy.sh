@@ -33,7 +33,7 @@ if [ "$DEPLOY_ENV" = "prod" ]; then
     set +a
 
     missing_keys=()
-    for key in BACKEND_DOMAIN ADMIN_EMAIL; do
+    for key in DOMAIN ADMIN_EMAIL; do
         if [ ! -v "$key" ] || [ -z "${!key}" ]; then
             missing_keys+=("$key")
         fi
@@ -59,7 +59,7 @@ if [ "$DEPLOY_ENV" = "dev" ]; then
 else
     # shellcheck disable=SC2016
     kubectl kustomize "$OVERLAY_DIR" \
-        | envsubst '${BACKEND_DOMAIN} ${ADMIN_EMAIL}' \
+        | envsubst '${DOMAIN} ${ADMIN_EMAIL}' \
         | kubectl apply -f -
 fi
 
