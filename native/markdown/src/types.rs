@@ -1,5 +1,6 @@
 use markdown_it::plugins::extra::front_matter::{FrontMatter, FrontMatterKind};
-use pyo3::pyclass;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 #[derive(Clone)]
 #[pyclass(name = "FrontMatter", skip_from_py_object)]
@@ -20,6 +21,41 @@ pub(crate) struct PyMarkdownOutput {
     pub(crate) html: String,
     #[pyo3(get)]
     pub(crate) frontmatter: Option<PyFrontMatter>,
+}
+
+#[pyclass(name = "RenderPlan", unsendable)]
+pub(crate) struct PyRenderPlan {
+    #[pyo3(get)]
+    pub(crate) image_checksums: Vec<String>,
+    #[pyo3(get)]
+    pub(crate) toc: Vec<Py<PyDict>>,
+    #[pyo3(get)]
+    pub(crate) frontmatter: Option<PyFrontMatter>,
+    html: String,
+}
+
+#[pymethods]
+impl PyRenderPlan {
+    #[pyo3(signature = (images = None))]
+    fn finish(&self, images: Option<&Bound<'_, PyDict>>) -> String {
+        let _ = images; // todo
+        self.html.clone()
+    }
+}
+
+impl PyRenderPlan {
+    pub(crate) fn new(
+        html: String,
+        toc: Vec<Py<PyDict>>,
+        frontmatter: Option<PyFrontMatter>,
+    ) -> Self {
+        Self {
+            image_checksums: Vec::new(),
+            toc,
+            frontmatter,
+            html,
+        }
+    }
 }
 
 impl From<&FrontMatter> for PyFrontMatter {

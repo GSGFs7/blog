@@ -4,7 +4,7 @@ from typing import Any
 from markdown_it_rs_py import MarkdownIt
 
 from .post_processors import post_process_html
-from .utils import extract_toc, parse_frontmatter
+from .utils import parse_frontmatter
 
 
 # REFAC: to rust native impl
@@ -70,21 +70,20 @@ class Markdown:
 
     def render(self, markdown: str) -> str:
         """markdown -> HTML"""
-        result = self.md.render(markdown)
-        return post_process_html(result)
+        plan = self.md.prepare(markdown)
+        return post_process_html(plan.finish())
 
     def render_with_toc(self, markdown: str) -> tuple[str, list[dict[str, Any]]]:
         """markdown -> (HTML, TOC)"""
-        ast = self.md.parse(markdown)
-        toc = extract_toc(ast.root.children)
-        html = post_process_html(ast.root.render())
-        return html, toc
+        plan = self.md.prepare(markdown, include_toc=True)
+        html = post_process_html(plan.finish())
+        return html, plan.toc
 
     def render_with_frontmatter(self, markdown: str) -> tuple[dict[str, Any], str]:
         """markdown -> frontmatter + HTML"""
-        res = self.md.render_with_frontmatter(markdown)
-        html = post_process_html(res.html)
-        if frontmatter := res.frontmatter:
+        plan = self.md.prepare(markdown, include_frontmatter=True)
+        html = post_process_html(plan.finish())
+        if frontmatter := plan.frontmatter:
             return parse_frontmatter(frontmatter), html
         return {}, html
 

@@ -1,37 +1,12 @@
-import re
 import tomllib
-from collections.abc import Sequence
 from datetime import date, datetime, time
-from html import unescape
 from math import isfinite
 from typing import Any
 
 import yaml
-from markdown_it_rs_py import FrontMatter, Node
+from markdown_it_rs_py import FrontMatter
 
-__all__ = ["extract_toc", "parse_frontmatter"]
-
-
-def extract_toc(nodes: Sequence[Node]) -> list[dict[str, Any]]:
-    toc = []
-    for node in nodes:
-        if "heading" in node.type_name.lower():
-            item = extract_toc_item(node.render())
-            if item:
-                toc.append(item)
-    return toc
-
-
-def extract_toc_item(html: str) -> dict[str, Any] | None:
-    match = re.search(r'<h(\d) id="([^"]*)">(.*)</h\1>', html)
-    if not match:
-        return None
-
-    return {
-        "level": int(match.group(1)),
-        "slug": match.group(2),
-        "text": unescape(re.sub(r"<[^>]*>", "", match.group(3))),
-    }
+__all__ = ["parse_frontmatter"]
 
 
 def _normalize_frontmatter_value(value: Any) -> Any:

@@ -4,6 +4,7 @@ from ._markdown_it_rs_py import (
     MarkdownIt,
     MarkdownOutput,
     Node,
+    RenderPlan,
     available_syntax_themes,
 )
 
@@ -14,4 +15,5 @@ __all__ = [
     "MarkdownIt",
     "MarkdownOutput",
     "available_syntax_themes",
+    "RenderPlan",
 ]

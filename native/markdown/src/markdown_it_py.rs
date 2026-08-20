@@ -2,6 +2,8 @@ use std::cell::RefCell;
 
 use markdown_it::MarkdownIt;
 use markdown_it::parser::core::Root;
+use markdown_it::plugins::cmark::block::heading::ATXHeading;
+use markdown_it::plugins::cmark::block::lheading::SetextHeader;
 use markdown_it::plugins::extra::front_matter::FrontMatter;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -13,7 +15,7 @@ use crate::plugin_registry;
 use crate::plugin_state::PluginState;
 use crate::postprocessor::PostProcessorManager;
 use crate::rules::PyCoreRule;
-use crate::types::{PyFrontMatter, PyMarkdownOutput};
+use crate::types::{PyFrontMatter, PyMarkdownOutput, PyRenderPlan};
 
 #[pyclass(name = "MarkdownIt", dict)]
 pub(crate) struct PyMarkdownIt {
@@ -87,6 +89,37 @@ impl PyMarkdownIt {
         let ast_ref = ast.borrow(py);
         let html = ast_ref.root.borrow().render();
         self.run_postprocessors(py, html)
+    }
+
+    #[pyo3(signature = (src, *, include_toc = false, include_frontmatter = false))]
+    fn prepare(
+        &self,
+        py: Python<'_>,
+        src: &str,
+        include_toc: bool,
+        include_frontmatter: bool,
+    ) -> PyResult<PyRenderPlan> {
+        let ast = self.parse(py, src)?;
+        let ast_ref = ast.borrow(py);
+        let root = ast_ref.root.borrow();
+
+        let toc = if include_toc {
+            extract_toc(py, &root)?
+        } else {
+            Vec::new()
+        };
+
+        let frontmatter = if include_frontmatter {
+            root.cast::<Root>()
+                .and_then(|root| root.ext.get::<FrontMatter>())
+                .map(PyFrontMatter::from)
+        } else {
+            None
+        };
+
+        let html = self.run_postprocessors(py, root.render())?;
+
+        Ok(PyRenderPlan::new(html, toc, frontmatter))
     }
 
     fn parse(&self, py: Python<'_>, src: &str) -> PyResult<Py<PyAst>> {
@@ -220,4 +253,37 @@ impl PyMarkdownIt {
     fn run_postprocessors(&self, py: Python<'_>, html: String) -> PyResult<String> {
         self.postprocessors.run(py, html)
     }
+}
+
+fn extract_toc(py: Python<'_>, root: &markdown_it::Node) -> PyResult<Vec<Py<PyDict>>> {
+    let mut toc = Vec::new();
+    for node in &root.children {
+        let level = node
+            .cast::<ATXHeading>()
+            .map(|heading| heading.level)
+            .or_else(|| node.cast::<SetextHeader>().map(|heading| heading.level));
+        let Some(level) = level else {
+            continue;
+        };
+        let Some(slug) = node
+            .attrs
+            .iter()
+            // must have a id attr
+            .find(|(name, _)| *name == "id")
+            .map(|(_, value)| value.clone())
+        else {
+            continue;
+        };
+
+        // e.g.
+        // [{"level": 1, "slug": "first", "text": "First"},
+        //  {"level": 2, "slug": "second", "text": "Second"}]
+        let item = PyDict::new(py);
+        item.set_item("level", level)?;
+        item.set_item("slug", slug)?;
+        item.set_item("text", node.collect_text())?;
+        toc.push(item.unbind());
+    }
+
+    Ok(toc)
 }

@@ -1,6 +1,6 @@
 import unittest
 
-from markdown_it_rs_py import MarkdownIt
+from markdown_it_rs_py import MarkdownIt, RenderPlan
 
 
 class MarkdownItTests(unittest.TestCase):
@@ -84,6 +84,24 @@ class MarkdownItTests(unittest.TestCase):
         self.assertEqual(len(root.children), 1)
         self.assertTrue(root.type_name.endswith("Root"))
         self.assertEqual(root.children[0].render(), "<h1>heading</h1>\n")
+
+    def test_prepare_returns_render_plan(self):
+        plan = MarkdownIt(heading_anchors=True).prepare("# heading", include_toc=True)
+
+        self.assertIsInstance(plan, RenderPlan)
+        self.assertEqual(plan.image_checksums, [])
+        self.assertEqual(
+            plan.toc,
+            [{"level": 1, "slug": "heading", "text": "heading"}],
+        )
+        self.assertIsNone(plan.frontmatter)
+        self.assertEqual(plan.finish(), '<h1 id="heading">heading</h1>\n')
+        self.assertEqual(plan.finish({"checksum": {"src": "image.jpg"}}), plan.finish())
+        self.assertEqual(plan.finish(None), plan.finish())
+
+        md = MarkdownIt()
+        self.assertFalse(hasattr(md, "finish_html"))
+        self.assertFalse(hasattr(md, "prepare_html"))
 
 
 if __name__ == "__main__":
