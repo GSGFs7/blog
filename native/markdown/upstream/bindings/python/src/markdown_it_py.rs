@@ -126,18 +126,6 @@ impl PyMarkdownIt {
         Ok(PyMarkdownOutput { html, frontmatter })
     }
 
-    fn syntax_theme_css(&self) -> Option<String> {
-        #[cfg(feature = "syntect")]
-        {
-            markdown_it::plugins::extra::syntect::theme_css(&self.inner)
-        }
-
-        #[cfg(not(feature = "syntect"))]
-        {
-            None
-        }
-    }
-
     #[pyo3(name = "use", signature = (plugin, *args, **kwargs))]
     fn use_plugin(
         slf: Py<Self>,

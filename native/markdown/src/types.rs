@@ -9,18 +9,6 @@ pub(crate) struct PyFrontMatter {
     kind: String,
     #[pyo3(get)]
     raw: String,
-    #[pyo3(get)]
-    start_line: usize,
-    #[pyo3(get)]
-    end_line: usize,
-}
-
-#[pyclass(name = "MarkdownOutput")]
-pub(crate) struct PyMarkdownOutput {
-    #[pyo3(get)]
-    pub(crate) html: String,
-    #[pyo3(get)]
-    pub(crate) frontmatter: Option<PyFrontMatter>,
 }
 
 #[pyclass(name = "RenderPlan", unsendable)]
@@ -68,8 +56,6 @@ impl From<&FrontMatter> for PyFrontMatter {
         Self {
             kind: kind.to_owned(),
             raw: front_matter.raw.clone(),
-            start_line: front_matter.start_line,
-            end_line: front_matter.end_line,
         }
     }
 }

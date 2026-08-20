@@ -4,24 +4,27 @@ from markdown_it_rs_py import MarkdownIt
 
 
 class PluginTests(unittest.TestCase):
-    def test_enable_mark_plugin(self):
-        md = MarkdownIt().use("mark")
+    def test_mark_plugin(self):
+        md = MarkdownIt()
         self.assertEqual(
-            md.render("==highlighted=="), "<p><mark>highlighted</mark></p>\n"
+            md.prepare("==highlighted==").finish(),
+            "<p><mark>highlighted</mark></p>\n",
         )
 
-    def test_enable_tasklist_plugin(self):
-        md = MarkdownIt().use("tasklist")
-        html = md.render("- [x] done")
+    def test_tasklist_plugin(self):
+        html = MarkdownIt().prepare("- [x] done").finish()
 
         self.assertIn('class="contains-task-list"', html)
         self.assertIn('class="task-list-item"', html)
         self.assertIn('type="checkbox" checked=""', html)
         self.assertNotIn("[x]", html)
 
-    def test_enable_footnote_plugin(self):
-        md = MarkdownIt().use("footnote")
-        html = md.render("Here is a footnote.[^a]\n\n[^a]: Footnote text.")
+    def test_footnote_plugin(self):
+        html = (
+            MarkdownIt()
+            .prepare("Here is a footnote.[^a]\n\n[^a]: Footnote text.")
+            .finish()
+        )
 
         self.assertIn('class="footnote-ref"', html)
         self.assertIn('href="#fn1"', html)
@@ -29,48 +32,27 @@ class PluginTests(unittest.TestCase):
         self.assertIn("Footnote text.", html)
         self.assertNotIn("[^a]:", html)
 
-    def test_enable_directives_plugin(self):
-        md = MarkdownIt().use("directives")
+    def test_directives_plugin(self):
+        md = MarkdownIt()
 
         self.assertEqual(
-            md.render('hello :name{a="b"} world'),
+            md.prepare('hello :name{a="b"} world').finish(),
             '<p>hello <span class="directive name" a="b"></span> world</p>\n',
         )
         self.assertEqual(
-            md.render('::name{cia="llo"}'),
+            md.prepare('::name{cia="llo"}').finish(),
             '<div class="directive name" cia="llo"></div>\n',
         )
         self.assertEqual(
-            md.render(':::name{cia="llo"}\nworld\n:::'),
+            md.prepare(':::name{cia="llo"}\nworld\n:::').finish(),
             '<div class="directive name" cia="llo">\n<p>world</p>\n</div>\n',
         )
 
     def test_directive_attributes_are_not_sanitized(self):
-        md = MarkdownIt().use("directives")
-
         self.assertEqual(
-            md.render(':name{onclick="alert(1)"}'),
+            MarkdownIt().prepare(':name{onclick="alert(1)"}').finish(),
             '<p><span class="directive name" onclick="alert(1)"></span></p>\n',
         )
-
-    def test_enable_directives_from_constructor(self):
-        md = MarkdownIt(directives=True)
-
-        self.assertEqual(
-            md.render('hello :name{a="b"} world'),
-            '<p>hello <span class="directive name" a="b"></span> world</p>\n',
-        )
-
-    def test_enable_tasklist_and_footnote_from_constructor(self):
-        md = MarkdownIt(tasklist=True, footnote=True)
-
-        tasklist_html = md.render("- [x] done")
-        footnote_html = md.render("Here is a footnote.[^a]\n\n[^a]: Footnote text.")
-
-        self.assertIn('class="contains-task-list"', tasklist_html)
-        self.assertIn('type="checkbox" checked=""', tasklist_html)
-        self.assertIn('class="footnote-ref"', footnote_html)
-        self.assertIn('href="#fn1"', footnote_html)
 
 
 if __name__ == "__main__":

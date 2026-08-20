@@ -1,78 +1,21 @@
 use markdown_it::MarkdownIt;
-use pyo3::PyResult;
 
-use crate::plugin_state::PluginState;
-use crate::plugins;
-
-pub(crate) struct BuiltMarkdownIt {
-    pub(crate) inner: MarkdownIt,
-    pub(crate) plugins: PluginState,
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn build(
-    enable_html: bool,
-    enable_linkify: bool,
-    enable_math: bool,
-    enable_frontmatter: bool,
-    enable_typographer: bool,
-    enable_sourcepos: bool,
-    enable_heading_anchors: bool,
-    enable_directives: bool,
-    enable_tasklist: bool,
-    enable_footnote: bool,
-    enable_syntax_highlighting: bool,
-    syntax_theme: Option<&str>,
-    syntax_classed: bool,
-) -> PyResult<BuiltMarkdownIt> {
-    // avoid warning when syntect feature is disabled
-    #[cfg(not(feature = "syntect"))]
-    let _ = (syntax_theme, syntax_classed);
-
+pub(crate) fn build() -> MarkdownIt {
     let mut inner = MarkdownIt::new();
-    let mut state = PluginState::new();
-
-    if enable_frontmatter {
-        plugins::frontmatter::enable_with_max_lines(&mut inner, &mut state, None)?;
-    }
-    plugins::builtin::commonmark(&mut inner, &mut state, "commonmark", None)?;
-    plugins::builtin::tables(&mut inner, &mut state, "tables", None)?;
-    plugins::builtin::strikethrough(&mut inner, &mut state, "strikethrough", None)?;
-    plugins::builtin::mark(&mut inner, &mut state, "mark", None)?;
-    plugins::builtin::beautify_links(&mut inner, &mut state, "beautify-links", None)?;
-    if enable_directives {
-        plugins::builtin::directives(&mut inner, &mut state, "directives", None)?;
-    }
-    if enable_tasklist {
-        plugins::builtin::tasklist(&mut inner, &mut state, "tasklist", None)?;
-    }
-    if enable_footnote {
-        plugins::builtin::footnote(&mut inner, &mut state, "footnote", None)?;
-    }
-    if enable_heading_anchors {
-        plugins::builtin::heading_anchors(&mut inner, &mut state, "heading-anchors", None)?;
-    }
-    if enable_html {
-        plugins::builtin::html(&mut inner, &mut state, "html", None)?;
-    }
-    if enable_linkify {
-        plugins::linkify::enable(&mut inner, &mut state, None)?;
-    }
-    if enable_math {
-        plugins::builtin::math(&mut inner, &mut state, "math", None)?;
-    }
-    if enable_typographer {
-        plugins::typographer::enable(&mut inner, &mut state, None)?;
-    }
-    if enable_sourcepos {
-        plugins::builtin::sourcepos(&mut inner, &mut state, "sourcepos", None)?;
-    }
-    if enable_syntax_highlighting {
-        plugins::syntect::enable_with_config(&mut inner, &mut state, syntax_theme, syntax_classed)?;
-    }
-
-    Ok(BuiltMarkdownIt {
-        inner,
-        plugins: state,
-    })
+    markdown_it::plugins::extra::front_matter::add(&mut inner);
+    markdown_it::plugins::cmark::add(&mut inner);
+    markdown_it::plugins::extra::tables::add(&mut inner);
+    markdown_it::plugins::extra::strikethrough::add(&mut inner);
+    markdown_it::plugins::extra::mark::add(&mut inner);
+    markdown_it::plugins::extra::beautify_links::add(&mut inner);
+    markdown_it::plugins::directives::add(&mut inner);
+    markdown_it::plugins::extra::tasklist::add(&mut inner);
+    markdown_it::plugins::extra::footnote::add(&mut inner);
+    markdown_it::plugins::extra::heading_anchors::add(&mut inner);
+    markdown_it::plugins::html::add(&mut inner);
+    markdown_it::plugins::extra::linkify::add(&mut inner);
+    markdown_it::plugins::extra::math::add(&mut inner);
+    markdown_it::plugins::extra::syntect::add(&mut inner);
+    markdown_it::plugins::extra::syntect::set_to_classed(&mut inner);
+    inner
 }
