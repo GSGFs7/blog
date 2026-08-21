@@ -10,7 +10,7 @@ class MarkdownItTests(unittest.TestCase):
         self.assertIn("hello<br>world", html)
         self.assertIn('<span class="math-inline">', html)
 
-    def test_prepare_returns_render_plan(self):
+    def test_prepare_returns_render_plan_metadata(self):
         plan = MarkdownIt().prepare("# heading", include_toc=True)
 
         self.assertIsInstance(plan, RenderPlan)
@@ -20,9 +20,34 @@ class MarkdownItTests(unittest.TestCase):
             [{"level": 1, "slug": "heading", "text": "heading"}],
         )
         self.assertIsNone(plan.frontmatter)
-        self.assertEqual(plan.finish(), '<h1 id="heading">heading</h1>\n')
-        self.assertEqual(plan.finish({"checksum": {"src": "image.jpg"}}), plan.finish())
-        self.assertEqual(plan.finish(None), plan.finish())
+
+    def test_finish_renders_and_consumes_plan(self):
+        plan = MarkdownIt().prepare("# heading")
+
+        self.assertEqual(
+            plan.finish(),
+            '<h1 id="heading">heading</h1>\n',
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "render plan already finished",
+        ):
+            plan.finish()
+
+    def test_finish_accepts_image_data(self):
+        expected = '<h1 id="heading">heading</h1>\n'
+
+        cases = (
+            None,
+            {},
+            {"checksum": {"src": "image.jpg"}},
+        )
+
+        for images in cases:
+            with self.subTest(images=images):
+                plan = MarkdownIt().prepare("# heading")
+                self.assertEqual(plan.finish(images), expected)
 
 
 if __name__ == "__main__":

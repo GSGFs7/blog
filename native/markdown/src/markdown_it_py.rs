@@ -45,9 +45,7 @@ impl PyMarkdownIt {
             None
         };
 
-        let html = root.render();
-
-        Ok(PyRenderPlan::new(html, toc, frontmatter))
+        Ok(PyRenderPlan::new(root, toc, frontmatter))
     }
 }
 

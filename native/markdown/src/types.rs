@@ -1,4 +1,6 @@
+use markdown_it::Node;
 use markdown_it::plugins::extra::front_matter::{FrontMatter, FrontMatterKind};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -11,41 +13,6 @@ pub(crate) struct PyFrontMatter {
     raw: String,
 }
 
-#[pyclass(name = "RenderPlan", unsendable)]
-pub(crate) struct PyRenderPlan {
-    #[pyo3(get)]
-    pub(crate) image_checksums: Vec<String>,
-    #[pyo3(get)]
-    pub(crate) toc: Vec<Py<PyDict>>,
-    #[pyo3(get)]
-    pub(crate) frontmatter: Option<PyFrontMatter>,
-    html: String,
-}
-
-#[pymethods]
-impl PyRenderPlan {
-    #[pyo3(signature = (images = None))]
-    fn finish(&self, images: Option<&Bound<'_, PyDict>>) -> String {
-        let _ = images; // todo
-        self.html.clone()
-    }
-}
-
-impl PyRenderPlan {
-    pub(crate) fn new(
-        html: String,
-        toc: Vec<Py<PyDict>>,
-        frontmatter: Option<PyFrontMatter>,
-    ) -> Self {
-        Self {
-            image_checksums: Vec::new(),
-            toc,
-            frontmatter,
-            html,
-        }
-    }
-}
-
 impl From<&FrontMatter> for PyFrontMatter {
     fn from(front_matter: &FrontMatter) -> Self {
         let kind = match front_matter.kind {
@@ -56,6 +23,47 @@ impl From<&FrontMatter> for PyFrontMatter {
         Self {
             kind: kind.to_owned(),
             raw: front_matter.raw.clone(),
+        }
+    }
+}
+
+#[pyclass(name = "RenderPlan", unsendable)]
+pub(crate) struct PyRenderPlan {
+    // one-time consumption
+    root: Option<Node>,
+    #[pyo3(get)]
+    pub(crate) image_checksums: Vec<String>,
+    #[pyo3(get)]
+    pub(crate) toc: Vec<Py<PyDict>>,
+    #[pyo3(get)]
+    pub(crate) frontmatter: Option<PyFrontMatter>,
+}
+
+#[pymethods]
+impl PyRenderPlan {
+    #[pyo3(signature = (images = None))]
+    fn finish(&mut self, images: Option<&Bound<'_, PyDict>>) -> PyResult<String> {
+        let root = self
+            .root
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("render plan already finished"))?;
+
+        let _ = images; // todo
+        Ok(root.render())
+    }
+}
+
+impl PyRenderPlan {
+    pub(crate) fn new(
+        root: Node,
+        toc: Vec<Py<PyDict>>,
+        frontmatter: Option<PyFrontMatter>,
+    ) -> Self {
+        Self {
+            root: Some(root),
+            image_checksums: Vec::new(),
+            toc,
+            frontmatter,
         }
     }
 }
