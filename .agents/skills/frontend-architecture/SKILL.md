@@ -1,6 +1,6 @@
 ---
 name: frontend-architecture
-description: Apply this project's hybrid Django, HTMX, Native Navigation API, Solid islands, and Vite frontend architecture. Use when planning, implementing, reviewing, or debugging public frontend changes in web views, templates, TypeScript, styles, navigation, behaviors, islands, SSR, Markdown directives, frontend tests, or Vite configuration.
+description: Rules for changing this project's public frontend (Django templates/views, HTMX fragments, TypeScript behaviors/islands, navigation lifecycle, SSR, Markdown directives, Vite config, frontend tests). Load ONLY when the task actually edits frontend source code or runs frontend checks. Do not load for frontend questions, reviews, or debugging that involve no code changes.
 ---
 
 # Frontend Architecture
@@ -9,7 +9,7 @@ Preserve the project's server-first, progressively enhanced frontend while makin
 
 ## Start Every Task
 
-1. Read [references/architecture.md](references/architecture.md) completely before changing frontend code.
+1. Read [references/architecture.md](references/architecture.md) before changing frontend code if you have not already read it this session; for small, single-layer changes you may rely on the rules below instead.
 2. Inspect the affected implementation, nearby tests, and any scoped `AGENTS.md` files.
 3. Choose the smallest responsible layer before writing code.
 4. Preserve the navigation lifecycle and no-JavaScript baseline.
