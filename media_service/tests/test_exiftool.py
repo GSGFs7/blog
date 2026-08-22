@@ -22,7 +22,6 @@ class ExifToolTest(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        super().setUpClass()
         if not SyncExifTool.is_available():
             raise unittest.SkipTest("exiftool is not available")
 
@@ -33,6 +32,8 @@ class ExifToolTest(TestCase):
             cls.test_image_data = resp.content
         except Exception as e:
             raise unittest.SkipTest(f"Failed to fetch image: {e}")
+
+        super().setUpClass()
 
     @classmethod
     def tearDownClass(cls):
