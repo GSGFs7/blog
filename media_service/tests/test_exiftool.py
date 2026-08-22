@@ -134,7 +134,6 @@ class AsyncExifToolTest(unittest.IsolatedAsyncioTestCase):
             await instance.terminate()
 
         AsyncExifTool._instance = None
-        AsyncExifTool._lock = asyncio.Lock()
 
     async def test_async_single_instance(self):
         et1 = AsyncExifTool()

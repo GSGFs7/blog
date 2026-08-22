@@ -184,189 +184,36 @@ class SyncExifTool:
             return False
 
 
+# async subprocess will case some threading issue, sync is enough.
+# it only reproduced in the test env, prod unaffected. (typical asgi only one loop)
 class AsyncExifTool:
-    # class attribute
     _instance = None
-    _lock = asyncio.Lock()
-    _is_available = None
-
-    # instance attribute
-    process: asyncio.subprocess.Process | None
-    _counter: int
-    _loop: asyncio.AbstractEventLoop | None
 
     def __new__(cls, *args, **kwargs):
-        # in classic ASGI python env
-        # this sync function will run in main thread (native atomicity)
         if cls._instance is None:
             cls._instance = super(AsyncExifTool, cls).__new__(cls)
-            cls._instance.process = None
-            cls._instance._counter = 0
-            # prevent calling across event loops
-            # in product, there is only one event loop normally
-            cls._instance._loop = None
         return cls._instance
 
-    async def _start_process(self):
-        current_loop = asyncio.get_running_loop()
-        if self.process is not None and self.process.returncode is None:
-            if self._loop is current_loop:
-                return
-            # expose problems in advance
-            raise RuntimeError("AsyncExifTool is still running on another event loop")
-
-        try:
-            args = ["exiftool", "-stay_open", "True", "-@", "-"]
-            self.process = await asyncio.create_subprocess_exec(
-                *args,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            self._loop = current_loop
-        except FileNotFoundError:
-            logger.info("ExifTool not found. Some features will be disabled.")
-            self.process = None
-
-    async def _ensure_process(self):
-        current_loop = asyncio.get_running_loop()
-        if (
-            self.process is None
-            or self.process.returncode is not None
-            or self._loop != current_loop
-        ):
-            await self._start_process()
-        if self.process is None:
-            raise RuntimeError("ExifTool process failed to start.")
-
-    async def _execute(self, *args: str) -> str:
-        """core execute logic, without lock"""
-
-        await self._ensure_process()
-
-        try:
-            self._counter += 1
-            exec_id = self._counter
-            sentinel = f"{{ready{exec_id}}}".encode()
-
-            cmd = "\n".join(args) + "\n" + f"-execute{exec_id}\n"
-            self.process.stdin.write(cmd.encode())
-            await self.process.stdin.drain()
-
-            response = bytearray()
-            while True:
-                chunk = await self.process.stdout.read(4096)
-                if not chunk:
-                    break
-                response.extend(chunk)
-                if sentinel in response:
-                    break
-
-            return (
-                response.decode("utf-8", errors="ignore")
-                .replace(f"{{ready{exec_id}}}", "")
-                .strip()
-            )
-        except Exception as e:
-            await self.terminate()
-            raise e
+    @property
+    def process(self) -> subprocess.Popen | None:
+        instance = SyncExifTool._instance
+        return instance.process if instance is not None else None
 
     async def execute(self, *args: str) -> str:
         """Execute any ExifTool command."""
 
-        async with self._lock:
-            return await self._execute(*args)
+        return await asyncio.to_thread(SyncExifTool().execute, *args)
 
     async def clean(self, data: IO[bytes], filename: str | None = None) -> BytesIO:
         """clean image EXIF data"""
 
-        async with self._lock:
-            tmp_base = (
-                "/dev/shm"
-                if os.path.exists("/dev/shm") and os.access("/dev/shm", os.W_OK)
-                else None
-            )
-
-            tmp_dir = await asyncio.to_thread(
-                tempfile.mkdtemp, dir=tmp_base, prefix="blog-async-exif-"
-            )
-
-            try:
-                ext = os.path.splitext(filename)[-1] if filename else ""
-                tmp_in = os.path.join(tmp_dir, f"input{ext}")
-                tmp_out = os.path.join(tmp_dir, f"output{ext}")
-
-                def _prepare():
-                    if hasattr(data, "seekable") and data.seekable():
-                        data.seek(0)
-                    with open(tmp_in, "wb") as f:
-                        # noinspection PyTypeChecker
-                        shutil.copyfileobj(data, f)
-
-                await asyncio.to_thread(_prepare)
-
-                # execute without lock
-                response = await self._execute("-all=", tmp_in, "-o", tmp_out)
-
-                def _read():
-                    if not os.path.exists(tmp_out):
-                        raise RuntimeError(f"ExifTool failed: {response}")
-                    with open(tmp_out, "rb") as f:
-                        return BytesIO(f.read())
-
-                return await asyncio.to_thread(_read)
-            except Exception as e:
-                # reset
-                await self.terminate()
-                raise e
-            finally:
-                await asyncio.to_thread(
-                    lambda: shutil.rmtree(tmp_dir, ignore_errors=True)
-                )
+        return await asyncio.to_thread(SyncExifTool().clean, data, filename)
 
     async def terminate(self):
-        process: asyncio.subprocess.Process | None = self.process
-        owner_loop: asyncio.AbstractEventLoop = self._loop
-
-        self.process = None
-        self._loop = None
-        if process is None:
-            return
-
-        current_loop = asyncio.get_running_loop()
-        if owner_loop is not current_loop:
-            raise RuntimeError(
-                "AsyncExifTool must be terminated on the event loop that created it"
-            )
-
-        try:
-            if process.stdin is not None:
-                process.stdin.write(b"-stay_open\nFalse\n")
-                await process.stdin.drain()
-                process.stdin.close()
-
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
+        instance = SyncExifTool._instance
+        if instance is not None:
+            await asyncio.to_thread(instance.terminate)
 
     @classmethod
     async def is_available(cls) -> bool:
-        # lru_cache not support async
-        # use a class var store the result
-        if cls._is_available is not None:
-            return cls._is_available
-
-        try:
-            args = ["exiftool", "-ver"]
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await process.communicate()
-            cls._is_available = process.returncode == 0
-        except Exception:
-            cls._is_available = False
-
-        return cls._is_available
+        return await asyncio.to_thread(SyncExifTool.is_available)
