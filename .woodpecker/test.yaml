@@ -43,19 +43,31 @@ steps:
       UV_VENV_COPY: "1"
       UV_LINK_MODE: "copy"
     commands:
+      # env setup
       - pacman -Syu base-devel uv git python perl-image-exiftool nodejs pnpm chromium firefox --noconfirm
-      # fix exiftool path
-      - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool
+      - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool # fix exiftool path
       - pnpm install --frozen-lockfile
       - pnpm exec playwright install
       - uv sync --frozen
-      - uv run manage.py migrate
+
+      # static analysis
+      - uv run ruff check .
+      - uv run ruff format --check .
+      - pnpm run fmt:check
       - pnpm run typecheck
       - pnpm run lint
+
+      # database setup
+      - uv run manage.py migrate
+      - uv run manage.py makemigrations --check --dry-run
+
+      # build and unit tests
       - pnpm run build:all
       - pnpm run test --coverage
-      - uv run coverage run manage.py test -v 2
+      - uv run python -W default -m coverage run manage.py test -v 2
       - uv run coverage xml -i
+
+      # e2e tests
       - pnpm run test:e2e:base:htmx
       - pnpm run test:e2e:htmx
       - pnpm run test:e2e:base:native
