@@ -101,7 +101,7 @@ class SyncExifTool:
         with self._lock:
             return self._execute(*args)
 
-    def clean(self, data: IO[bytes], filename: str = None) -> BytesIO:
+    def clean(self, data: IO[bytes], filename: str | None = None) -> BytesIO:
         """clean image EXIF data"""
 
         with self._lock:
@@ -140,18 +140,34 @@ class SyncExifTool:
                     return BytesIO(f.read())
 
     def terminate(self):
-        if self.process:
+        process = self.process
+
+        self.process = None
+        if process is None:
+            return
+
+        try:
+            if process.stdin is not None:
+                try:
+                    process.stdin.write(b"-stay_open\nFalse\n")
+                    process.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    pass
+                finally:
+                    process.stdin.close()
+
             try:
-                self.process.stdin.write(b"-stay_open\nFalse\n")
-                self.process.stdin.flush()
-                self.process.terminate()
-                self.process.wait(timeout=5)
-            except Exception:
-                if self.process:
-                    self.process.kill()
-                    self.process.wait()
-            finally:
-                self.process = None
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
 
     @staticmethod
     @lru_cache(1)
@@ -193,12 +209,11 @@ class AsyncExifTool:
 
     async def _start_process(self):
         current_loop = asyncio.get_running_loop()
-        if (
-            self.process is not None
-            and self.process.returncode is None
-            and self._loop == current_loop
-        ):
-            return
+        if self.process is not None and self.process.returncode is None:
+            if self._loop is current_loop:
+                return
+            # expose problems in advance
+            raise RuntimeError("AsyncExifTool is still running on another event loop")
 
         try:
             args = ["exiftool", "-stay_open", "True", "-@", "-"]
@@ -262,7 +277,7 @@ class AsyncExifTool:
         async with self._lock:
             return await self._execute(*args)
 
-    async def clean(self, data: IO[bytes], filename: str = None) -> BytesIO:
+    async def clean(self, data: IO[bytes], filename: str | None = None) -> BytesIO:
         """clean image EXIF data"""
 
         async with self._lock:
@@ -310,29 +325,30 @@ class AsyncExifTool:
                 )
 
     async def terminate(self):
-        if self.process:
-            # If the process belongs to a dead/different loop, don't try async terminate
-            try:
-                current_loop = asyncio.get_running_loop()
-                if self._loop != current_loop:
-                    self.process = None
-                    return
-            except RuntimeError:  # No running loop
-                self.process = None
-                return
+        process: asyncio.subprocess.Process | None = self.process
+        owner_loop: asyncio.AbstractEventLoop = self._loop
 
-            try:
-                if self.process.stdin:
-                    self.process.stdin.write(b"-stay_open\nFalse\n")
-                    await self.process.stdin.drain()
-                self.process.terminate()
-                await asyncio.wait_for(self.process.wait(), timeout=5)
-            except Exception:
-                if self.process:
-                    self.process.kill()
-                    await self.process.wait()
-            finally:
-                self.process = None
+        self.process = None
+        self._loop = None
+        if process is None:
+            return
+
+        current_loop = asyncio.get_running_loop()
+        if owner_loop is not current_loop:
+            raise RuntimeError(
+                "AsyncExifTool must be terminated on the event loop that created it"
+            )
+
+        try:
+            if process.stdin is not None:
+                process.stdin.write(b"-stay_open\nFalse\n")
+                await process.stdin.drain()
+                process.stdin.close()
+
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
 
     @classmethod
     async def is_available(cls) -> bool:

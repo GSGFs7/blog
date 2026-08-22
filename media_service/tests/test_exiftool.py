@@ -34,6 +34,16 @@ class ExifToolTest(TestCase):
         except Exception as e:
             raise unittest.SkipTest(f"Failed to fetch image: {e}")
 
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            instance = SyncExifTool._instance
+            if instance is not None:
+                instance.terminate()
+        finally:
+            SyncExifTool._instance = None
+            super().tearDownClass()
+
     def test_single_instance(self):
         et1 = SyncExifTool()
         et2 = SyncExifTool()
@@ -89,6 +99,17 @@ class ExifToolTest(TestCase):
         et.clean(buffer, filename="test.png")
         self.assertEqual(et.process.pid, process_id)
 
+    def test_terminate_closes_process_pipes(self):
+        et = SyncExifTool()
+        process = et.process
+
+        et.terminate()
+
+        self.assertIsNone(et.process)
+        self.assertIsNotNone(process.returncode)
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.stdout.closed)
+
 
 class AsyncExifToolTest(unittest.IsolatedAsyncioTestCase):
     test_image_data = None
@@ -106,6 +127,14 @@ class AsyncExifToolTest(unittest.IsolatedAsyncioTestCase):
             cls.test_image_data = resp.content
         except Exception as e:
             raise unittest.SkipTest(f"Failed to fetch image: {e}")
+
+    async def asyncTearDown(self):
+        instance = AsyncExifTool._instance
+        if instance is not None:
+            await instance.terminate()
+
+        AsyncExifTool._instance = None
+        AsyncExifTool._lock = asyncio.Lock()
 
     async def test_async_single_instance(self):
         et1 = AsyncExifTool()
