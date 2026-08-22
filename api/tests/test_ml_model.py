@@ -60,11 +60,17 @@ class FakeClient:
         self.posts.append((endpoint, json))
         return self.response
 
+    def close(self):
+        self.is_closed = True
+
 
 class FakeAsyncClient(FakeClient):
     async def post(self, endpoint, json):
         self.posts.append((endpoint, json))
         return self.response
+
+    async def aclose(self):
+        self.is_closed = True
 
 
 class CreatedClient:
@@ -75,13 +81,22 @@ class CreatedClient:
         self.is_closed = False
         self.__class__.instances.append(self)
 
+    def close(self):
+        self.is_closed = True
+
 
 class CreatedAsyncClient(CreatedClient):
     instances = []
 
+    async def aclose(self):
+        self.is_closed = True
+
 
 def _reset_all_singletons():
     LocalEmbedding._instance = None
+    instance = RemoteEmbedding._instance
+    if instance is not None:
+        instance.close()
     RemoteEmbedding._instance = None
 
 
@@ -324,6 +339,30 @@ class RemoteEmbeddingTest(_EmbeddingModelMixin, SimpleTestCase):
             async_replacement = model._get_aclient()
             self.assertIsNot(async_replacement, async_client)
             self.assertEqual(len(CreatedAsyncClient.instances), 2)
+
+    def test_close_releases_sync_client(self):
+        model = RemoteEmbedding()
+        client = FakeClient(FakeResponse({}))
+        model.client = client
+
+        model.close()
+
+        self.assertTrue(client.is_closed)
+        self.assertIsNone(model.client)
+
+    def test_aclose_releases_both_clients(self):
+        model = RemoteEmbedding()
+        client = FakeClient(FakeResponse({}))
+        async_client = FakeAsyncClient(FakeResponse({}))
+        model.client = client
+        model.aclient = async_client
+
+        async_to_sync(model.aclose)()
+
+        self.assertTrue(client.is_closed)
+        self.assertTrue(async_client.is_closed)
+        self.assertIsNone(model.client)
+        self.assertIsNone(model.aclient)
 
 
 class GetMLModelTest(SimpleTestCase):

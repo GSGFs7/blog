@@ -2,7 +2,7 @@ import logging
 import os
 
 from celery import Celery
-from celery.signals import worker_process_init
+from celery.signals import worker_process_init, worker_process_shutdown
 
 logger = logging.getLogger(__name__)
 
@@ -38,3 +38,13 @@ def preload_ml_model(sender, **kwargs):
             logger.warning("ML model preloaded failed.")
     except Exception as e:
         logger.warning(f"ML model preload failed: {e}")
+
+
+@worker_process_shutdown.connect
+def close_ml_model(sender, **kwargs):
+    from api.ml_model import RemoteEmbedding
+
+    model = RemoteEmbedding._instance
+    if model is not None:
+        model.close()
+        RemoteEmbedding._instance = None

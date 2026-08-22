@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from threading import Lock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -40,7 +40,7 @@ class EmbeddingProvider(ABC):
 
 class LocalEmbedding(EmbeddingProvider):
     # class attribute
-    _instance: "LocalEmbedding" = None
+    _instance: Optional["LocalEmbedding"] = None
     _lock = Lock()
 
     # instance attribute
@@ -84,7 +84,7 @@ class LocalEmbedding(EmbeddingProvider):
 
 
 class RemoteEmbedding(EmbeddingProvider):
-    _instance: "RemoteEmbedding" = None
+    _instance: Optional["RemoteEmbedding"] = None
     _lock = Lock()
 
     OPENAI_EMBEDDINGS_ENDPOINT = "/embeddings"
@@ -203,6 +203,20 @@ class RemoteEmbedding(EmbeddingProvider):
             self.aclient: AsyncClient = httpx2.AsyncClient(**self._client_options)
         # noinspection PyTypeChecker
         return self.aclient
+
+    def close(self) -> None:
+        client = self.client
+        self.client = None
+        if client is not None and not client.is_closed:
+            client.close()
+
+    async def aclose(self) -> None:
+        self.close()
+
+        client = self.aclient
+        self.aclient = None
+        if client is not None and not client.is_closed:
+            await client.aclose()
 
 
 def get_ml_model() -> EmbeddingProvider:
