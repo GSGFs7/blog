@@ -3,6 +3,7 @@ from typing import Callable
 
 from django.core.cache import cache
 from django.http import HttpRequest
+from ninja import Status
 
 from core.inspect import is_async
 from core.request import get_client_ip
@@ -27,7 +28,7 @@ def rate_limit(key_prefix: str, max_requests: int, window: int):
             await cache.aadd(cache_key, 0, timeout=window)
             current_requests = await cache.aincr(cache_key)
             if current_requests > max_requests:
-                return 429, {"message": "Too many request"}
+                return Status(429, {"message": "Too many request"})
 
             # run the raw func
             return await func(request, *args, **kwargs)
@@ -43,7 +44,7 @@ def rate_limit(key_prefix: str, max_requests: int, window: int):
             cache.add(cache_key, 0, timeout=window)
             current_requests = cache.incr(cache_key)
             if current_requests > max_requests:
-                return 429, {"message": "Too many request"}
+                return Status(429, {"message": "Too many request"})
 
             # run the raw func
             return func(request, *args, **kwargs)

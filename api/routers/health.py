@@ -1,6 +1,6 @@
 from ninja import Router
 
-from ..schemas import (
+from api.schemas import (
     MessageSchema,
 )
 

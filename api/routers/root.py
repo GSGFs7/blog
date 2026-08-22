@@ -1,4 +1,4 @@
-from ninja import Router
+from ninja import Router, Status
 
 router = Router()
 
@@ -9,4 +9,4 @@ router = Router()
 @router.delete("", response={418: None}, operation_id="root_delete")
 @router.patch("", response={418: None}, operation_id="root_patch")
 async def root_router_response(request):
-    return 418, None
+    return Status(418, None)

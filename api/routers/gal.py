@@ -1,6 +1,6 @@
 from typing import List
 
-from ninja import Router
+from ninja import Router, Status
 from ninja.pagination import paginate
 
 from api.auth import AsyncTimeBaseAuth
@@ -35,9 +35,9 @@ async def get_gal_ids(request):
 @router.get("/{int:gal_id}", response={200: GalSchema, 404: MessageSchema})
 async def get_gal_from_id(request, gal_id: int):
     try:
-        return 200, await Gal.objects.aget(pk=gal_id)
+        return Status(200, await Gal.objects.aget(pk=gal_id))
     except Gal.DoesNotExist:
-        return 404, {"message": "not found"}
+        return Status(404, {"message": "not found"})
 
 
 @router.post(
@@ -47,7 +47,7 @@ async def get_gal_from_id(request, gal_id: int):
 )
 async def update_gal(request, gal_id: int, body: GalUpdateSchema):
     if gal_id != body.id:
-        return 400, {"message": "id not match"}
+        return Status(400, {"message": "id not match"})
 
     try:
         gal = await Gal.objects.aget(pk=gal_id)
@@ -59,8 +59,8 @@ async def update_gal(request, gal_id: int, body: GalUpdateSchema):
         # save change
         await gal.asave()
 
-        return 200, {"id": gal_id}
+        return Status(200, {"id": gal_id})
     except Gal.DoesNotExist:
-        return 404, {"message": "not found"}
+        return Status(404, {"message": "not found"})
     except Exception:
-        return 400, {"message": "Update failed"}
+        return Status(400, {"message": "Update failed"})

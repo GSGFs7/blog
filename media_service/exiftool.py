@@ -151,7 +151,7 @@ class SyncExifTool:
                 try:
                     process.stdin.write(b"-stay_open\nFalse\n")
                     process.stdin.flush()
-                except (BrokenPipeError, OSError):
+                except BrokenPipeError, OSError:
                     pass
                 finally:
                     process.stdin.close()

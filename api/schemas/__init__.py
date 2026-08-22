@@ -46,6 +46,9 @@ from .gal import (
 # Image
 from .image import ImageUploadRequestSchema, ImageUploadResponseSchema
 
+# Markdown
+from .markdown import MarkdownRenderRequest, MarkdownRenderResponse
+
 # Post schemas
 from .post import (
     PostCardSchema,
@@ -112,4 +115,7 @@ __all__ = [
     "SystemInfoSchema",
     "DatabaseStatusSchema",
     "ApiStatusSchema",
+    # markdown
+    "MarkdownRenderRequest",
+    "MarkdownRenderResponse",
 ]

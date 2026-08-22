@@ -1,7 +1,7 @@
 import logging
 
 from django.conf import settings
-from ninja import Form, Router, UploadedFile
+from ninja import Form, Router, Status, UploadedFile
 
 from api.auth import AsyncTimeBaseAuth
 from api.schemas import (
@@ -31,20 +31,20 @@ async def upload_test(
     data: Form[ImageUploadRequestSchema],
 ):
     if file.content_type not in IMAGE_ALLOWED_FORMAT:
-        return 400, {"message": "not allowed image types"}
+        return Status(400, {"message": "not allowed image types"})
 
     if file.size > settings.IMAGE_UPLOAD_MAX_SIZE:
-        return 400, {"message": "image size exceeds maximum limit"}
+        return Status(400, {"message": "image size exceeds maximum limit"})
 
     if data.uploader_type.lower() not in ALLOWED_UPLOADER_TYPES:
-        return 400, {"message": "not allowed uploader types"}
+        return Status(400, {"message": "not allowed uploader types"})
 
     try:
         uploader = await AsyncImageService.get_uploader(
             data.uploader_type, data.uploader_id
         )
     except Exception:
-        return 400, {"message": "error when getting actor"}
+        return Status(400, {"message": "error when getting actor"})
 
     img, img_res, _ = await AsyncImageService.upload_image(
         content=file,
@@ -59,10 +59,13 @@ async def upload_test(
         },
     )
 
-    return 201, ImageUploadResponseSchema(
-        id=img.id,
-        url=img_res.file.url,
-        width=img_res.width,
-        height=img_res.height,
-        original_name=img.original_name,
+    return Status(
+        201,
+        ImageUploadResponseSchema(
+            id=img.id,
+            url=img_res.file.url,
+            width=img_res.width,
+            height=img_res.height,
+            original_name=img.original_name,
+        ),
     )

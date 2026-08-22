@@ -1,4 +1,4 @@
-from ninja import Router
+from ninja import Router, Status
 from pydantic import PositiveInt
 
 from api.models import Category, Post
@@ -22,16 +22,19 @@ async def category_get_post(
         total = await posts_qs.acount()
 
         if 0 < total <= offset:
-            return 400, {"message": "Out of range"}
+            return Status(400, {"message": "Out of range"})
 
-        return 200, {
-            "posts": [p async for p in posts_qs[offset : offset + size]],
-            "pagination": {
-                "total": total,
-                "page": page,
-                "size": size,
+        return Status(
+            200,
+            {
+                "posts": [p async for p in posts_qs[offset : offset + size]],
+                "pagination": {
+                    "total": total,
+                    "page": page,
+                    "size": size,
+                },
+                "name": category.name,
             },
-            "name": category.name,
-        }
+        )
     except Category.DoesNotExist:
-        return 404, {"message": f"Category 'id={category_id}' not found"}
+        return Status(404, {"message": f"Category 'id={category_id}' not found"})

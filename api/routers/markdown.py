@@ -3,7 +3,7 @@ import asyncio
 from ninja import Router
 
 from api.markdown import Markdown
-from api.schemas.markdown import MarkdownRenderRequest, MarkdownRenderResponse
+from api.schemas import MarkdownRenderRequest, MarkdownRenderResponse
 
 router = Router()
 

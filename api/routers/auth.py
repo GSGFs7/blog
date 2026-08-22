@@ -10,7 +10,7 @@ from django.contrib.auth import alogout
 from django.http import HttpRequest, HttpResponseRedirect
 from django.middleware import csrf
 from django.urls import reverse
-from ninja import Router
+from ninja import Router, Status
 from ninja.security import APIKeyCookie
 
 from accounts.services.login_flow import aclear_auth_flow
@@ -200,10 +200,10 @@ async def oauth_callback(
 )
 async def oauth_me(
     request: HttpRequest,
-) -> dict[str, Any] | tuple[int, dict[str, str]]:
+) -> dict[str, Any] | Status[dict[str, str]]:
     identity_id = await request.session.aget(OAUTH_IDENTITY_SESSION_KEY)
     if not isinstance(identity_id, int):
-        return 401, {"message": "Not authenticated"}
+        return Status(401, {"message": "Not authenticated"})
 
     try:
         identity = await OAuthIdentity.objects.select_related("guest", "provider").aget(
@@ -211,7 +211,7 @@ async def oauth_me(
         )
     except OAuthIdentity.DoesNotExist:
         await request.session.apop(OAUTH_IDENTITY_SESSION_KEY, None)
-        return 401, {"message": "Not authenticated"}
+        return Status(401, {"message": "Not authenticated"})
 
     return {
         "identity_id": identity.pk,
@@ -229,11 +229,11 @@ async def oauth_me(
     auth=oauth_session,
     response={204: None},
 )
-async def oauth_logout(request: HttpRequest) -> tuple[int, None]:
+async def oauth_logout(request: HttpRequest) -> Status[None]:
     await request.session.apop(OAUTH_IDENTITY_SESSION_KEY, None)
     await request.session.apop(OAUTH_FLOW_SESSION_KEY, None)
     await request.session.acycle_key()
-    return 204, None
+    return Status(204, None)
 
 
 # --- utils ---

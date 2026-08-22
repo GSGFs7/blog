@@ -1,6 +1,6 @@
 import logging
 
-from ninja import Router
+from ninja import Router, Status
 
 from api.auth import AsyncTimeBaseAuth
 from api.models import Comment, OAuthIdentity, Post
@@ -27,10 +27,10 @@ async def get_comment(request, comment_id: int):
     try:
         return await Comment.objects.select_related("guest").aget(pk=comment_id)
     except Comment.DoesNotExist:
-        return 404, {"message": "Not found"}
+        return Status(404, {"message": "Not found"})
     except Exception as e:
         logger.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})
 
 
 # get comment ids from post id
@@ -41,17 +41,17 @@ async def get_comment(request, comment_id: int):
 async def get_comment_ids_from_post(request, post_id: int):
     try:
         if not await Post.objects.filter(pk=post_id).aexists():
-            return 404, {"message": "Post not found"}
+            return Status(404, {"message": "Post not found"})
         comment_ids = [
             i
             async for i in Comment.objects.filter(post_id=post_id).values_list(
                 "id", flat=True
             )
         ]
-        return 200, {"ids": comment_ids}
+        return Status(200, {"ids": comment_ids})
     except Exception as e:
         logger.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})
 
 
 # get all comment with content
@@ -66,7 +66,7 @@ async def get_comment_ids_from_post(request, post_id: int):
 async def get_all_comment_from_post(request, post_id: int):
     try:
         if not await Post.objects.filter(pk=post_id).aexists():
-            return 404, {"message": "Post not found"}
+            return Status(404, {"message": "Post not found"})
 
         comments = [
             post_comment
@@ -74,10 +74,10 @@ async def get_all_comment_from_post(request, post_id: int):
                 post_id=post_id
             )
         ]
-        return 200, {"comments": comments}
+        return Status(200, {"comments": comments})
     except Exception as e:
         logger.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})
 
 
 @router.post(
@@ -109,11 +109,11 @@ async def new_comment(request, body: NewCommentSchema):
             "had a new comment", f"had a new comment in post '{post.title}'"
         )
 
-        return 200, {"id": comment.pk}  # pk = id
+        return Status(200, {"id": comment.pk})  # pk = id
     except Post.DoesNotExist:
-        return 404, {"message": "Post not found"}
+        return Status(404, {"message": "Post not found"})
     except OAuthIdentity.DoesNotExist:
-        return 404, {"message": "Guest not found"}
+        return Status(404, {"message": "Guest not found"})
     except Exception as e:
         logger.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})

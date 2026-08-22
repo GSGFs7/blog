@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from ninja import Status
 
 from api.rate_limit import rate_limit
 
@@ -19,10 +20,11 @@ class RateLimitTest(SimpleTestCase):
 
         @rate_limit(key_prefix="test_sync", max_requests=2, window=60)
         def test_view(request: HttpRequest):
-            return 200, "ok"
+            return Status(200, "ok")
 
-        status, res = test_view(self.request)
-        self.assertEqual(status, 200)
+        result = test_view(self.request)
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.value, "ok")
         self.assertEqual(mock_cache.add.call_count, 1)
         self.assertEqual(mock_cache.incr.call_count, 1)
 
@@ -32,11 +34,11 @@ class RateLimitTest(SimpleTestCase):
 
         @rate_limit(key_prefix="test_sync", max_requests=2, window=60)
         def test_view(request: HttpRequest):
-            return 200, "ok"
+            return Status(200, "ok")
 
-        status, res = test_view(self.request)
-        self.assertEqual(status, 429)
-        self.assertEqual(res.get("message"), "Too many request")
+        result = test_view(self.request)
+        self.assertEqual(result.status_code, 429)
+        self.assertEqual(result.value.get("message"), "Too many request")
 
     @override_settings(TRUSTED_PROXY_CIDRS=("10.42.0.0/16",))
     @patch("api.rate_limit.cache")
@@ -47,7 +49,7 @@ class RateLimitTest(SimpleTestCase):
 
         @rate_limit(key_prefix="test_sync", max_requests=2, window=60)
         def test_view(request: HttpRequest):
-            return 200, "ok"
+            return Status(200, "ok")
 
         test_view(self.request)
 
@@ -64,11 +66,11 @@ class RateLimitTest(SimpleTestCase):
 
         @rate_limit(key_prefix="test_sync", max_requests=2, window=60)
         def test_view(request: HttpRequest):
-            return 200, "ok"
+            return Status(200, "ok")
 
-        status, _ = test_view(self.request)
+        result = test_view(self.request)
 
-        self.assertEqual(status, 200)
+        self.assertEqual(result.status_code, 200)
         mock_cache.add.assert_not_called()
         mock_cache.incr.assert_not_called()
 
@@ -79,10 +81,11 @@ class RateLimitTest(SimpleTestCase):
 
         @rate_limit(key_prefix="test_async", max_requests=2, window=60)
         async def test_view(request: HttpRequest):
-            return 200, "ok"
+            return Status(200, "ok")
 
-        status, res = await test_view(self.request)
-        self.assertEqual(status, 200)
+        result = await test_view(self.request)
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.value, "ok")
         mock_cache.aadd.assert_called_once()
         mock_cache.aincr.assert_called_once()
 
@@ -93,8 +96,8 @@ class RateLimitTest(SimpleTestCase):
 
         @rate_limit(key_prefix="test_async", max_requests=2, window=60)
         async def test_view(request: HttpRequest):
-            return 200, "ok"
+            return Status(200, "ok")
 
-        status, res = await test_view(self.request)
-        self.assertEqual(status, 429)
-        self.assertEqual(res.get("message"), "Too many request")
+        result = await test_view(self.request)
+        self.assertEqual(result.status_code, 429)
+        self.assertEqual(result.value.get("message"), "Too many request")

@@ -5,7 +5,7 @@ from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.http import HttpRequest
 from django.views.decorators.cache import cache_page
-from ninja import Field, Router, Schema
+from ninja import Field, Router, Schema, Status
 from ninja.decorators import decorate_view
 from ninja.errors import HttpError
 from ninja.pagination import paginate
@@ -158,10 +158,10 @@ async def get_latest_post(request):
             .alatest()
         )
     except Post.DoesNotExist:
-        return 404, {"message": "Not found"}
+        return Status(404, {"message": "Not found"})
     except Exception as e:
         logging.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})
 
 
 @router.get(
@@ -176,10 +176,10 @@ async def get_post(request, post_id: int):
             .aget(pk=post_id, status="published")
         )
     except Post.DoesNotExist:
-        return 404, {"message": "Not found"}
+        return Status(404, {"message": "Not found"})
     except Exception as e:
         logging.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})
 
 
 # NOTE:
@@ -198,7 +198,7 @@ async def get_post_from_slug(request, post_slug: str):
             .aget(slug=post_slug, status="published")
         )
     except Post.DoesNotExist:
-        return 404, {"message": "Not found"}
+        return Status(404, {"message": "Not found"})
     except Exception as e:
         logging.error(e)
-        return 500, {"message": "Internal Server Error"}
+        return Status(500, {"message": "Internal Server Error"})
