@@ -23,7 +23,9 @@ def process_image(image_resource_id: int, force: bool = False):
         if not force and image_res_obj.is_processed:
             return
 
-        with PILImage.open(image_res_obj.file) as img:
+        # PIL only close its own fd, Django FieldFile is still opened.
+        # explicit call to close it.
+        with image_res_obj.file.open("rb") as source, PILImage.open(source) as img:
             # AVIF
             if force or not image_res_obj.avif_file:
                 try:
@@ -129,7 +131,7 @@ def process_responsive_variants(image_resource_id: int):
         if not resource.responsive_variants_enabled:
             return
 
-        with PILImage.open(resource.file) as img:
+        with resource.file.open("rb") as source, PILImage.open(source) as img:
             for width in target_widths(img.width):
                 generate_variant(
                     resource,
