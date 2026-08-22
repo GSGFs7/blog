@@ -4,7 +4,7 @@ import datetime
 from typing import List
 
 from ninja.schema import Schema
-from pydantic import Field, RootModel
+from pydantic import ConfigDict, Field, RootModel
 
 
 class PostSitemapSchema(Schema):
@@ -12,12 +12,11 @@ class PostSitemapSchema(Schema):
     slug: str
     updated_at: datetime.datetime = Field(alias="content_update_at")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(
+        validate_by_alias=True,
+        validate_by_name=True,
+    )
 
 
 class PostIdsForSitemap(RootModel):
     root: List[PostSitemapSchema]
-
-    class Config:
-        from_attributes = True
