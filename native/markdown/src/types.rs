@@ -7,9 +7,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping, PyTuple};
 
 use crate::error::MarkdownError;
+use crate::suffix;
 use crate::utils::parse_image_metadata;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ImageMetadata {
     pub(crate) src: String,
@@ -45,11 +45,12 @@ impl From<&FrontMatter> for PyFrontMatter {
     }
 }
 
-#[pyclass(name = "RenderPlan", unsendable)]
+#[pyclass(name = "RenderPlan")]
 pub(crate) struct PyRenderPlan {
     // one-time consumption
     root: Option<Node>,
     pub(crate) image_checksums: Vec<String>,
+    pub(crate) image_picture_source_prefixes: Vec<String>,
     #[pyo3(get)]
     pub(crate) toc: Vec<Py<PyDict>>,
     #[pyo3(get)]
@@ -64,7 +65,11 @@ impl PyRenderPlan {
     }
 
     #[pyo3(signature = (images = None))]
-    fn finish(&mut self, images: Option<&Bound<'_, PyMapping>>) -> PyResult<String> {
+    fn finish(
+        &mut self,
+        py: Python<'_>,
+        images: Option<&Bound<'_, PyMapping>>,
+    ) -> PyResult<String> {
         if self.root.is_none() {
             return Err(PyRuntimeError::new_err("render plan already finished"));
         }
@@ -72,20 +77,26 @@ impl PyRenderPlan {
         let images = self.parse_images(images)?;
 
         let root = self.root.take().expect("checked above");
+        let image_picture_source_prefixes = std::mem::take(&mut self.image_picture_source_prefixes);
 
-        Self::render_and_rewrite(root, images).map_err(MarkdownError::into_pyerr)
+        // release GIL
+        py.detach(move || Self::render_and_rewrite(root, images, &image_picture_source_prefixes))
+            .map_err(MarkdownError::into_pyerr)
     }
 }
 
 impl PyRenderPlan {
     pub(crate) fn new(
         root: Node,
+        image_checksums: Vec<String>,
+        image_picture_source_prefixes: Vec<String>,
         toc: Vec<Py<PyDict>>,
         frontmatter: Option<PyFrontMatter>,
     ) -> Self {
         Self {
             root: Some(root),
-            image_checksums: Vec::new(),
+            image_checksums,
+            image_picture_source_prefixes,
             toc,
             frontmatter,
         }
@@ -109,9 +120,13 @@ impl PyRenderPlan {
         Ok(resolved)
     }
 
-    fn render_and_rewrite(root: Node, _: ResolvedImages) -> Result<String, MarkdownError> {
-        // TODO
-        Ok(root.render())
+    fn render_and_rewrite(
+        root: Node,
+        images: ResolvedImages,
+        image_picture_source_prefixes: &[String],
+    ) -> Result<String, MarkdownError> {
+        suffix::rewrite(&root.render(), &images, image_picture_source_prefixes)
+            .map_err(|_| MarkdownError::RewriteFailed)
     }
 }
 
@@ -123,9 +138,13 @@ mod tests {
     use crate::builder::build;
 
     fn plan_with_checksum(checksum: String) -> PyRenderPlan {
-        let mut plan = PyRenderPlan::new(build().parse("hello"), Vec::new(), None);
-        plan.image_checksums.push(checksum);
-        plan
+        PyRenderPlan::new(
+            build().parse("hello"),
+            vec![checksum],
+            Vec::new(),
+            Vec::new(),
+            None,
+        )
     }
 
     #[test]
@@ -137,14 +156,14 @@ mod tests {
             images.set_item(&checksum, PyDict::new(py)).unwrap();
             let images = images.cast::<PyMapping>().unwrap();
 
-            let error = plan.finish(Some(images)).unwrap_err();
+            let error = plan.finish(py, Some(images)).unwrap_err();
             assert!(error.is_instance_of::<PyValueError>(py));
 
             let metadata = PyDict::new(py);
             metadata.set_item("src", "image.jpg").unwrap();
             images.set_item(&checksum, metadata).unwrap();
 
-            assert_eq!(plan.finish(Some(images)).unwrap(), "<p>hello</p>\n");
+            assert_eq!(plan.finish(py, Some(images)).unwrap(), "<p>hello</p>\n");
         });
     }
 
@@ -216,5 +235,21 @@ mod tests {
                 .unwrap_err();
             assert!(error.is_instance_of::<PyTypeError>(py));
         });
+    }
+
+    #[test]
+    fn keeps_picture_source_prefixes_owned_by_plan() {
+        let plan = PyRenderPlan::new(
+            build().parse("hello"),
+            Vec::new(),
+            vec!["https://uploads.example/raw/".to_owned()],
+            Vec::new(),
+            None,
+        );
+
+        assert_eq!(
+            plan.image_picture_source_prefixes,
+            vec!["https://uploads.example/raw/"]
+        );
     }
 }

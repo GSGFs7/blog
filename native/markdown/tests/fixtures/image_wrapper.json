@@ -1,0 +1,50 @@
+[
+  {
+    "name": "standalone",
+    "input": "<img src=\"a.jpg\" alt=\"A &amp; B\"><img src=\"b.jpg\" alt=\"fallback\" title=\"Title\"><img src=\"c.jpg\" alt=\"fallback\" title=\"\">",
+    "image": "<span class=\"md-img-container\" data-caption=\"A &amp; B\"><img src=\"a.jpg\" alt=\"A &amp; B\"></span><span class=\"md-img-container\" data-caption=\"Title\"><img src=\"b.jpg\" alt=\"fallback\" title=\"Title\"></span><span class=\"md-img-container\" data-caption=\"fallback\"><img src=\"c.jpg\" alt=\"fallback\" title=\"\"></span>",
+    "sanitized": "<span class=\"md-img-container\" data-caption=\"A &amp; B\"><img src=\"a.jpg\" alt=\"A &amp; B\"></span><span class=\"md-img-container\" data-caption=\"Title\"><img src=\"b.jpg\" alt=\"fallback\" title=\"Title\"></span><span class=\"md-img-container\" data-caption=\"fallback\"><img src=\"c.jpg\" alt=\"fallback\" title=\"\"></span>"
+  },
+  {
+    "name": "picture",
+    "input": "<picture><source srcset=\"a.webp\" type=\"image/webp\"><img src=\"a.jpg\" alt=\"Alt\" title=\"Caption\"></picture>",
+    "image": "<span class=\"md-img-container\" data-caption=\"Caption\"><picture><source srcset=\"a.webp\" type=\"image/webp\"><img src=\"a.jpg\" alt=\"Alt\" title=\"Caption\"></picture></span>",
+    "sanitized": "<span class=\"md-img-container\" data-caption=\"Caption\"><picture><source srcset=\"a.webp\" type=\"image/webp\"><img src=\"a.jpg\" alt=\"Alt\" title=\"Caption\"></picture></span>"
+  },
+  {
+    "name": "multiline_picture",
+    "input": "<picture>\n<source srcset=\"a.webp\"><img src=\"a.jpg\" alt=\"Inside\">\n</picture>",
+    "image": "<picture>\n<source srcset=\"a.webp\"><span class=\"md-img-container\" data-caption=\"Inside\"><img src=\"a.jpg\" alt=\"Inside\"></span>\n</picture>",
+    "sanitized": "<picture>\n<source srcset=\"a.webp\"><span class=\"md-img-container\" data-caption=\"Inside\"><img src=\"a.jpg\" alt=\"Inside\"></span>\n</picture>"
+  },
+  {
+    "name": "malformed_picture",
+    "input": "<picture><img src=\"a.jpg\" alt=\"Open\">",
+    "image": "<picture><span class=\"md-img-container\" data-caption=\"Open\"><img src=\"a.jpg\" alt=\"Open\"></span>",
+    "sanitized": "<picture><span class=\"md-img-container\" data-caption=\"Open\"><img src=\"a.jpg\" alt=\"Open\"></span></picture>"
+  },
+  {
+    "name": "picture_without_img",
+    "input": "<picture><source srcset=\"a.webp\"></picture>",
+    "image": "<span class=\"md-img-container\" data-caption=\"\"><picture><source srcset=\"a.webp\"></picture></span>",
+    "sanitized": "<span class=\"md-img-container\" data-caption=\"\"><picture><source srcset=\"a.webp\"></picture></span>"
+  },
+  {
+    "name": "uppercase",
+    "input": "<IMG src=\"a.jpg\" alt=\"Upper\"><PICTURE><IMG src=\"b.jpg\"></PICTURE>",
+    "image": "<IMG src=\"a.jpg\" alt=\"Upper\"><PICTURE><IMG src=\"b.jpg\"></PICTURE>",
+    "sanitized": "<img src=\"a.jpg\" alt=\"Upper\"><picture><img src=\"b.jpg\"></picture>"
+  },
+  {
+    "name": "already_wrapped",
+    "input": "<span class=\"md-img-container\" data-caption=\"old\"><img src=\"a.jpg\" alt=\"new\"></span>",
+    "image": "<span class=\"md-img-container\" data-caption=\"old\"><span class=\"md-img-container\" data-caption=\"new\"><img src=\"a.jpg\" alt=\"new\"></span></span>",
+    "sanitized": "<span class=\"md-img-container\" data-caption=\"old\"><span class=\"md-img-container\" data-caption=\"new\"><img src=\"a.jpg\" alt=\"new\"></span></span>"
+  },
+  {
+    "name": "suffix_chain",
+    "input": "<div class=\"directive terminal\"><pre><code class=\"language-command\">run</code></pre><img src=\"a.jpg\" alt=\"Shot\"></div>",
+    "image": "<div class=\"directive terminal\"><pre><code class=\"language-command\">run</code></pre><span class=\"md-img-container\" data-caption=\"Shot\"><img src=\"a.jpg\" alt=\"Shot\"></span></div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div><pre data-language=\"command\"><code class=\"language-command\">run</code></pre><span class=\"md-img-container\" data-caption=\"Shot\"><img src=\"a.jpg\" alt=\"Shot\"></span></div>"
+  }
+]

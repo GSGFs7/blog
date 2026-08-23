@@ -1,6 +1,10 @@
+import json
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from api.markdown.markdown_it import Markdown
+from api.models import Gal, Post
 from media_service.models import ImageResource
 
 
@@ -123,6 +127,14 @@ class TestMarkdownPostProcess(SimpleTestCase):
         )
 
         self.assertNotIn("data-domain=", html)
+
+    def test_domain_injection_is_idempotent(self):
+        html = self.md.render(
+            '<a href="https://example.com">'
+            '<span data-domain="example.com">existing</span></a>'
+        )
+
+        self.assertEqual(html.count("data-domain="), 1)
 
     def test_sanitizes_dangerous_html(self):
         markdown_text = """
@@ -338,6 +350,16 @@ class TestMarkdownImageOptimization(TestCase):
         self.assertIn("<picture>", html)
         self.assertIn(f'src="{resource.file.url}"', html)
 
+    @override_settings(MEDIA_URL="https://cdn.example/media/")
+    def test_remote_storage_url_is_optimized(self):
+        resource = self.create_image_resource()
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({resource.file.url})")
+
+        self.assertIn("<picture>", html)
+        self.assertIn(f'src="{resource.file.url}"', html)
+
     def test_external_checksum_url_is_not_optimized(self):
         resource = self.create_image_resource()
         source = f"https://example.com/images/{resource.checksum}.jpg"
@@ -348,6 +370,24 @@ class TestMarkdownImageOptimization(TestCase):
         self.assertNotIn("<picture>", html)
         self.assertIn(f'src="{source}"', html)
         self.assertNotIn(resource.file.url, html)
+
+    @override_settings(
+        IMAGE_PICTURE_URL_PREFIXES={
+            "https://uploads.example/media/": {
+                "avif": "https://uploads.example/avif/",
+                "webp": "https://uploads.example/webp/",
+            }
+        }
+    )
+    def test_configured_picture_source_prefix_is_optimized(self):
+        resource = self.create_image_resource()
+        source = f"https://uploads.example/media/{resource.checksum}.jpg"
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({source})")
+
+        self.assertIn("<picture>", html)
+        self.assertIn(f'src="{resource.file.url}"', html)
 
     def test_unknown_checksum_is_not_optimized(self):
         checksum = "a" * 64
@@ -374,3 +414,66 @@ class TestMarkdownImageOptimization(TestCase):
             )
 
         self.assertEqual(html.count("<picture>"), 2)
+
+    def test_missing_derived_formats_are_omitted(self):
+        resource = self.create_image_resource()
+        resource.avif_file = None
+        resource.webp_file = None
+        resource.placeholder = ""
+        resource.save(update_fields=["avif_file", "webp_file", "placeholder"])
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({resource.checksum})")
+
+        self.assertIn("<picture>", html)
+        self.assertNotIn("<source", html)
+        self.assertNotIn("image-placeholder", html)
+
+    def test_resolver_does_not_access_responsive_variants(self):
+        resource = self.create_image_resource()
+
+        with self.assertNumQueries(1):
+            html = Markdown().render(f"![caption]({resource.checksum})")
+
+        self.assertIn("<picture>", html)
+
+
+class TestMarkdownProductionEntrypoints(TestCase):
+    def test_preview_api_uses_native_suffix(self):
+        response = self.client.post(
+            "/api/markdown/render",
+            data=json.dumps(
+                {"markdown": "[link](https://example.com) <script>alert(1)</script>"}
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.json()["html"]
+        self.assertIn('data-domain="example.com"', html)
+        self.assertNotIn("alert(1)", html)
+
+    def test_post_save_uses_native_suffix_and_toc(self):
+        post = Post.objects.create(
+            title="Native markdown signal",
+            slug="native-markdown-signal",
+            content="# Heading\n\n[link](https://example.com)",
+        )
+
+        post.refresh_from_db()
+        self.assertIn('data-domain="example.com"', post.content_html)
+        self.assertEqual(
+            post.toc,
+            [{"level": 1, "slug": "heading", "text": "Heading"}],
+        )
+
+    @patch("api.vndb.query_vn", return_value={"results": []})
+    def test_gal_save_uses_native_suffix(self, _query_vn):
+        gal = Gal.objects.create(
+            vndb_id="v999999",
+            review="[link](https://example.com)<script>alert(1)</script>",
+        )
+
+        gal.refresh_from_db()
+        self.assertIn('data-domain="example.com"', gal.review_html)
+        self.assertNotIn("alert(1)", gal.review_html)

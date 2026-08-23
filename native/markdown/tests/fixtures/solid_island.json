@@ -1,0 +1,50 @@
+[
+  {
+    "name": "counter",
+    "input": "<div class=\"directive counter\" initial=\"1024\" onclick=\"alert(1)\">count</div>",
+    "rewritten": "<div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;1024&quot;}\">count</div>",
+    "sanitized": "<div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;1024&quot;}\">count</div>"
+  },
+  {
+    "name": "python_aliases",
+    "input": "<span class=\"directive python-wasm\">a</span><div class=\"directive python-repl\">b</div>",
+    "rewritten": "<span data-solid-island=\"PythonREPL\" data-props=\"{}\">a</span><div data-solid-island=\"PythonREPL\" data-props=\"{}\">b</div>",
+    "sanitized": "<span data-solid-island=\"PythonREPL\" data-props=\"{}\">a</span><div data-solid-island=\"PythonREPL\" data-props=\"{}\">b</div>"
+  },
+  {
+    "name": "chart_props_order",
+    "input": "<div class=\"directive chart\" y-max=\"2\" ignored=\"x\" formula=\"x^2\" x-min=\"-1\"></div>",
+    "rewritten": "<div data-solid-island=\"Chart\" data-props=\"{&quot;y-max&quot;:&quot;2&quot;,&quot;formula&quot;:&quot;x^2&quot;,&quot;x-min&quot;:&quot;-1&quot;}\"></div>",
+    "sanitized": "<div data-solid-island=\"Chart\" data-props=\"{&quot;y-max&quot;:&quot;2&quot;,&quot;formula&quot;:&quot;x^2&quot;,&quot;x-min&quot;:&quot;-1&quot;}\"></div>"
+  },
+  {
+    "name": "unknown_and_plain",
+    "input": "<div class=\"directive unknown\" initial=\"1\"></div><span class=\"counter\">plain</span>",
+    "rewritten": "<div class=\"directive unknown\" initial=\"1\"></div><span class=\"counter\">plain</span>",
+    "sanitized": "<div class=\"directive unknown\"></div><span class=\"counter\">plain</span>"
+  },
+  {
+    "name": "encoded_prop",
+    "input": "<div class=\"directive counter\" initial=\"&quot;&lt;&gt;&amp;\"></div>",
+    "rewritten": "<div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;&amp;quot;&amp;lt;&amp;gt;&amp;amp;&quot;}\"></div>",
+    "sanitized": "<div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;&amp;quot;&amp;lt;&amp;gt;&amp;amp;&quot;}\"></div>"
+  },
+  {
+    "name": "malformed",
+    "input": "<div class=\"directive counter\" initial=\"1\"><span class=\"directive chart\" formula=\"x\">open",
+    "rewritten": "<div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;1&quot;}\"><span data-solid-island=\"Chart\" data-props=\"{&quot;formula&quot;:&quot;x&quot;}\">open",
+    "sanitized": "<div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;1&quot;}\"><span data-solid-island=\"Chart\" data-props=\"{&quot;formula&quot;:&quot;x&quot;}\">open</span></div>"
+  },
+  {
+    "name": "already_mounted",
+    "input": "<div data-solid-island=\"Counter\" data-props=\"{}\"></div>",
+    "rewritten": "<div data-solid-island=\"Counter\" data-props=\"{}\"></div>",
+    "sanitized": "<div data-solid-island=\"Counter\" data-props=\"{}\"></div>"
+  },
+  {
+    "name": "extra_classes",
+    "input": "<DIV class=\"extra directive charts another\" formula=\"x\"></DIV>",
+    "rewritten": "<DIV class=\"extra directive charts another\" formula=\"x\"></DIV>",
+    "sanitized": "<div class=\"extra directive charts another\"></div>"
+  }
+]

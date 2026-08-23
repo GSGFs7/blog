@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any, Mapping, TypedDict
 
 class _OptionalImageMetadata(TypedDict, total=False):
@@ -33,4 +34,5 @@ class MarkdownIt:
         *,
         include_toc: bool = False,
         include_frontmatter: bool = False,
+        image_picture_source_prefixes: Sequence[str] = (),
     ) -> RenderPlan: ...

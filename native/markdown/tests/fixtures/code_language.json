@@ -1,0 +1,74 @@
+[
+  {
+    "name": "languages",
+    "input": "<pre><code class=\"language-c++\">a</code></pre><pre><code class=\"foo language-objective-c bar\">b</code></pre><pre><code class=\"language-shell-session\">c</code></pre>",
+    "code": "<pre data-language=\"c++\"><code class=\"language-c++\">a</code></pre><pre><code class=\"foo language-objective-c bar\">b</code></pre><pre data-language=\"shell-session\"><code class=\"language-shell-session\">c</code></pre>",
+    "terminal": "<pre data-language=\"c++\"><code class=\"language-c++\">a</code></pre><pre><code class=\"foo language-objective-c bar\">b</code></pre><pre data-language=\"shell-session\"><code class=\"language-shell-session\">c</code></pre>",
+    "solid": "<pre data-language=\"c++\"><code class=\"language-c++\">a</code></pre><pre><code class=\"foo language-objective-c bar\">b</code></pre><pre data-language=\"shell-session\"><code class=\"language-shell-session\">c</code></pre>",
+    "sanitized": "<pre data-language=\"c++\"><code class=\"language-c++\">a</code></pre><pre><code class=\"foo language-objective-c bar\">b</code></pre><pre data-language=\"shell-session\"><code class=\"language-shell-session\">c</code></pre>"
+  },
+  {
+    "name": "pre_attributes",
+    "input": "<pre class=\"highlight\" id=\"sample\">  \n<code class=\"language-rust extra\">x</code></pre>",
+    "code": "<pre class=\"highlight\" id=\"sample\">  \n<code class=\"language-rust extra\">x</code></pre>",
+    "terminal": "<pre class=\"highlight\" id=\"sample\">  \n<code class=\"language-rust extra\">x</code></pre>",
+    "solid": "<pre class=\"highlight\" id=\"sample\">  \n<code class=\"language-rust extra\">x</code></pre>",
+    "sanitized": "<pre class=\"highlight\" id=\"sample\">  \n<code class=\"language-rust extra\">x</code></pre>"
+  },
+  {
+    "name": "not_language",
+    "input": "<pre><code>none</code></pre><pre><code class=\"xlanguage-rust\">x</code></pre><pre><code class=\"language-\">empty</code></pre>",
+    "code": "<pre><code>none</code></pre><pre><code class=\"xlanguage-rust\">x</code></pre><pre><code class=\"language-\">empty</code></pre>",
+    "terminal": "<pre><code>none</code></pre><pre><code class=\"xlanguage-rust\">x</code></pre><pre><code class=\"language-\">empty</code></pre>",
+    "solid": "<pre><code>none</code></pre><pre><code class=\"xlanguage-rust\">x</code></pre><pre><code class=\"language-\">empty</code></pre>",
+    "sanitized": "<pre><code>none</code></pre><pre><code class=\"xlanguage-rust\">x</code></pre><pre><code class=\"language-\">empty</code></pre>"
+  },
+  {
+    "name": "not_first_child",
+    "input": "<pre>text<code class=\"language-rust\">x</code></pre><pre><span></span><code class=\"language-go\">y</code></pre>",
+    "code": "<pre>text<code class=\"language-rust\">x</code></pre><pre><span></span><code class=\"language-go\">y</code></pre>",
+    "terminal": "<pre>text<code class=\"language-rust\">x</code></pre><pre><span></span><code class=\"language-go\">y</code></pre>",
+    "solid": "<pre>text<code class=\"language-rust\">x</code></pre><pre><span></span><code class=\"language-go\">y</code></pre>",
+    "sanitized": "<pre>text<code class=\"language-rust\">x</code></pre><pre><span></span><code class=\"language-go\">y</code></pre>"
+  },
+  {
+    "name": "first_of_multiple",
+    "input": "<pre><code class=\"foo-language-python language-rust\">x</code><code class=\"language-go\">y</code></pre>",
+    "code": "<pre data-language=\"rust\"><code class=\"foo-language-python language-rust\">x</code><code class=\"language-go\">y</code></pre>",
+    "terminal": "<pre data-language=\"rust\"><code class=\"foo-language-python language-rust\">x</code><code class=\"language-go\">y</code></pre>",
+    "solid": "<pre data-language=\"rust\"><code class=\"foo-language-python language-rust\">x</code><code class=\"language-go\">y</code></pre>",
+    "sanitized": "<pre data-language=\"rust\"><code class=\"foo-language-python language-rust\">x</code><code class=\"language-go\">y</code></pre>"
+  },
+  {
+    "name": "uppercase",
+    "input": "<PRE><CODE class=\"language-rust\">x</CODE></PRE>",
+    "code": "<PRE><CODE class=\"language-rust\">x</CODE></PRE>",
+    "terminal": "<PRE><CODE class=\"language-rust\">x</CODE></PRE>",
+    "solid": "<PRE><CODE class=\"language-rust\">x</CODE></PRE>",
+    "sanitized": "<pre><code class=\"language-rust\">x</code></pre>"
+  },
+  {
+    "name": "malformed",
+    "input": "<pre>\n<code class=\"language-python\">open",
+    "code": "<pre data-language=\"python\"><code class=\"language-python\">open",
+    "terminal": "<pre data-language=\"python\"><code class=\"language-python\">open",
+    "solid": "<pre data-language=\"python\"><code class=\"language-python\">open",
+    "sanitized": "<pre data-language=\"python\"><code class=\"language-python\">open</code></pre>"
+  },
+  {
+    "name": "terminal_chain",
+    "input": "<div class=\"directive terminal\"><pre><code class=\"language-command\">echo hi</code></pre></div>",
+    "code": "<div class=\"directive terminal\"><pre data-language=\"command\"><code class=\"language-command\">echo hi</code></pre></div>",
+    "terminal": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div><pre data-language=\"command\"><code class=\"language-command\">echo hi</code></pre></div>",
+    "solid": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div><pre data-language=\"command\"><code class=\"language-command\">echo hi</code></pre></div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div><pre data-language=\"command\"><code class=\"language-command\">echo hi</code></pre></div>"
+  },
+  {
+    "name": "existing_language",
+    "input": "<pre data-language=\"old\"><code class=\"language-rust\">x</code></pre>",
+    "code": "<pre data-language=\"rust\" data-language=\"old\"><code class=\"language-rust\">x</code></pre>",
+    "terminal": "<pre data-language=\"rust\" data-language=\"old\"><code class=\"language-rust\">x</code></pre>",
+    "solid": "<pre data-language=\"rust\" data-language=\"old\"><code class=\"language-rust\">x</code></pre>",
+    "sanitized": "<pre data-language=\"rust\"><code class=\"language-rust\">x</code></pre>"
+  }
+]

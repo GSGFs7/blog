@@ -37,21 +37,21 @@ class PluginTests(unittest.TestCase):
 
         self.assertEqual(
             md.prepare('hello :name{a="b"} world').finish(),
-            '<p>hello <span class="directive name" a="b"></span> world</p>\n',
+            '<p>hello <span class="directive name"></span> world</p>\n',
         )
         self.assertEqual(
             md.prepare('::name{cia="llo"}').finish(),
-            '<div class="directive name" cia="llo"></div>\n',
+            '<div class="directive name"></div>\n',
         )
         self.assertEqual(
             md.prepare(':::name{cia="llo"}\nworld\n:::').finish(),
-            '<div class="directive name" cia="llo">\n<p>world</p>\n</div>\n',
+            '<div class="directive name">\n<p>world</p>\n</div>\n',
         )
 
-    def test_directive_attributes_are_not_sanitized(self):
+    def test_directive_attributes_are_sanitized(self):
         self.assertEqual(
             MarkdownIt().prepare(':name{onclick="alert(1)"}').finish(),
-            '<p><span class="directive name" onclick="alert(1)"></span></p>\n',
+            '<p><span class="directive name"></span></p>\n',
         )
 
 

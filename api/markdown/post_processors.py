@@ -1,3 +1,7 @@
+"""
+deprecated, but temporarily saved for rollback.
+"""
+
 import json
 import re
 from collections.abc import Callable
@@ -6,9 +10,10 @@ from html import unescape
 from urllib.parse import urlparse, urlsplit
 
 from django.utils.html import escape
+from markdown_it_rs_py import ImageMetadata
 from nh3 import nh3
 
-from media_service.models import ImageResource
+from .images import _resolve_images
 
 __all__ = ("post_process_html",)
 
@@ -220,8 +225,8 @@ def _extract_image_checksum(src: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _matches_image_resource(src: str, checksum: str, resource: ImageResource) -> bool:
-    return src == checksum or src == resource.file.url
+def _matches_image_resource(src: str, checksum: str, resource: ImageMetadata) -> bool:
+    return src == checksum or src == resource["src"]
 
 
 def optimize_images(html: str) -> str:
@@ -239,9 +244,7 @@ def optimize_images(html: str) -> str:
     if not checksum_by_match:
         return html
 
-    resources = ImageResource.objects.in_bulk(
-        set(checksum_by_match.values()), field_name="checksum"
-    )
+    resources = _resolve_images(set(checksum_by_match.values()))
 
     parts = []
     last_end = 0
@@ -256,27 +259,27 @@ def optimize_images(html: str) -> str:
             last_end = match.end()
             continue
 
-        attrs["src"] = resource.file.url
+        attrs["src"] = resource["src"]
         attrs.setdefault("loading", "lazy")
         attrs.setdefault("decoding", "async")
-        if resource.width:
-            attrs.setdefault("width", str(resource.width))
-        if resource.height:
-            attrs.setdefault("height", str(resource.height))
-        if resource.placeholder:
+        if resource["width"]:
+            attrs.setdefault("width", str(resource["width"]))
+        if resource["height"]:
+            attrs.setdefault("height", str(resource["height"]))
+        if resource["placeholder"]:
             attrs["style"] = (
                 attrs.get("style", "")
-                + f" background-image: url({resource.placeholder});"
+                + f" background-image: url({resource['placeholder']});"
                 " background-size: cover;"
             ).strip()
             # "image-placeholder" behavior
             attrs["class"] = f"{attrs.get('class', '')} image-placeholder".strip()
 
         source = []
-        if resource.avif_file:
-            source.append(f'<source srcset="{resource.avif_url}" type="image/avif">')
-        if resource.webp_url:
-            source.append(f'<source srcset="{resource.webp_url}" type="image/webp">')
+        if resource["avif_src"]:
+            source.append(f'<source srcset="{resource["avif_src"]}" type="image/avif">')
+        if resource["webp_src"]:
+            source.append(f'<source srcset="{resource["webp_src"]}" type="image/webp">')
 
         parts.append(
             f"<picture>{''.join(source)}<img {_render_attrs(attrs)}></picture>"

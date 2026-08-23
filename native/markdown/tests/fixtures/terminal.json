@@ -1,0 +1,51 @@
+[
+  {
+    "name": "basic",
+    "input": "<div class=\"directive terminal\" shell=\"bash\" prompt=\"$\" title=\"数据库迁移\"><pre>run</pre></div>",
+    "terminal": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"数据库迁移\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">数据库迁移</div><pre>run</pre></div>",
+    "solid": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"数据库迁移\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">数据库迁移</div><pre>run</pre></div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"数据库迁移\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">数据库迁移</div><pre>run</pre></div>"
+  },
+  {
+    "name": "defaults",
+    "input": "<div class=\"directive terminal\">run</div>",
+    "terminal": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div>run</div>",
+    "solid": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div>run</div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div>run</div>"
+  },
+  {
+    "name": "invalid_metadata",
+    "input": "<div class=\"directive terminal\" shell=\"invalid shell\" prompt=\"x; color:red\" title=\"&#10;&#10;\">run</div>",
+    "terminal": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div>run</div>",
+    "solid": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div>run</div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div>run</div>"
+  },
+  {
+    "name": "unicode_prompt_and_title",
+    "input": "<div class=\"directive terminal extra\" shell=\" ZSH \" prompt=\" ❯ \" title=\"A &amp; B&#10;second\">run</div>",
+    "terminal": "<div class=\"terminal\" data-shell=\"zsh\" role=\"group\" aria-label=\"A &amp; B second\" style=\"--terminal-prompt:&quot;❯ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">A &amp; B second</div>run</div>",
+    "solid": "<div class=\"terminal\" data-shell=\"zsh\" role=\"group\" aria-label=\"A &amp; B second\" style=\"--terminal-prompt:&quot;❯ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">A &amp; B second</div>run</div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"zsh\" role=\"group\" aria-label=\"A &amp; B second\" style=\"--terminal-prompt:&quot;❯ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">A &amp; B second</div>run</div>"
+  },
+  {
+    "name": "python_default",
+    "input": "<div class=\"directive terminal\" shell=\"python\"></div>",
+    "terminal": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;&gt;&gt;&gt; &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>",
+    "solid": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;&gt;&gt;&gt; &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>",
+    "sanitized": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;>>> &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>"
+  },
+  {
+    "name": "non_terminal",
+    "input": "<span class=\"directive terminal\" shell=\"bash\">span</span><div class=\"terminal\">mounted</div><div class=\"directive counter\" initial=\"1\"></div>",
+    "terminal": "<span class=\"directive terminal\" shell=\"bash\">span</span><div class=\"terminal\">mounted</div><div class=\"directive counter\" initial=\"1\"></div>",
+    "solid": "<span class=\"directive terminal\" shell=\"bash\">span</span><div class=\"terminal\">mounted</div><div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;1&quot;}\"></div>",
+    "sanitized": "<span class=\"directive terminal\">span</span><div class=\"terminal\">mounted</div><div data-solid-island=\"Counter\" data-props=\"{&quot;initial&quot;:&quot;1&quot;}\"></div>"
+  },
+  {
+    "name": "malformed",
+    "input": "<div class=\"directive terminal\" title=\"Shell\"><span>open",
+    "terminal": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Shell\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Shell</div><span>open",
+    "solid": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Shell\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Shell</div><span>open",
+    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Shell\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Shell</div><span>open</span></div>"
+  }
+]

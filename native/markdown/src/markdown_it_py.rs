@@ -1,12 +1,16 @@
+use std::collections::HashSet;
+
 use markdown_it::MarkdownIt;
 use markdown_it::parser::core::Root;
 use markdown_it::plugins::cmark::block::heading::ATXHeading;
 use markdown_it::plugins::cmark::block::lheading::SetextHeader;
+use markdown_it::plugins::cmark::inline::image::Image;
 use markdown_it::plugins::extra::front_matter::FrontMatter;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::builder::build;
+use crate::image_optimizer::extract_checksum;
 use crate::types::{PyFrontMatter, PyRenderPlan};
 
 #[pyclass(name = "MarkdownIt")]
@@ -21,15 +25,18 @@ impl PyMarkdownIt {
         Self { inner: build() }
     }
 
-    #[pyo3(signature = (src, *, include_toc = false, include_frontmatter = false))]
+    #[pyo3(signature = (src, *, include_toc = false, include_frontmatter = false, image_picture_source_prefixes = Vec::new()))]
     fn prepare(
         &self,
         py: Python<'_>,
         src: &str,
         include_toc: bool,
         include_frontmatter: bool,
+        image_picture_source_prefixes: Vec<String>,
     ) -> PyResult<PyRenderPlan> {
-        let root = self.inner.parse(src);
+        let src = src.to_owned();
+        // release GIL
+        let root = py.detach(|| self.inner.parse(&src));
 
         let toc = if include_toc {
             extract_toc(py, &root)?
@@ -45,8 +52,34 @@ impl PyMarkdownIt {
             None
         };
 
-        Ok(PyRenderPlan::new(root, toc, frontmatter))
+        let image_checksums = collect_image_checksums(&root);
+
+        Ok(PyRenderPlan::new(
+            root,
+            image_checksums,
+            image_picture_source_prefixes,
+            toc,
+            frontmatter,
+        ))
     }
+}
+
+// HTML blocks are not considered for the time being.
+fn collect_image_checksums(root: &markdown_it::Node) -> Vec<String> {
+    let mut checksums = Vec::new();
+    let mut seen = HashSet::new();
+    root.walk(|node, _| {
+        let Some(image) = node.cast::<Image>() else {
+            return;
+        };
+        let Some(checksum) = extract_checksum(&image.url) else {
+            return;
+        };
+        if seen.insert(checksum.clone()) {
+            checksums.push(checksum);
+        }
+    });
+    checksums
 }
 
 fn extract_toc(py: Python<'_>, root: &markdown_it::Node) -> PyResult<Vec<Py<PyDict>>> {

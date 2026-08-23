@@ -1,8 +1,15 @@
 pub(crate) mod builder;
+mod code_language;
+mod domain_wrapper;
 mod error;
+mod image_optimizer;
+mod image_wrapper;
 pub(crate) mod markdown_it_py;
-#[cfg_attr(not(test), allow(dead_code))]
+mod rewriter;
 mod sanitizer;
+mod solid_island;
+mod suffix;
+mod terminal;
 #[cfg(test)]
 mod test_support;
 pub(crate) mod types;
