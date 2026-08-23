@@ -46,7 +46,7 @@ steps:
       # env setup
       - pacman -Syu base-devel uv git python perl-image-exiftool nodejs pnpm chromium firefox rustup --noconfirm
       - rustup toolchain install stable --profile minimal --component rustfmt,clippy
-      - rustup default stable
+      - rustup default nightly
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool # fix exiftool path
       - pnpm install --frozen-lockfile
       - pnpm exec playwright install
