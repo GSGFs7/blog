@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use markdown_it::Node;
-use markdown_it::plugins::extra::front_matter::{FrontMatter, FrontMatterKind};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping, PyTuple};
@@ -22,29 +21,6 @@ pub(crate) struct ImageMetadata {
 
 type ResolvedImages = HashMap<String, ImageMetadata>;
 
-#[derive(Clone)]
-#[pyclass(name = "FrontMatter", skip_from_py_object)]
-pub(crate) struct PyFrontMatter {
-    #[pyo3(get)]
-    kind: String,
-    #[pyo3(get)]
-    raw: String,
-}
-
-impl From<&FrontMatter> for PyFrontMatter {
-    fn from(front_matter: &FrontMatter) -> Self {
-        let kind = match front_matter.kind {
-            FrontMatterKind::Yaml => "yaml",
-            FrontMatterKind::Toml => "toml",
-        };
-
-        Self {
-            kind: kind.to_owned(),
-            raw: front_matter.raw.clone(),
-        }
-    }
-}
-
 #[pyclass(name = "RenderPlan")]
 pub(crate) struct PyRenderPlan {
     // one-time consumption
@@ -54,7 +30,7 @@ pub(crate) struct PyRenderPlan {
     #[pyo3(get)]
     pub(crate) toc: Vec<Py<PyDict>>,
     #[pyo3(get)]
-    pub(crate) frontmatter: Option<PyFrontMatter>,
+    pub(crate) frontmatter: Option<Py<PyDict>>,
 }
 
 #[pymethods]
@@ -91,7 +67,7 @@ impl PyRenderPlan {
         image_checksums: Vec<String>,
         image_picture_source_prefixes: Vec<String>,
         toc: Vec<Py<PyDict>>,
-        frontmatter: Option<PyFrontMatter>,
+        frontmatter: Option<Py<PyDict>>,
     ) -> Self {
         Self {
             root: Some(root),

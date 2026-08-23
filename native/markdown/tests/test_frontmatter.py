@@ -14,14 +14,26 @@ class FrontmatterTests(unittest.TestCase):
 
         self.assertIn('<h1 id="heading">heading</h1>', html)
         self.assertNotIn("title", html)
-        self.assertEqual(plan.frontmatter.kind, "yaml")
-        self.assertEqual(plan.frontmatter.raw, "title: Test")
+        self.assertEqual(plan.frontmatter, {"title": "Test"})
 
     def test_toml_frontmatter(self):
         plan = MarkdownIt().prepare(TOML_FRONTMATTER_INPUT, include_frontmatter=True)
 
-        self.assertEqual(plan.frontmatter.kind, "toml")
-        self.assertEqual(plan.frontmatter.raw, "title = 'Test'")
+        self.assertEqual(plan.frontmatter, {"title": "Test"})
+
+    def test_invalid_frontmatter_uses_stable_value_errors(self):
+        cases = {
+            "invalid YAML frontmatter": "---\n[unclosed\n---",
+            "invalid TOML frontmatter": "+++\ntitle =\n+++",
+            "frontmatter must be a mapping": "---\n- invalid\n---",
+            "frontmatter mapping keys must be strings": "---\n1: invalid\n---",
+            "frontmatter floats must be finite": "+++\nvalue = nan\n+++",
+        }
+
+        for message, source in cases.items():
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    MarkdownIt().prepare(source, include_frontmatter=True)
 
     def test_unclosed_frontmatter(self):
         self.assertEqual(

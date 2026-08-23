@@ -1,7 +1,6 @@
 from typing import TypedDict
 
 from ._markdown_it_rs_py import (
-    FrontMatter,
     MarkdownIt,
     RenderPlan,
 )
@@ -20,7 +19,6 @@ class ImageMetadata(_OptionalImageMetadata):
 
 
 __all__ = [
-    "FrontMatter",
     "ImageMetadata",
     "MarkdownIt",
     "RenderPlan",

@@ -453,6 +453,28 @@ class TestMarkdownProductionEntrypoints(TestCase):
         self.assertIn('data-domain="example.com"', html)
         self.assertNotIn("alert(1)", html)
 
+    @patch("api.routers.markdown.logger.exception")
+    @patch(
+        "api.routers.markdown.Markdown.render",
+        side_effect=RuntimeError("internal render details"),
+    )
+    def test_preview_api_returns_service_unavailable_on_render_failure(
+        self, _render, log_exception
+    ):
+        response = self.client.post(
+            "/api/markdown/render",
+            data=json.dumps({"markdown": "# preview"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json(),
+            {"message": "Markdown rendering temporarily unavailable"},
+        )
+        self.assertNotContains(response, "internal render details", status_code=503)
+        log_exception.assert_called_once_with("Markdown preview rendering failed")
+
     def test_post_save_uses_native_suffix_and_toc(self):
         post = Post.objects.create(
             title="Native markdown signal",

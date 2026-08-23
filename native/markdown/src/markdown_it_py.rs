@@ -1,17 +1,16 @@
 use std::collections::HashSet;
 
 use markdown_it::MarkdownIt;
-use markdown_it::parser::core::Root;
 use markdown_it::plugins::cmark::block::heading::ATXHeading;
 use markdown_it::plugins::cmark::block::lheading::SetextHeader;
 use markdown_it::plugins::cmark::inline::image::Image;
-use markdown_it::plugins::extra::front_matter::FrontMatter;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::builder::build;
+use crate::frontmatter;
 use crate::image_optimizer::extract_checksum;
-use crate::types::{PyFrontMatter, PyRenderPlan};
+use crate::types::PyRenderPlan;
 
 #[pyclass(name = "MarkdownIt")]
 pub(crate) struct PyMarkdownIt {
@@ -36,20 +35,22 @@ impl PyMarkdownIt {
     ) -> PyResult<PyRenderPlan> {
         let src = src.to_owned();
         // release GIL
-        let root = py.detach(|| self.inner.parse(&src));
+        let (root, frontmatter) = py.detach(|| {
+            let root = self.inner.parse(&src);
+            let frontmatter = include_frontmatter
+                .then(|| frontmatter::parse(&root))
+                .transpose()
+                .map(|value| value.flatten());
+            (root, frontmatter)
+        });
+        let frontmatter = frontmatter
+            .map_err(|error| error.into_pyerr())
+            .and_then(|value| frontmatter::into_python(py, value))?;
 
         let toc = if include_toc {
             extract_toc(py, &root)?
         } else {
             Vec::new()
-        };
-
-        let frontmatter = if include_frontmatter {
-            root.cast::<Root>()
-                .and_then(|root| root.ext.get::<FrontMatter>())
-                .map(PyFrontMatter::from)
-        } else {
-            None
         };
 
         let image_checksums = collect_image_checksums(&root);

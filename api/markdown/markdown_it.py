@@ -3,7 +3,6 @@ from typing import Any
 from markdown_it_rs_py import MarkdownIt
 
 from .images import _image_picture_source_prefixes, _resolve_images
-from .utils import parse_frontmatter
 
 
 class Markdown:
@@ -35,9 +34,7 @@ class Markdown:
             image_picture_source_prefixes=_image_picture_source_prefixes(),
         )
         html = plan.finish(_resolve_images(plan.image_checksums))
-        if frontmatter := plan.frontmatter:
-            return parse_frontmatter(frontmatter), html
-        return {}, html
+        return plan.frontmatter or {}, html
 
     def extract_frontmatter(self, markdown: str) -> dict[str, Any]:
         """extract frontmatter"""
@@ -46,6 +43,4 @@ class Markdown:
             include_frontmatter=True,
             image_picture_source_prefixes=_image_picture_source_prefixes(),
         )
-        if fm := plan.frontmatter:
-            return parse_frontmatter(fm)
-        return {}
+        return plan.frontmatter or {}

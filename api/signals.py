@@ -78,12 +78,7 @@ def convert_gal_markdown_to_html(sender, instance, **kwargs):
     try:
         html = Markdown().render(instance.review)
         instance.review_html = html
-        # Disconnect signal, avoid infinite loop
-        post_save.disconnect(convert_gal_markdown_to_html, sender=Gal)
-        instance.save(update_fields=["review_html"])
-        post_save.connect(
-            convert_gal_markdown_to_html, sender=Gal
-        )  # Reconnect after save
+        Gal.objects.filter(pk=instance.pk).update(review_html=html)
     except Exception as e:
         logger.error(f"Markdown conversion failed: {e}")
 
@@ -93,11 +88,9 @@ def convert_post_markdown_to_html(sender, instance, **kwargs):
     try:
         html, toc = Markdown().render_with_toc(instance.content)
 
-        post_save.disconnect(convert_post_markdown_to_html, sender=Post)
         instance.content_html = html
         instance.toc = toc
-        instance.save(update_fields=["content_html", "toc"])
-        post_save.connect(convert_post_markdown_to_html, sender=Post)
+        Post.objects.filter(pk=instance.pk).update(content_html=html, toc=toc)
     except Exception as e:
         logger.error(f"Markdown conversion failed: {e}")
 
