@@ -44,7 +44,9 @@ steps:
       UV_LINK_MODE: "copy"
     commands:
       # env setup
-      - pacman -Syu base-devel uv git python perl-image-exiftool nodejs pnpm chromium firefox --noconfirm
+      - pacman -Syu base-devel uv git python perl-image-exiftool nodejs pnpm chromium firefox rustup --noconfirm
+      - rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - rustup default stable
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool # fix exiftool path
       - pnpm install --frozen-lockfile
       - pnpm exec playwright install
