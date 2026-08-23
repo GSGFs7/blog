@@ -12,3 +12,4 @@ build-backend = "maturin"
 [tool.maturin]
 python-source = "python"
 module-name = "markdown_it_rs_py._markdown_it_rs_py"
+features = ["extension-module"]

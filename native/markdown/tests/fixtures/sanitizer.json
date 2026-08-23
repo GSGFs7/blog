@@ -1,0 +1,72 @@
+[
+  {
+    "name": "dangerous_content",
+    "input": "<script>alert(1)</script><style>body{display:none}</style><span class=\"heimu\" onclick=\"x\">safe</span>",
+    "expected": "<span class=\"heimu\">safe</span>"
+  },
+  {
+    "name": "dangerous_url",
+    "input": "<a href=\"javascript:alert(1)\">bad</a><img src=\"data:text/html,boom\">",
+    "expected": "<a rel=\"noopener noreferrer\">bad</a><img>"
+  },
+  {
+    "name": "malformed",
+    "input": "<script><p>hidden</p></script><div><span onclick=\"alert(1)\">safe",
+    "expected": "<div><span>safe</span></div>"
+  },
+  {
+    "name": "mathml",
+    "input": "<svg onload=\"x\"><circle></circle></svg><math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow><mi>x</mi></mrow></math>",
+    "expected": "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow><mi>x</mi></mrow></math>"
+  },
+  {
+    "name": "unsafe_style",
+    "input": "<img src=\"safe.png\" style=\"background-image:url(data:text/html,boom);width:1px\">",
+    "expected": "<img src=\"safe.png\">"
+  },
+  {
+    "name": "safe_image_style",
+    "input": "<img src=\"safe.png\" style=\"background-image:url(data:image/webp;base64,eA==);background-size:cover;width:1px\">",
+    "expected": "<img src=\"safe.png\" style=\"background-image:url(data:image/webp;base64,eA==);background-size:cover;width:1px\">"
+  },
+  {
+    "name": "checkbox",
+    "input": "<input type=\"text\" checked><input type=\"checkbox\" checked>",
+    "expected": "<input checked=\"\" disabled=\"\"><input type=\"checkbox\" checked=\"\" disabled=\"\">"
+  },
+  {
+    "name": "terminal_style",
+    "input": "<div role=\"group\" style=\"--terminal-prompt:&quot;$ &quot;\">ok</div><div role=\"alert\" style=\"width:1px\">bad</div>",
+    "expected": "<div role=\"group\" style=\"--terminal-prompt:&quot;$ &quot;\">ok</div><div>bad</div>"
+  },
+  {
+    "name": "relative_and_schemes",
+    "input": "<a href=\"/local\">local</a><a href=\"mailto:a@example.com\">mail</a><a href=\"ftp://example.com\">ftp</a>",
+    "expected": "<a href=\"/local\" rel=\"noopener noreferrer\">local</a><a href=\"mailto:a@example.com\" rel=\"noopener noreferrer\">mail</a><a rel=\"noopener noreferrer\">ftp</a>"
+  },
+  {
+    "name": "comments",
+    "input": "before<!-- secret -->after",
+    "expected": "beforeafter"
+  },
+  {
+    "name": "katex_style",
+    "input": "<span class=\"katex\" aria-hidden=\"true\" style=\"height:0.4306em;vertical-align:-0.1em;position:fixed\">x</span>",
+    "expected": "<span class=\"katex\" aria-hidden=\"true\" style=\"height:0.4306em;vertical-align:-0.1em\">x</span>"
+  },
+  {
+    "name": "rewriter_attributes",
+    "input": "<picture><source srcset=\"image.avif\" type=\"image/avif\"><img src=\"image.jpg\" loading=\"lazy\" decoding=\"async\"></picture><span data-domain=\"example.com\" data-solid-island=\"Counter\" data-props=\"{}\">x</span>",
+    "expected": "<picture><source srcset=\"image.avif\" type=\"image/avif\"><img src=\"image.jpg\" loading=\"lazy\" decoding=\"async\"></picture><span data-domain=\"example.com\" data-solid-island=\"Counter\" data-props=\"{}\">x</span>"
+  },
+  {
+    "name": "encoded_unsafe_data_url",
+    "input": "<img src=\"safe.png\" style=\"background-image:url(&#100;ata:text/html,boom);width:1px\">",
+    "expected": "<img src=\"safe.png\">"
+  },
+  {
+    "name": "unicode_terminal_prompt",
+    "input": "<div role=\"group\" data-shell=\"zsh\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;❯ &quot;\">ok</div>",
+    "expected": "<div role=\"group\" data-shell=\"zsh\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;❯ &quot;\">ok</div>"
+  }
+]

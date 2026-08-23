@@ -1,8 +1,26 @@
+use std::collections::HashMap;
+
 use markdown_it::Node;
 use markdown_it::plugins::extra::front_matter::{FrontMatter, FrontMatterKind};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyMapping, PyTuple};
+
+use crate::error::MarkdownError;
+use crate::utils::parse_image_metadata;
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct ImageMetadata {
+    pub(crate) src: String,
+    pub(crate) avif_src: Option<String>,
+    pub(crate) webp_src: Option<String>,
+    pub(crate) width: Option<u32>,
+    pub(crate) height: Option<u32>,
+    pub(crate) placeholder: Option<String>,
+}
+
+type ResolvedImages = HashMap<String, ImageMetadata>;
 
 #[derive(Clone)]
 #[pyclass(name = "FrontMatter", skip_from_py_object)]
@@ -31,7 +49,6 @@ impl From<&FrontMatter> for PyFrontMatter {
 pub(crate) struct PyRenderPlan {
     // one-time consumption
     root: Option<Node>,
-    #[pyo3(get)]
     pub(crate) image_checksums: Vec<String>,
     #[pyo3(get)]
     pub(crate) toc: Vec<Py<PyDict>>,
@@ -41,15 +58,22 @@ pub(crate) struct PyRenderPlan {
 
 #[pymethods]
 impl PyRenderPlan {
-    #[pyo3(signature = (images = None))]
-    fn finish(&mut self, images: Option<&Bound<'_, PyDict>>) -> PyResult<String> {
-        let root = self
-            .root
-            .take()
-            .ok_or_else(|| PyRuntimeError::new_err("render plan already finished"))?;
+    #[getter]
+    fn image_checksums<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.image_checksums.iter())
+    }
 
-        let _ = images; // todo
-        Ok(root.render())
+    #[pyo3(signature = (images = None))]
+    fn finish(&mut self, images: Option<&Bound<'_, PyMapping>>) -> PyResult<String> {
+        if self.root.is_none() {
+            return Err(PyRuntimeError::new_err("render plan already finished"));
+        }
+
+        let images = self.parse_images(images)?;
+
+        let root = self.root.take().expect("checked above");
+
+        Self::render_and_rewrite(root, images).map_err(MarkdownError::into_pyerr)
     }
 }
 
@@ -65,5 +89,132 @@ impl PyRenderPlan {
             toc,
             frontmatter,
         }
+    }
+
+    fn parse_images(&self, images: Option<&Bound<'_, PyMapping>>) -> PyResult<ResolvedImages> {
+        let Some(images) = images else {
+            return Ok(HashMap::new());
+        };
+
+        let mut resolved = HashMap::with_capacity(self.image_checksums.len());
+        for checksum in &self.image_checksums {
+            if !images.contains(checksum)? {
+                continue;
+            }
+
+            let value = images.get_item(checksum)?;
+            resolved.insert(checksum.clone(), parse_image_metadata(checksum, &value)?);
+        }
+
+        Ok(resolved)
+    }
+
+    fn render_and_rewrite(root: Node, _: ResolvedImages) -> Result<String, MarkdownError> {
+        // TODO
+        Ok(root.render())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::exceptions::{PyTypeError, PyValueError};
+
+    use super::*;
+    use crate::builder::build;
+
+    fn plan_with_checksum(checksum: String) -> PyRenderPlan {
+        let mut plan = PyRenderPlan::new(build().parse("hello"), Vec::new(), None);
+        plan.image_checksums.push(checksum);
+        plan
+    }
+
+    #[test]
+    fn invalid_metadata_does_not_consume_plan() {
+        Python::attach(|py| {
+            let checksum = "a".repeat(64);
+            let mut plan = plan_with_checksum(checksum.clone());
+            let images = PyDict::new(py);
+            images.set_item(&checksum, PyDict::new(py)).unwrap();
+            let images = images.cast::<PyMapping>().unwrap();
+
+            let error = plan.finish(Some(images)).unwrap_err();
+            assert!(error.is_instance_of::<PyValueError>(py));
+
+            let metadata = PyDict::new(py);
+            metadata.set_item("src", "image.jpg").unwrap();
+            images.set_item(&checksum, metadata).unwrap();
+
+            assert_eq!(plan.finish(Some(images)).unwrap(), "<p>hello</p>\n");
+        });
+    }
+
+    #[test]
+    fn parses_owned_metadata_and_ignores_extras() {
+        Python::attach(|py| {
+            let checksum = "a".repeat(64);
+            let extra_checksum = "b".repeat(64);
+            let plan = plan_with_checksum(checksum.clone());
+            let metadata = PyDict::new(py);
+            metadata.set_item("src", "image.jpg").unwrap();
+            metadata.set_item("avif_src", "image.avif").unwrap();
+            metadata.set_item("webp_src", py.None()).unwrap();
+            metadata.set_item("width", 640).unwrap();
+            metadata.set_item("height", py.None()).unwrap();
+            metadata
+                .set_item("placeholder", "data:image/webp;base64,eA==")
+                .unwrap();
+            let images = PyDict::new(py);
+            images.set_item(&checksum, metadata).unwrap();
+            images
+                .set_item(extra_checksum, Vec::<String>::new())
+                .unwrap();
+
+            let resolved = plan
+                .parse_images(Some(images.cast::<PyMapping>().unwrap()))
+                .unwrap();
+            let image = resolved.get(&checksum).unwrap();
+            assert_eq!(image.src, "image.jpg");
+            assert_eq!(image.avif_src.as_deref(), Some("image.avif"));
+            assert_eq!(image.webp_src, None);
+            assert_eq!(image.width, Some(640));
+            assert_eq!(image.height, None);
+            assert_eq!(
+                image.placeholder.as_deref(),
+                Some("data:image/webp;base64,eA==")
+            );
+        });
+    }
+
+    #[test]
+    fn rejects_invalid_metadata_types_and_values() {
+        Python::attach(|py| {
+            let checksum = "a".repeat(64);
+            let plan = plan_with_checksum(checksum.clone());
+            let metadata = PyDict::new(py);
+            metadata.set_item("src", "image.jpg").unwrap();
+            metadata.set_item("width", -1).unwrap();
+            let images = PyDict::new(py);
+            images.set_item(&checksum, metadata).unwrap();
+
+            let error = plan
+                .parse_images(Some(images.cast::<PyMapping>().unwrap()))
+                .unwrap_err();
+            assert!(error.is_instance_of::<PyValueError>(py));
+
+            let metadata = PyDict::new(py);
+            metadata.set_item("src", "image.jpg").unwrap();
+            metadata.set_item("width", true).unwrap();
+            images.set_item(&checksum, metadata).unwrap();
+            let error = plan
+                .parse_images(Some(images.cast::<PyMapping>().unwrap()))
+                .unwrap_err();
+            assert!(error.is_instance_of::<PyTypeError>(py));
+
+            images.set_item(&checksum, Vec::<String>::new()).unwrap();
+            let error = plan
+                .parse_images(Some(images.cast::<PyMapping>().unwrap()))
+                .unwrap_err();
+            assert!(error.is_instance_of::<PyTypeError>(py));
+        });
     }
 }

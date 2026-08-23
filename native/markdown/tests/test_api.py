@@ -1,9 +1,15 @@
 import unittest
+from collections import UserDict
 
-from markdown_it_rs_py import MarkdownIt, RenderPlan
+from markdown_it_rs_py import ImageMetadata, MarkdownIt, RenderPlan
 
 
 class MarkdownItTests(unittest.TestCase):
+    def test_image_metadata_is_public(self):
+        metadata: ImageMetadata = {"src": "image.jpg"}
+
+        self.assertEqual(metadata, {"src": "image.jpg"})
+
     def test_fixed_pipeline(self):
         html = MarkdownIt().prepare("hello<br>world\n\n$E=mc^2$").finish()
 
@@ -14,7 +20,7 @@ class MarkdownItTests(unittest.TestCase):
         plan = MarkdownIt().prepare("# heading", include_toc=True)
 
         self.assertIsInstance(plan, RenderPlan)
-        self.assertEqual(plan.image_checksums, [])
+        self.assertEqual(plan.image_checksums, ())
         self.assertEqual(
             plan.toc,
             [{"level": 1, "slug": "heading", "text": "heading"}],
@@ -41,6 +47,7 @@ class MarkdownItTests(unittest.TestCase):
         cases = (
             None,
             {},
+            UserDict(),
             {"checksum": {"src": "image.jpg"}},
         )
 
@@ -48,6 +55,14 @@ class MarkdownItTests(unittest.TestCase):
             with self.subTest(images=images):
                 plan = MarkdownIt().prepare("# heading")
                 self.assertEqual(plan.finish(images), expected)
+
+    def test_finish_argument_error_does_not_consume_plan(self):
+        plan = MarkdownIt().prepare("# heading")
+
+        with self.assertRaises(TypeError):
+            plan.finish([])
+
+        self.assertEqual(plan.finish({}), '<h1 id="heading">heading</h1>\n')
 
 
 if __name__ == "__main__":

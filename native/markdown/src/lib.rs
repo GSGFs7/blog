@@ -1,6 +1,12 @@
 pub(crate) mod builder;
+mod error;
 pub(crate) mod markdown_it_py;
+#[cfg_attr(not(test), allow(dead_code))]
+mod sanitizer;
+#[cfg(test)]
+mod test_support;
 pub(crate) mod types;
+mod utils;
 
 use pyo3::prelude::*;
 
