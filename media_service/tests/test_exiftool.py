@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from io import BytesIO
 
-import requests
+import httpx2
 from django.test import TestCase
 from PIL import Image as PILImage
 
@@ -27,7 +27,7 @@ class ExifToolTest(TestCase):
 
         url = test_image_url
         try:
-            resp = requests.get(url, timeout=5)
+            resp = httpx2.get(url, timeout=5)
             resp.raise_for_status()
             cls.test_image_data = resp.content
         except Exception as e:
@@ -123,7 +123,7 @@ class AsyncExifToolTest(unittest.IsolatedAsyncioTestCase):
 
         url = test_image_url
         try:
-            resp = requests.get(url, timeout=5)
+            resp = httpx2.get(url, timeout=5)
             resp.raise_for_status()
             cls.test_image_data = resp.content
         except Exception as e:

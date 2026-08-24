@@ -1,16 +1,14 @@
-from typing import Iterable, List, Union
+from base64 import b64encode
+from typing import Any, Iterable, Union
 
-import resend
+import httpx2
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 from django.core.mail.message import EmailMessage, EmailMultiAlternatives
-from resend import Attachment
 
 
 class ResendEmailBackend(BaseEmailBackend):
-    """Resend email backend, from django email service"""
-
-    def __init__(self, fail_silently=..., **kwargs):
+    def __init__(self, fail_silently=False, **kwargs):
         super().__init__(fail_silently, **kwargs)
         self.api_key = getattr(settings, "RESEND_API_KEY", "")
 
@@ -19,11 +17,7 @@ class ResendEmailBackend(BaseEmailBackend):
         if not email_messages:
             return 0
 
-        # set resend api key
-        resend.api_key = self.api_key
         count = 0
-
-        # send emails
         for message in email_messages:
             sent = self._send(message)
             if sent:
@@ -32,48 +26,42 @@ class ResendEmailBackend(BaseEmailBackend):
         return count
 
     def _send(self, email_message: Union[EmailMessage, EmailMultiAlternatives]) -> bool:
-        """send a single email"""
         try:
-            # build params
-            params: resend.Emails.SendParams = {
+            params: dict[str, Any] = {
                 "from": email_message.from_email,
                 "to": email_message.to,
                 "subject": email_message.subject,
-                # "html": email_message.body,
                 "text": email_message.body,
             }
 
-            # cc and bcc
             if email_message.cc:
                 params["cc"] = email_message.cc
             if email_message.bcc:
                 params["bcc"] = email_message.bcc
 
-            # attachments
             if email_message.attachments:
-                attachments: List[Attachment] = []
+                attachments: list[dict[str, str]] = []
                 for attachment in email_message.attachments:
-                    # attachment can be a tuple (filename, content, [content_type])
                     if isinstance(attachment, tuple) and len(attachment) >= 2:
-                        attach_data: Attachment = {
+                        content = attachment[1]
+                        if isinstance(content, str):
+                            content = content.encode()
+                        attach_data = {
                             "filename": attachment[0],
-                            "content": attachment[1],
+                            "content": b64encode(content).decode(),
                         }
-                        if len(attachment) > 2:
-                            attach_data["content_type"] = attachment[2]
                         attachments.append(attach_data)
-                # add attachments to params
                 if attachments:
                     params["attachments"] = attachments
 
-            # send email
-            response = resend.Emails.send(params)
-            print(response["id"])
-            return "id" in response
-        except Exception as e:
+            response = httpx2.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=params,
+            )
+            response.raise_for_status()
+            return "id" in response.json()
+        except Exception:
             if not self.fail_silently:
-                raise e
+                raise
             return False
-
-
-# doc: https://docs.djangoproject.com/zh-hans/5.1/topics/email/#defining-a-custom-email-backend

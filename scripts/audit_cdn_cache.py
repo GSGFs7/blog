@@ -421,7 +421,7 @@ def discover_sitemap_urls(
     excluded_prefixes: list[str],
     errors: list[dict],
 ) -> set[str]:
-    import requests
+    import httpx2
 
     pages: set[str] = set()
     pending = [sitemap_url]
@@ -434,7 +434,7 @@ def discover_sitemap_urls(
         visited.add(current)
 
         try:
-            response = requests.get(
+            response = httpx2.get(
                 current,
                 headers={"user-agent": "gsgfs-cdn-cache-audit/1.0"},
                 timeout=30,

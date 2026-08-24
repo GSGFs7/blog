@@ -6,7 +6,7 @@ from unittest import skipIf
 from unittest.mock import patch
 
 import blake3
-import requests
+import httpx2
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
@@ -178,7 +178,7 @@ class WebImageUploadTest(BaseImageUploadTest):
         )
 
         try:
-            resp = requests.get(self.image_src, timeout=5)
+            resp = httpx2.get(self.image_src, timeout=5)
             resp.raise_for_status()
             self.image_content = resp.content
         except Exception as e:

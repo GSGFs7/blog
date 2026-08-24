@@ -1,7 +1,7 @@
 import os
 from typing import List, Optional, TypedDict
 
-import requests
+import httpx2
 
 
 class Title(TypedDict):
@@ -37,7 +37,7 @@ def query_vn(id: str) -> VNDBResponse:
         "rating",
     ]
 
-    res = requests.post(
+    res = httpx2.post(
         "https://api.vndb.org/kana/vn",
         headers={
             "Content-Type": "application/json",
