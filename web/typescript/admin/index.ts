@@ -14,6 +14,9 @@ setupIslands(COMPONENTS);
 
     // 1. create new element for render editor
     const newDiv = document.createElement("div");
+    // avoid Django's flex rule cause page flashes at high speed
+    newDiv.style.flex = "1 1 0";
+    newDiv.style.minWidth = "0";
     textareaForMarkdownEditor.before(newDiv);
 
     // 2. hidden textarea

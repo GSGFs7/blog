@@ -37,6 +37,7 @@
     "htmx.org": "^2.0.10",
     "lxgw-wenkai-screen-web": "^1.522.0",
     "mathjs": "^15.2.0",
+    "monaco-editor": "^0.56.0",
     "music-metadata": "^11.14.0",
     "solid-js": "^1.9.14"
   },

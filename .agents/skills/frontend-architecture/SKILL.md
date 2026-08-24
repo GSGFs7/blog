@@ -1,11 +1,11 @@
 ---
 name: frontend-architecture
-description: Rules for changing this project's public frontend (Django templates/views, HTMX fragments, TypeScript behaviors/islands, navigation lifecycle, SSR, Markdown directives, Vite config, frontend tests). Load ONLY when the task actually edits frontend source code or runs frontend checks. Do not load for frontend questions, reviews, or debugging that involve no code changes.
+description: Project-specific architecture for understanding how Django rendering, HTMX fragments, Native Navigation, TypeScript behaviors, Solid islands, SSR, Markdown directives, and Vite fit together. Load only when a task requires understanding, choosing, or preserving these architectural boundaries or interactions. Do not load for ordinary localized frontend edits, styling or content tweaks, routine checks, or questions and debugging answerable from the affected code alone.
 ---
 
 # Frontend Architecture
 
-Preserve the project's server-first, progressively enhanced frontend while making changes.
+Understand and preserve the project's server-first, progressively enhanced frontend architecture.
 
 ## Start Every Task
 

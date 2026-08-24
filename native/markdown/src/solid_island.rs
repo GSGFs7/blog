@@ -7,6 +7,7 @@ use crate::rewriter::escape_html;
 enum Component {
     Counter,
     PythonRepl,
+    PythonPlayground,
     Chart,
 }
 
@@ -15,6 +16,7 @@ impl Component {
         match name {
             "counter" => Some(Self::Counter),
             "python-wasm" | "python-repl" => Some(Self::PythonRepl),
+            "python-playground" => Some(Self::PythonPlayground),
             "chart" | "charts" => Some(Self::Chart),
             _ => None,
         }
@@ -24,6 +26,7 @@ impl Component {
         match self {
             Self::Counter => "Counter",
             Self::PythonRepl => "PythonREPL",
+            Self::PythonPlayground => "PythonPlayground",
             Self::Chart => "Chart",
         }
     }
@@ -32,6 +35,7 @@ impl Component {
         match self {
             Self::Counter => name == "initial",
             Self::PythonRepl => false,
+            Self::PythonPlayground => name == "source",
             Self::Chart => matches!(name, "formula" | "x-min" | "x-max" | "y-min" | "y-max"),
         }
     }

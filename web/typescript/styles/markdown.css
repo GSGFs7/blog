@@ -460,8 +460,8 @@
   margin-bottom: 1em;
 }
 
-.markdown-body.is-decorated pre::before,
-.markdown-body.is-decorated pre::after {
+.markdown-body.is-decorated pre[data-language]::before,
+.markdown-body.is-decorated pre[data-language]::after {
   display: block;
   color: var(--md-syntax-fg);
   font-family: var(--font-mono);
@@ -470,20 +470,20 @@
   opacity: 0.6;
 }
 
-:where(html.dark, .dark) .markdown-body.is-decorated pre::before,
-:where(html.dark, .dark) .markdown-body.is-decorated pre::after {
+:where(html.dark, .dark) .markdown-body.is-decorated pre[data-language]::before,
+:where(html.dark, .dark) .markdown-body.is-decorated pre[data-language]::after {
   color: var(--syn-comment);
   opacity: 0.8;
 }
 
-.markdown-body.is-decorated pre::before {
+.markdown-body.is-decorated pre[data-language]::before {
   /* Using attr(data-language) to dynamically show the language.
      Ensure adds data-language to the <pre> tag. */
   content: "```" attr(data-language);
   margin-bottom: 0.5em;
 }
 
-.markdown-body.is-decorated pre::after {
+.markdown-body.is-decorated pre[data-language]::after {
   content: "```";
   margin-top: 0.5em;
 }

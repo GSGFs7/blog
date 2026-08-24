@@ -130,16 +130,16 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
         "--font-sans": '"LXGW WenKai", sans-serif',
         "--font-mono": '"Maple Mono Normal", monospace',
         display: "flex",
+        "flex-wrap": "wrap",
         gap: "1rem",
-        "min-height": "600px",
-        height: "50vh",
         width: "100%",
       }}
     >
       {/* left. input area */}
       <textarea
         style={{
-          flex: 1,
+          flex: "1 1 32rem",
+          height: "max(50vh, 600px)",
           padding: "1rem",
           border: "1px solid",
           "border-color": isDark() ? "#444c56" : "#d1d5db",
@@ -151,7 +151,7 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
           "box-sizing": "border-box",
           "background-color": isDark() ? "#0d1117" : "#ffffff",
           color: isDark() ? "#e6edf3" : "#000000",
-          "min-width": "24rem",
+          "min-width": "min(100%, 32rem)",
           "font-size": "18px",
         }}
         value={source()}
@@ -162,7 +162,8 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
       {/* right. preview area */}
       <div
         style={{
-          flex: 1,
+          flex: "1 1 32rem",
+          height: "max(50vh, 600px)",
           padding: "1rem",
           border: "1px solid #d1d5db",
           "border-radius": "0.5rem",
@@ -170,7 +171,7 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
           "background-color": isDark() ? "#1a1c25" : "#f8fafc",
           "box-sizing": "border-box",
           position: "relative",
-          "min-width": "24rem",
+          "min-width": "min(100%, 32rem)",
         }}
       >
         <button

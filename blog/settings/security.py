@@ -72,6 +72,7 @@ if is_debug():
     CSP_POLICY["style-src"].append(VITE_DEV_SERVER_URL)
     CSP_POLICY["font-src"].append(VITE_DEV_SERVER_URL)
     CSP_POLICY["connect-src"].extend([VITE_DEV_SERVER_URL, VITE_DEV_SERVER_WS_URL])
+    CSP_POLICY["worker-src"].append(VITE_DEV_SERVER_URL)
 else:
     CSP_POLICY["upgrade-insecure-requests"] = True
 
