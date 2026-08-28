@@ -886,10 +886,10 @@
   left: 0;
   height: 2.5rem;
   pointer-events: none;
+  /* -1px, avoid last pixel transparent */
   background: linear-gradient(
     to bottom,
     transparent,
-    /* -1px, avoid last pixel transparent */
     var(--md-pre-bg) calc(100% - 1px),
     var(--md-pre-bg)
   );
