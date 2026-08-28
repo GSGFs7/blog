@@ -26,6 +26,7 @@
   --syn-string: #0a3069;
   --syn-function: #8250df;
   --syn-constant: #0550ae;
+  --syn-entity: #116329;
   --syn-variable: #953800;
   --syn-punctuation: #1f2328;
   --terminal-command: #1a7f37;
@@ -69,6 +70,7 @@
   --syn-string: #a5d6ff;
   --syn-function: #d2a8ff;
   --syn-constant: #79c0ff;
+  --syn-entity: #7ee787;
   --syn-variable: #ffa657;
   --syn-punctuation: #d1d7dd;
   --terminal-command: #3fb950;
@@ -560,10 +562,34 @@
 .syntect-storage {
   color: var(--syn-keyword);
 }
+.syntect-keyword.syntect-operator.syntect-optional {
+  /* Solving the problem of connected text spanning span tags */
+  font-variant-ligatures: no-contextual;
+}
 .syntect-string {
   color: var(--syn-string);
 }
 .syntect-entity.syntect-name.syntect-function {
+  color: var(--syn-function);
+}
+.syntect-variable.syntect-function,
+.syntect-support.syntect-class,
+.syntect-entity.syntect-name:is(
+  .syntect-class,
+  .syntect-struct,
+  .syntect-enum,
+  .syntect-trait,
+  .syntect-type,
+  .syntect-interface,
+  .syntect-namespace,
+  .syntect-impl
+) {
+  color: var(--syn-function);
+}
+.syntect-entity.syntect-other.syntect-attribute-name {
+  color: var(--syn-function);
+}
+.syntect-entity.syntect-other:is(.syntect-pseudo-class, .syntect-pseudo-element) {
   color: var(--syn-function);
 }
 .syntect-support.syntect-function,
@@ -573,11 +599,64 @@
 .syntect-constant {
   color: var(--syn-constant);
 }
+.syntect-support.syntect-type {
+  color: var(--syn-constant);
+}
+.syntect-meta.syntect-property-name.syntect-css {
+  color: var(--syn-variable);
+}
+.syntect-meta.syntect-property-name.syntect-css .syntect-support.syntect-type {
+  color: inherit;
+}
+.syntect-keyword.syntect-other.syntect-unit {
+  color: var(--syn-constant);
+}
+.syntect-entity.syntect-name.syntect-tag {
+  color: var(--syn-entity);
+}
+.syntect-entity.syntect-name.syntect-table,
+.syntect-meta.syntect-mapping.syntect-key > .syntect-string {
+  color: var(--syn-entity);
+}
 .syntect-variable {
   color: var(--syn-variable);
 }
 .syntect-punctuation {
   color: var(--syn-punctuation);
+}
+.syntect-regexp,
+.syntect-markup.syntect-raw {
+  color: var(--syn-string);
+}
+.syntect-markup.syntect-heading {
+  color: var(--syn-function);
+  font-weight: 600;
+}
+.syntect-markup.syntect-bold {
+  font-weight: 600;
+}
+.syntect-markup.syntect-italic {
+  font-style: italic;
+}
+.syntect-markup.syntect-underline.syntect-link {
+  color: var(--syn-constant);
+  text-decoration: underline;
+}
+.syntect-markup.syntect-inserted,
+.syntect-punctuation.syntect-inserted {
+  color: var(--syn-entity);
+}
+.syntect-markup.syntect-deleted,
+.syntect-punctuation.syntect-deleted {
+  color: var(--syn-keyword);
+}
+.syntect-markup.syntect-changed,
+.syntect-punctuation.syntect-changed {
+  color: var(--syn-constant);
+}
+.syntect-meta.syntect-range.syntect-diff,
+.syntect-punctuation.syntect-range.syntect-diff {
+  color: var(--syn-function);
 }
 
 /* --- layout --- */
@@ -807,7 +886,13 @@
   left: 0;
   height: 2.5rem;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--md-pre-bg));
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    /* -1px, avoid last pixel transparent */
+    var(--md-pre-bg) calc(100% - 1px),
+    var(--md-pre-bg)
+  );
 }
 
 .markdown-body .code-expander__viewport > pre,
