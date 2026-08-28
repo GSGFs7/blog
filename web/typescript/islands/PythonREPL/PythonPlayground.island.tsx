@@ -35,7 +35,9 @@ function mirrorMonacoStyles(root: ShadowRoot) {
     let isMonacoStyle = viteId.includes("monaco-editor");
     if (!isMonacoStyle) {
       try {
-        isMonacoStyle = Array.from(sheet.cssRules).some((rule) => rule.cssText.includes(".monaco-editor"));
+        isMonacoStyle = Array.from(sheet.cssRules).some((rule) =>
+          rule.cssText.includes(".monaco-editor"),
+        );
       } catch {
         continue;
       }
@@ -230,7 +232,11 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
         background: "var(--md-pre-bg)",
       }}
     >
-      <div class="h-96 w-full" ref={(e) => (editorContainer = e)} aria-label="Python playground editor"></div>
+      <div
+        class="h-96 w-full"
+        ref={(e) => (editorContainer = e)}
+        aria-label="Python playground editor"
+      ></div>
 
       <Show when={output()}>
         <pre>{output()}</pre>
