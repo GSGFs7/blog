@@ -51,7 +51,7 @@ use crate::plugins::cmark::block::fence::CodeFence;
 use crate::{MarkdownIt, Node, NodeValue, Renderer};
 
 // lazy load themes. it wast a lot of performance
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
+static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(two_face::syntax::extra_newlines);
 static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 
 // --- render ---

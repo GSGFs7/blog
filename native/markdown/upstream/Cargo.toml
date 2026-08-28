@@ -68,6 +68,7 @@ syntect = { version = ">= 5.0.0, < 6", optional = true, default-features = false
     "html",
 ] }
 unicode-general-category = ">= 0.1.0, < 1.2"
+two-face = "0.5.2"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
