@@ -31,7 +31,8 @@ required-features = ["syntect"]
 
 [workspace]
 members = [
-    "crates/markdown-it-url",
+    "crates/markdown-it-rs-linkify",
+    "crates/markdown-it-rs-url",
     "bindings/kotlin",
     "bindings/python",
     "bindings/wasm",
@@ -44,10 +45,10 @@ exclude = ["benchmarks"]
 opt-level = "s"
 
 [features]
-default = ["linkify", "syntect"]
+default = ["linkify"]
 cli = ["dep:clap"]
 katex = ["dep:katex-rs"]
-syntect = ["dep:syntect"]
+syntect = ["dep:syntect", "dep:two-face"]
 
 [dependencies]
 clap = { version = ">= 4.0.0, < 5", optional = true }
@@ -56,10 +57,10 @@ derive_more = { version = ">= 0.99.0, < 3", features = ["deref", "deref_mut"] }
 downcast-rs = ">= 1.0.2, < 3"
 entities = ">= 0.1.0, < 2"
 html-escape = ">= 0.1.0, < 0.3"
-linkify = { version = ">= 0.5.0, < 0.12", optional = true }
+linkify = { package = "markdown-it-rs-linkify", version = "0.1.0", path = "crates/markdown-it-rs-linkify", optional = true }
 katex-rs = { version = "0.2.4", optional = true }
-mdurl = { package = "markdown-it-rs-url", version = "0.1.0", path = "crates/markdown-it-url" }
-once_cell = ">= 1.0.1, < 2"
+memchr = ">= 2.0.0, < 3"
+mdurl = { package = "markdown-it-rs-url", version = "0.1.0", path = "crates/markdown-it-rs-url" }
 readonly = ">= 0.2.0, < 0.3"
 regex = ">= 1.0.0, < 2"
 stacker = ">= 0.1.2, < 0.2"
@@ -68,6 +69,7 @@ syntect = { version = ">= 5.0.0, < 6", optional = true, default-features = false
     "html",
 ] }
 unicode-general-category = ">= 0.1.0, < 1.2"
+two-face = {version = "0.5.2", optional = true, default-features = false, features = ["syntect-fancy"]}
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }

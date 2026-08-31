@@ -5,7 +5,8 @@
 //! unknown language and indented code blocks will be rendered as plain text.
 //!
 //! This plugin use `InspiredGitHub` theme and render inline styles by default.
-//! Use [`set_theme`] to select another built-in syntect theme.
+//! Use [`set_theme`] to select another built-in theme (syntect defaults plus
+//! two-face extras, e.g. `Nord`, `Dracula`, `Catppuccin Mocha`, `Solarized (dark)`).
 //! It will panic when get an unknown theme.
 //! Use [`available_themes`] to view all available themes.
 //!
@@ -19,7 +20,7 @@
 //! Line number started with 1.
 //!
 //! ```rust
-//! let mut md = markdown_it::MarkdownIt::new();
+//! let mut md = markdown_it::MarkdownIt::empty();
 //! markdown_it::plugins::cmark::add(&mut md);
 //! markdown_it::plugins::extra::syntect::add(&mut md);
 //! markdown_it::plugins::extra::syntect::set_theme(&mut md, "base16-ocean.dark");
@@ -29,10 +30,10 @@
 //! ```
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Theme, ThemeSet};
+use syntect::highlighting::Theme;
 use syntect::html::{
     ClassStyle,
     IncludeBackground,
@@ -42,17 +43,18 @@ use syntect::html::{
 };
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
+use two_face::theme::LazyThemeSet;
 
-use crate::common::utils::{escape_html, unescape_all};
+use crate::common::utils::unescape_all;
 use crate::parser::core::CoreRule;
-use crate::parser::extset::MarkdownItExt;
 use crate::plugins::cmark::block::code::CodeBlock;
 use crate::plugins::cmark::block::fence::CodeFence;
 use crate::{MarkdownIt, Node, NodeValue, Renderer};
 
 // lazy load themes. it wast a lot of performance
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
-static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
+static THEME_SET: LazyLock<LazyThemeSet> =
+    LazyLock::new(|| LazyThemeSet::from(two_face::theme::extra()));
 
 // --- render ---
 
@@ -64,11 +66,43 @@ static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 pub struct SyntectSnippet {
     /// Highlighted HTML
     pub html: String,
+    /// Language of the fenced code block (e.g. `rust`), if any.
+    language: Option<String>,
+    /// Default class prefix prepended to the language, e.g. `language-`.
+    lang_prefix: String,
+    /// Extra CSS class for the `<code>` element in classed mode (e.g. `syntect-code`).
+    code_class: Option<String>,
 }
 
 impl NodeValue for SyntectSnippet {
     fn render(&self, _: &Node, fmt: &mut dyn Renderer) {
+        let lang_prefix = fmt
+            .options()
+            .and_then(|options| options.lang_prefix.as_deref())
+            .unwrap_or(&self.lang_prefix);
+
+        let mut classes = Vec::new();
+        if let Some(class) = &self.code_class {
+            classes.push(class.clone());
+        }
+
+        if let Some(language) = &self.language {
+            if !language.is_empty() {
+                classes.push(format!("{lang_prefix}{language}"));
+            }
+        }
+
+        let attrs = if classes.is_empty() {
+            Vec::new()
+        } else {
+            vec![("class".into(), classes.join(" "))]
+        };
+
+        fmt.open("pre", &[]);
+        fmt.open("code", &attrs);
         fmt.text_raw(&self.html);
+        fmt.close("code");
+        fmt.close("pre");
     }
 }
 
@@ -86,8 +120,6 @@ struct SyntectSettings {
     mode: SyntectMode,
     prefix: &'static str,
 }
-
-impl MarkdownItExt for SyntectSettings {}
 
 impl Default for SyntectSettings {
     fn default() -> Self {
@@ -111,6 +143,11 @@ struct FenceMeta {
     // }
     // ```
     highlighted_lines: HashSet<usize>,
+}
+
+struct HighlightOptions<'a> {
+    prefix: &'static str,
+    highlighted_lines: &'a HashSet<usize>,
 }
 
 impl FenceMeta {
@@ -197,46 +234,44 @@ impl CoreRule for SyntectRule {
                 let meta = FenceMeta::parse_fence_meta(data);
                 content = data.content.as_str();
                 highlighted_lines = meta.highlighted_lines;
-                lang_prefix = Some(data.lang_prefix);
+                lang_prefix = Some(data.lang_prefix.clone());
                 language = meta.language;
             } else {
                 return;
             }
 
             let ss = &*SYNTAX_SET;
-            let language = language.as_deref();
-            let syntax = language
+            let language_ref = language.as_deref();
+            let syntax = language_ref
                 .and_then(|lang| ss.find_syntax_by_token(lang))
                 .unwrap_or_else(|| ss.find_syntax_plain_text());
+            let options = HighlightOptions {
+                prefix: settings.prefix,
+                highlighted_lines: &highlighted_lines,
+            };
 
-            let html = match settings.mode {
+            let (html, code_class) = match settings.mode {
                 SyntectMode::Inline => {
                     let theme = resolve_theme(&THEME_SET, &settings)
                         .unwrap_or_else(|| panic!("unknown syntect theme: {}", settings.theme));
-                    render_inline_html(
-                        content,
-                        ss,
-                        syntax,
-                        theme,
-                        language,
-                        lang_prefix.unwrap_or("language-"),
-                        settings.prefix,
-                        &highlighted_lines,
+                    (
+                        render_inline_html(content, ss, syntax, theme, &options),
+                        None,
                     )
                 }
-                SyntectMode::Classed => render_classed_html(
-                    content,
-                    ss,
-                    syntax,
-                    language,
-                    lang_prefix.unwrap_or("language-"),
-                    settings.prefix,
-                    &highlighted_lines,
+                SyntectMode::Classed => (
+                    render_classed_html(content, ss, syntax, &options),
+                    Some(format!("{}code", settings.prefix)),
                 ),
             };
 
             if let Some(html) = html {
-                node.replace(SyntectSnippet { html });
+                node.replace(SyntectSnippet {
+                    html,
+                    language,
+                    lang_prefix: lang_prefix.unwrap_or_else(|| "language-".to_owned()),
+                    code_class,
+                });
             }
         });
     }
@@ -251,9 +286,11 @@ pub fn add(md: &mut MarkdownIt) {
     md.add_rule::<SyntectRule>();
 }
 
-/// Return the names of all built-in syntect themes available to this plugin.
+/// Return the names of all built-in themes available to this plugin.
+///
+/// Includes syntect's defaults plus the extra themes shipped with two-face.
 pub fn available_themes() -> Vec<String> {
-    let mut themes: Vec<String> = THEME_SET.themes.keys().cloned().collect();
+    let mut themes: Vec<String> = THEME_SET.theme_names().map(str::to_owned).collect();
     themes.sort();
     themes
 }
@@ -272,7 +309,7 @@ pub fn set_theme(md: &mut MarkdownIt, theme: impl Into<String>) {
 /// Use [`theme_css`] to generate CSS for the selected theme.
 ///
 /// ```rust
-/// let mut md = markdown_it::MarkdownIt::new();
+/// let mut md = markdown_it::MarkdownIt::empty();
 /// markdown_it::plugins::cmark::add(&mut md);
 /// markdown_it::plugins::extra::syntect::add(&mut md);
 /// markdown_it::plugins::extra::syntect::set_to_classed(&mut md);
@@ -331,8 +368,8 @@ fn update_syntect_settings(md: &mut MarkdownIt, f: impl FnOnce(&mut SyntectSetti
     md.ext.insert(settings);
 }
 
-fn resolve_theme<'a>(themes: &'a ThemeSet, settings: &SyntectSettings) -> Option<&'a Theme> {
-    themes.themes.get(settings.theme.as_str())
+fn resolve_theme<'a>(themes: &'a LazyThemeSet, settings: &SyntectSettings) -> Option<&'a Theme> {
+    themes.get(settings.theme.as_str())
 }
 
 fn render_inline_html(
@@ -340,32 +377,15 @@ fn render_inline_html(
     ss: &SyntaxSet,
     syntax: &SyntaxReference,
     theme: &Theme,
-    language: Option<&str>,
-    lang_prefix: &'static str,
-    prefix: &'static str,
-    highlight_lines: &HashSet<usize>,
+    options: &HighlightOptions<'_>,
 ) -> Option<String> {
     let mut highlighter = HighlightLines::new(syntax, theme);
     let bg = theme
         .settings
         .background
         .unwrap_or(syntect::highlighting::Color::WHITE);
-    let mut class_attr = String::new();
-    if let Some(lang) = language {
-        if !lang.is_empty() {
-            class_attr.push_str(lang_prefix);
-            class_attr.push_str(lang);
-        }
-    }
 
-    // it look like `<pre><code>` or `<pre><code class="language-{lang}">`
-    let mut html = String::from("<pre><code");
-    if !class_attr.is_empty() {
-        html.push_str(" class=\"");
-        html.push_str(&escape_html(&class_attr));
-        html.push('"');
-    }
-    html.push('>');
+    let mut html = String::new();
 
     // it looks like `<span class="syntect-line [syntect-line-highlighted]" style="...">{code}</span>`
     for (idx, line) in LinesWithEndings::from(content).enumerate() {
@@ -383,21 +403,18 @@ fn render_inline_html(
 
         // splicing HTML
         html.push_str("<span class=\"");
-        html.push_str(prefix);
+        html.push_str(options.prefix);
         html.push_str("line");
-        if highlight_lines.contains(&line_no) {
+        if options.highlighted_lines.contains(&line_no) {
             // mark as highlighted line. you may need to add styles to this class yourself
             html.push(' ');
-            html.push_str(prefix);
+            html.push_str(options.prefix);
             html.push_str("line-highlighted");
         }
         html.push_str("\">");
         html.push_str(&line_html);
         html.push_str("</span>");
     }
-
-    // close html
-    html.push_str("</code></pre>");
 
     Some(html)
 }
@@ -406,28 +423,13 @@ fn render_classed_html(
     content: &str,
     ss: &SyntaxSet,
     syntax: &SyntaxReference,
-    language: Option<&str>,
-    lang_prefix: &'static str,
-    prefix: &'static str,
-    highlighted_lines: &HashSet<usize>,
+    options: &HighlightOptions<'_>,
 ) -> Option<String> {
     let mut parse_state = ParseState::new(syntax);
     let mut scope_stack = ScopeStack::new();
 
-    let mut class_attr = format!("{prefix}code");
-    if let Some(lang) = language {
-        if !lang.is_empty() {
-            class_attr.push(' ');
-            class_attr.push_str(lang_prefix);
-            class_attr.push_str(lang);
-        }
-    }
-
     // splicing HTML
-    // head, it looks like `<pre><code class="syntect-code language-rust">`
-    let mut html = String::from("<pre><code class=\"");
-    html.push_str(&escape_html(&class_attr));
-    html.push_str("\">");
+    let mut html = String::new();
 
     for (idx, line) in LinesWithEndings::from(content).enumerate() {
         let line_no = idx + 1;
@@ -435,11 +437,11 @@ fn render_classed_html(
 
         // it looks like `<span class="syntect-line [syntect-line-highlighted]">`
         html.push_str("<span class=\"");
-        html.push_str(prefix);
+        html.push_str(options.prefix);
         html.push_str("line");
-        if highlighted_lines.contains(&line_no) {
+        if options.highlighted_lines.contains(&line_no) {
             html.push(' ');
-            html.push_str(prefix);
+            html.push_str(options.prefix);
             html.push_str("line-highlighted");
         }
         html.push_str("\">");
@@ -447,14 +449,16 @@ fn render_classed_html(
         // too complex here
 
         // reopen the scope
-        reopen_scopes(&mut html, &active_scopes, prefix);
+        reopen_scopes(&mut html, &active_scopes, options.prefix);
 
         // use syntect process the line
         let ops = parse_state.parse_line(line, ss).ok()?;
         let (line_html, _) = line_tokens_to_classed_spans(
             line,
             ops.as_slice(),
-            ClassStyle::SpacedPrefixed { prefix },
+            ClassStyle::SpacedPrefixed {
+                prefix: options.prefix,
+            },
             &mut scope_stack,
         )
         .ok()?;
@@ -466,9 +470,6 @@ fn render_classed_html(
         // close the <span> we added
         html.push_str("</span>");
     }
-
-    // close
-    html.push_str("</code></pre>");
 
     Some(html)
 }
@@ -495,5 +496,36 @@ fn push_scope_classes(html: &mut String, scope: Scope, prefix: &'static str) {
         }
         html.push_str(prefix);
         html.push_str(atom);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::*;
+
+    fn parser() -> MarkdownIt {
+        let mut md = MarkdownIt::empty();
+        plugins::cmark::add(&mut md);
+        plugins::extra::syntect::add(&mut md);
+        md
+    }
+
+    #[test]
+    fn render_options_override_syntect_lang_prefix() {
+        let ast = parser().parse("```rust\nfn main() {}\n```");
+        let html = ast.render_with(&RenderOptions {
+            lang_prefix: Some("lang-".into()),
+            ..Default::default()
+        });
+
+        assert!(html.contains(r#"class="lang-rust""#));
+        assert!(!html.contains("language-rust"));
+    }
+
+    #[test]
+    fn highlights_indented_code_blocks() {
+        let html = parser().parse("    plain code\n").render();
+
+        assert!(html.contains(r#"class="syntect-line""#));
     }
 }

@@ -36,7 +36,7 @@
 //!     }
 //! }
 //!
-//! let md = &mut MarkdownIt::new();
+//! let md = &mut MarkdownIt::empty();
 //! emph_pair::add_with::<'^', 1, true>(md, || Node::new(Superscript));
 //!
 //! let html = md.parse("e^iπ^+1=0").render();
@@ -50,7 +50,6 @@ use std::cmp::min;
 
 use crate::common::sourcemap::SourcePos;
 use crate::parser::core::CoreRule;
-use crate::parser::extset::{MarkdownItExt, NodeExt};
 use crate::parser::inline::builtin::InlineParserRule;
 use crate::parser::inline::{InlineRule, InlineState, Text};
 use crate::{MarkdownIt, Node, NodeValue};
@@ -60,11 +59,8 @@ struct PairConfig<const MARKER: char> {
     inserted: bool,
     fns: [Option<fn() -> Node>; 3],
 }
-impl<const MARKER: char> MarkdownItExt for PairConfig<MARKER> {}
-
 #[derive(Debug, Default)]
 struct OpenersBottom<const MARKER: char>([usize; 6]);
-impl<const MARKER: char> NodeExt for OpenersBottom<MARKER> {}
 
 #[derive(Debug, Clone)]
 #[doc(hidden)]
@@ -248,6 +244,10 @@ fn scan_and_match_delimiters<const MARKER: char>(
         if opener.remaining > 0 {
             state.node.children[idx].replace(opener);
         } // otherwise node was already deleted
+
+        if closer.remaining == 0 {
+            break;
+        }
     }
 
     if new_min_opener_idx != 0 {

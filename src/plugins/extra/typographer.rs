@@ -5,7 +5,7 @@
 //! `plugins::extra::add`. You will have to enable it separately:
 //!
 //! ```rust
-//! let md = &mut markdown_it::MarkdownIt::new();
+//! let md = &mut markdown_it::MarkdownIt::empty();
 //! markdown_it::plugins::cmark::add(md);
 //! markdown_it::plugins::extra::add(md);
 //! markdown_it::plugins::extra::typographer::add(md);
@@ -31,15 +31,16 @@
 //! - Trademark: `(tm)` to `™`
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::parser::core::CoreRule;
 use crate::parser::inline::Text;
+use crate::parser::inline::builtin::InlineParserRule;
 use crate::{MarkdownIt, Node};
 
-static REPLACEMENTS: Lazy<Box<[(Regex, &'static str)]>> = Lazy::new(|| {
+static REPLACEMENTS: LazyLock<Box<[(Regex, &'static str)]>> = LazyLock::new(|| {
     Box::new([
         (Regex::new(r"\+-").unwrap(), "±"),
         (Regex::new(r"\.{2,}").unwrap(), "…"),
@@ -62,8 +63,9 @@ static REPLACEMENTS: Lazy<Box<[(Regex, &'static str)]>> = Lazy::new(|| {
         ),
     ])
 });
-static SCOPED_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\((c|tm|r)\)").unwrap());
-static RARE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\+-|\.\.|\?\?\?\?|!!!!|,,|--").unwrap());
+static SCOPED_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\((c|tm|r)\)").unwrap());
+static RARE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\+-|\.\.|\?\?\?\?|!!!!|,,|--").unwrap());
 
 fn replace_abbreviation(input: &str) -> &'static str {
     match input.to_lowercase().as_str() {
@@ -75,7 +77,7 @@ fn replace_abbreviation(input: &str) -> &'static str {
 }
 
 pub fn add(md: &mut MarkdownIt) {
-    md.add_rule::<TypographerRule>();
+    md.add_rule::<TypographerRule>().after::<InlineParserRule>();
 }
 
 pub struct TypographerRule;
@@ -92,7 +94,7 @@ impl CoreRule for TypographerRule {
             if SCOPED_RE.is_match(&text_node.content) {
                 text_node.content = SCOPED_RE
                     .replace_all(&text_node.content, |caps: &regex::Captures| {
-                        replace_abbreviation(caps.get(0).unwrap().as_str())
+                        replace_abbreviation(caps.get(0).unwrap().as_str()).to_owned()
                     })
                     .to_string();
             }

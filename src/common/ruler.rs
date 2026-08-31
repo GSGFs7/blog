@@ -4,8 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::slice::Iter;
-
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 
 ///
 /// Ruler allows you to implement a plugin system with dependency management and ensure that
@@ -51,7 +50,7 @@ use once_cell::sync::OnceCell;
 ///
 pub struct Ruler<M, T> {
     deps: Vec<RuleItem<M, T>>,
-    compiled: OnceCell<(Vec<usize>, Vec<T>)>,
+    compiled: OnceLock<(Vec<usize>, Vec<T>)>,
 }
 
 impl<M, T> Ruler<M, T> {
@@ -63,7 +62,7 @@ impl<M, T> Ruler<M, T> {
 impl<M: Eq + Hash + Clone + Debug, T: Clone> Ruler<M, T> {
     /// Add a new rule identified by `mark` with payload `value`.
     pub fn add(&mut self, mark: M, value: T) -> &mut RuleItem<M, T> {
-        self.compiled = OnceCell::new();
+        self.compiled = OnceLock::new();
         let dep = RuleItem::new(mark, value);
         self.deps.push(dep);
         self.deps.last_mut().unwrap()
@@ -71,12 +70,12 @@ impl<M: Eq + Hash + Clone + Debug, T: Clone> Ruler<M, T> {
 
     /// Remove all rules identified by `mark`.
     pub fn remove(&mut self, mark: M) {
-        self.compiled = OnceCell::new();
+        self.compiled = OnceLock::new();
         self.deps.retain(|dep| !dep.marks.contains(&mark));
     }
 
     /// Check if there are any rules identified by `mark`.
-    pub fn contains(&mut self, mark: M) -> bool {
+    pub fn contains(&self, mark: M) -> bool {
         self.deps.iter().any(|dep| dep.marks.contains(&mark))
     }
 
@@ -84,6 +83,19 @@ impl<M: Eq + Hash + Clone + Debug, T: Clone> Ruler<M, T> {
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
         self.compiled.get_or_init(|| self.compile()).1.iter()
+    }
+
+    /// Ordered iteration with each rule's primary (non-alias) mark.
+    ///
+    /// This is crate-private because public consumers should order and invoke
+    /// rules through [`Ruler::iter`]. Parser dispatch tables use the primary
+    /// mark to join ordered rule values with parser-specific metadata.
+    pub(crate) fn iter_with_marks(&self) -> impl Iterator<Item = (&M, &T)> {
+        let indices = &self.compiled.get_or_init(|| self.compile()).0;
+        indices.iter().map(move |idx| {
+            let item = &self.deps[*idx];
+            (item.marks.first().unwrap(), &item.value)
+        })
     }
 
     fn compile(&self) -> (Vec<usize>, Vec<T>) {
@@ -253,7 +265,7 @@ impl<M, T> Default for Ruler<M, T> {
     fn default() -> Self {
         Self {
             deps: Vec::new(),
-            compiled: OnceCell::new(),
+            compiled: OnceLock::new(),
         }
     }
 }
@@ -445,5 +457,15 @@ mod tests {
 
         r.remove("A");
         assert!(r.iter().next().is_none());
+    }
+
+    #[test]
+    fn contains_accepts_a_shared_reference() {
+        let mut ruler = Ruler::new();
+        ruler.add("present", ());
+
+        let ruler = &ruler;
+        assert!(ruler.contains("present"));
+        assert!(!ruler.contains("missing"));
     }
 }

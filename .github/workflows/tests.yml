@@ -7,16 +7,41 @@ on:
 permissions: read-all
 
 jobs:
-  test:
+  quality:
+    name: Format and Clippy
     runs-on: ubuntu-latest
     env:
       CARGO_NET_RETRY: "3"
-
-    strategy:
-      matrix:
-        rust:
-          - stable
-
     steps:
       - uses: actions/checkout@v6
-      - run: cargo test
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Check formatting
+        run: cargo +nightly fmt --all --check
+      - name: Run Clippy
+        run: cargo +stable clippy -p markdown-it-rs --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_NET_RETRY: "3"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default features
+            args: ""
+          - name: no default features
+            args: --no-default-features
+          - name: all features
+            args: --all-features
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p markdown-it-rs --locked --no-fail-fast ${{ matrix.args }}

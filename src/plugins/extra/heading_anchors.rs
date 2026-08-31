@@ -1,7 +1,7 @@
 //! Add id attribute (slug) to headings.
 //!
 //! ```rust
-//! let md = &mut markdown_it::MarkdownIt::new();
+//! let md = &mut markdown_it::MarkdownIt::empty();
 //! markdown_it::plugins::cmark::add(md);
 //! markdown_it::plugins::extra::heading_anchors::add(md);
 //!
@@ -13,7 +13,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::parser::core::CoreRule;
-use crate::parser::extset::MarkdownItExt;
 use crate::parser::inline::builtin::InlineParserRule;
 use crate::plugins::cmark::block::heading::ATXHeading;
 use crate::plugins::cmark::block::lheading::SetextHeader;
@@ -76,8 +75,6 @@ pub struct HeadingAnchorsOptions {
     /// add a prefix? if set "doc-": "# hello" -> `id="doc-hello"`
     pub prefix: Option<String>,
 }
-
-impl MarkdownItExt for HeadingAnchorsOptions {}
 
 // --- slugify function ---
 
@@ -229,7 +226,7 @@ impl CoreRule for AddHeadingAnchors {
             }
 
             let slug = unique_slug(slug, &mut used_ids, &mut next_suffix);
-            node.attrs.push(("id", slug));
+            node.attrs.push(("id".into(), slug));
         });
     }
 }
@@ -243,7 +240,7 @@ mod tests {
         fn run(root: &mut Node, _: &MarkdownIt) {
             root.walk_mut(|node, _| {
                 if is_heading(node) && node.collect_text() == "Existing" {
-                    node.attrs.push(("id", "generated".into()));
+                    node.attrs.push(("id".into(), "generated".into()));
                 }
             });
         }
@@ -276,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_atx_and_setext_heading_uniqueness() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         add(md);
 
@@ -290,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_uniqueness_handles_slug_suffix_collisions() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         add(md);
 
@@ -308,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_empty_slug_fallback_and_prefix() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         add_with_options(
             md,
@@ -328,7 +325,7 @@ mod tests {
 
     #[test]
     fn test_empty_slug_is_skipped_by_default() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         add(md);
 
@@ -341,7 +338,7 @@ mod tests {
             format!("custom-{}", text.to_lowercase())
         }
 
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         add_with_options(
             md,
@@ -359,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_existing_id_is_kept_and_reserved() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         md.add_rule::<AddExistingHeadingId>()
             .after::<InlineParserRule>();
@@ -374,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_existing_id_is_overridden() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         md.add_rule::<AddExistingHeadingId>()
             .after::<InlineParserRule>();

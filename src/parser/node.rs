@@ -8,8 +8,15 @@ use crate::common::TypeKey;
 use crate::common::sourcemap::SourcePos;
 use crate::parser::extset::NodeExtSet;
 use crate::parser::inline::{Text, TextSpecial};
+use crate::parser::render_options::RenderOptions;
 use crate::parser::renderer::HTMLRenderer;
 use crate::plugins::cmark::inline::newline::Softbreak;
+
+/// One HTML attribute: `(name, value)`.
+pub type HtmlAttribute = (String, String);
+
+/// HTML attributes attached to an AST node.
+pub type HtmlAttributes = Vec<HtmlAttribute>;
 
 /// Single node in the CommonMark AST.
 #[derive(Debug)]
@@ -25,7 +32,7 @@ pub struct Node {
     pub ext: NodeExtSet,
 
     /// Additional attributes to be added to resulting html.
-    pub attrs: Vec<(&'static str, String)>,
+    pub attrs: HtmlAttributes,
 
     /// Type name, used for debugging.
     #[readonly]
@@ -85,16 +92,16 @@ impl Node {
 
     /// Render this node to HTML.
     pub fn render(&self) -> String {
-        let mut fmt = HTMLRenderer::<false>::new();
-        fmt.render(self);
-        fmt.into()
+        if let Some(options) = self.ext.get::<RenderOptions>() {
+            self.render_with(options)
+        } else {
+            self.render_with(&RenderOptions::default())
+        }
     }
 
-    /// Render this node to XHTML, it adds slash to self-closing tags like this: `<img />`.
-    ///
-    /// This mode exists for compatibility with CommonMark tests.
-    pub fn xrender(&self) -> String {
-        let mut fmt = HTMLRenderer::<true>::new();
+    /// Render this node to HTML with the given options.
+    pub fn render_with(&self, options: &RenderOptions) -> String {
+        let mut fmt = HTMLRenderer::new(options);
         fmt.render(self);
         fmt.into()
     }
@@ -209,7 +216,7 @@ impl Default for Node {
 }
 
 /// Contents of the specific AST node.
-pub trait NodeValue: Debug + Downcast {
+pub trait NodeValue: Debug + Downcast + Send + Sync {
     /// Output HTML corresponding to this node using Renderer API.
     ///
     /// Example implementation looks like this:
@@ -230,3 +237,44 @@ pub trait NodeValue: Debug + Downcast {
 }
 
 impl_downcast!(NodeValue);
+
+#[cfg(test)]
+mod test {
+    use crate::*;
+
+    fn assert_send_sync<T: Sync>() {}
+
+    #[test]
+    fn parser_and_ast_are_send_and_sync() {
+        assert_send_sync::<Node>();
+        assert_send_sync::<MarkdownIt>();
+    }
+
+    #[test]
+    fn render_uses_parser_render_options() {
+        let mut md = MarkdownIt::empty();
+        plugins::cmark::add(&mut md);
+        md.render_options.breaks = true;
+        md.render_options.xhtml_out = true;
+
+        let ast = md.parse("hello\nworld");
+
+        assert_eq!(ast.render(), "<p>hello<br />\nworld</p>\n");
+    }
+
+    #[test]
+    fn renders_runtime_attribute_names() {
+        let md = MarkdownIt::new();
+        let mut ast = md.parse("hello");
+        let paragraph = &mut ast.children[0];
+
+        paragraph
+            .attrs
+            .push((format!("data-{}", "runtime"), "<dynamic value>".to_owned()));
+
+        assert_eq!(
+            ast.render(),
+            "<p data-runtime=\"&lt;dynamic value&gt;\">hello</p>\n"
+        );
+    }
+}

@@ -2,18 +2,18 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use entities;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 const UNESCAPE_MD_RE: &str = r##"\\([!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])"##;
 const ENTITY_RE: &str = r##"&([A-Za-z#][A-Za-z0-9]{1,31});"##;
 
-static DIGITAL_ENTITY_TEST_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"(?i)^&#(x[a-f0-9]{1,8}|[0-9]{1,8});$"#).unwrap());
-static UNESCAPE_ALL_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(&format!("{UNESCAPE_MD_RE}|{ENTITY_RE}")).unwrap());
+static DIGITAL_ENTITY_TEST_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)^&#(x[a-f0-9]{1,8}|[0-9]{1,8});$"#).unwrap());
+static UNESCAPE_ALL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!("{UNESCAPE_MD_RE}|{ENTITY_RE}")).unwrap());
 
 #[allow(clippy::manual_range_contains)]
 /// Return true if a `code` you got from `&#xHHHH;` entity is a valid charcode.
@@ -65,7 +65,7 @@ pub fn is_valid_entity_code(code: u32) -> bool {
 /// assert_eq!(get_entity_from_str("&xxx;"), None);
 /// ```
 pub fn get_entity_from_str(str: &str) -> Option<&'static str> {
-    pub static ENTITIES_HASH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+    pub static ENTITIES_HASH: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
         let mut mapping = HashMap::new();
         for e in &entities::ENTITIES {
             if e.entity.ends_with(';') {
@@ -144,7 +144,7 @@ pub fn escape_html(str: &str) -> Cow<'_, str> {
 /// assert_eq!(normalize_reference("a   b"), normalize_reference("a b"));
 /// ```
 pub fn normalize_reference(str: &str) -> String {
-    static SPACE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+    static SPACE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
     // Trim and collapse whitespace
     //
@@ -315,7 +315,9 @@ pub fn is_punct_char(ch: char) -> bool {
     match get_general_category(ch) {
         // P
         ConnectorPunctuation | DashPunctuation | OpenPunctuation | ClosePunctuation |
-        InitialPunctuation | FinalPunctuation | OtherPunctuation => true,
+        InitialPunctuation | FinalPunctuation | OtherPunctuation |
+        // S (in CommonMark 0.31, symbol also refers to punctuation)
+        MathSymbol | CurrencySymbol | ModifierSymbol | OtherSymbol => true,
 
         // L
         UppercaseLetter | LowercaseLetter | TitlecaseLetter | ModifierLetter | OtherLetter |
@@ -323,8 +325,6 @@ pub fn is_punct_char(ch: char) -> bool {
         NonspacingMark | SpacingMark | EnclosingMark |
         // N
         DecimalNumber | LetterNumber | OtherNumber |
-        // S
-        MathSymbol | CurrencySymbol | ModifierSymbol | OtherSymbol |
         // Z
         SpaceSeparator | LineSeparator | ParagraphSeparator |
         // C

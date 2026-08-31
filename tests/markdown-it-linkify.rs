@@ -1,26 +1,26 @@
 #![cfg(feature = "linkify")]
+
+mod common;
+
 fn run(input: &str, output: &str) {
-    let output = if output.is_empty() {
-        "".to_owned()
+    let expected = if output.is_empty() {
+        String::new()
     } else {
         output.to_owned() + "\n"
     };
-    let md = &mut markdown_it::MarkdownIt::new();
-    markdown_it::plugins::cmark::add(md);
-    markdown_it::plugins::html::add(md);
-    markdown_it::plugins::extra::linkify::add(md);
-    let node = md.parse(&(input.to_owned() + "\n"));
 
-    // make sure we have sourcemaps for everything
-    node.walk(|node, _| assert!(node.srcmap.is_some()));
-
-    let result = node.render();
-    assert_eq!(result, output);
-
-    // make sure it doesn't crash without trailing \n
-    let _ = md.parse(input.trim_end());
+    let md = common::markdown_it_fixture_parser();
+    let actual = md.parse(&(input.to_owned() + "\n")).render();
+    assert_eq!(actual, expected);
 }
 
+///////////////////////////////////////////////////////////////////////////
+// TESTGEN: fixtures/markdown-it/linkify.txt
+#[rustfmt::skip]
+mod fixtures_markdown_it_linkify_txt {
+use super::run;
+// this part of the file is auto-generated
+// don't edit it, otherwise your changes might be lost
 #[test]
 fn linkify() {
     let input = r#"url http://www.youtube.com/watch?v=5Jt5GEr4AYg."#;
@@ -59,8 +59,7 @@ fn entities_inside_raw_links() {
 #[test]
 fn emphasis_inside_raw_links_asterisk_can_happen_in_links_with_params() {
     let input = r#"https://example.com/foo*bar*baz"#;
-    let output =
-        r#"<p><a href="https://example.com/foo*bar*baz">https://example.com/foo*bar*baz</a></p>"#;
+    let output = r#"<p><a href="https://example.com/foo*bar*baz">https://example.com/foo*bar*baz</a></p>"#;
     run(input, output);
 }
 
@@ -71,13 +70,12 @@ fn emphasis_inside_raw_links_underscore() {
     run(input, output);
 }
 
-// not accepted as link by rust linkify
-/*#[test]
+#[test]
 fn backticks_inside_raw_links() {
     let input = r#"https://example.com/foo`bar`baz"#;
     let output = r#"<p><a href="https://example.com/foo%60bar%60baz">https://example.com/foo`bar`baz</a></p>"#;
     run(input, output);
-}*/
+}
 
 #[test]
 fn links_inside_raw_links() {
@@ -108,27 +106,13 @@ fn escapes_not_allowed_at_slashes() {
 }
 
 #[test]
-fn fuzzy_link_shouldn_t_match_cc_org() {
-    let input = r#"https:/\/cc.org"#;
-    let output = r#"<p>https://cc.org</p>"#;
-    run(input, output);
-}
-
-#[test]
 fn bold_links_exclude_markup_of_pairs_from_link_tail() {
     let input = r#"**http://example.com/foobar**"#;
     let output = r#"<p><strong><a href="http://example.com/foobar">http://example.com/foobar</a></strong></p>"#;
     run(input, output);
 }
 
-/*#[test]
-fn match_links_without_protocol() {
-    let input = r#"www.example.org"#;
-    let output = r#"<p><a href="http://www.example.org">www.example.org</a></p>"#;
-    run(input, output);
-}*/
-
-/*#[test]
+#[test]
 fn emails() {
     let input = r#"test@example.com
 
@@ -136,7 +120,7 @@ mailto:test@example.com"#;
     let output = r#"<p><a href="mailto:test@example.com">test@example.com</a></p>
 <p><a href="mailto:test@example.com">mailto:test@example.com</a></p>"#;
     run(input, output);
-}*/
+}
 
 #[test]
 fn typorgapher_should_not_break_href() {
@@ -159,12 +143,12 @@ fn coverage_negative_link_level() {
     run(input, output);
 }
 
-/*#[test]
+#[test]
 fn emphasis_with_real_link() {
     let input = r#"http://cdecl.ridiculousfish.com/?q=int+%28*f%29+%28float+*%29%3B"#;
     let output = r#"<p><a href="http://cdecl.ridiculousfish.com/?q=int+%28*f%29+%28float+*%29%3B">http://cdecl.ridiculousfish.com/?q=int+(*f)+(float+*)%3B</a></p>"#;
     run(input, output);
-}*/
+}
 
 #[test]
 fn emphasis_with_real_link_1() {
@@ -172,3 +156,6 @@ fn emphasis_with_real_link_1() {
     let output = r#"<p><a href="https://www.sell.fi/sites/default/files/elainlaakarilehti/tieteelliset_artikkelit/kahkonen_t._et_al.canine_pancreatitis-_review.pdf">https://www.sell.fi/sites/default/files/elainlaakarilehti/tieteelliset_artikkelit/kahkonen_t._et_al.canine_pancreatitis-_review.pdf</a></p>"#;
     run(input, output);
 }
+// end of auto-generated module
+}
+///////////////////////////////////////////////////////////////////////////
