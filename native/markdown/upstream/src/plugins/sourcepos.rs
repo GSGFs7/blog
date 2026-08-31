@@ -1,6 +1,6 @@
 //! Add source mapping to resulting HTML, looks like this: `<stuff data-sourcepos="1:1-2:3">`.
 //! ```rust
-//! let md = &mut markdown_it::MarkdownIt::new();
+//! let md = &mut markdown_it::MarkdownIt::empty();
 //! markdown_it::plugins::cmark::add(md);
 //! markdown_it::plugins::sourcepos::add(md);
 //!
@@ -32,7 +32,7 @@ impl CoreRule for SyntaxPosRule {
             if let Some(map) = node.srcmap {
                 let ((startline, startcol), (endline, endcol)) = map.get_positions(&mapping);
                 node.attrs.push((
-                    "data-sourcepos",
+                    "data-sourcepos".into(),
                     format!("{}:{}-{}:{}", startline, startcol, endline, endcol),
                 ));
             }
@@ -46,7 +46,7 @@ mod tests {
     fn header_test() {
         // same as doctest, keep in sync!
         // used for code coverage and quicker rust-analyzer hints
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::cmark::add(md);
         crate::plugins::sourcepos::add(md);
 

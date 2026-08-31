@@ -1,7 +1,8 @@
 //! HTML block syntax from CommonMark
 //!
 //! <https://spec.commonmark.org/0.30/#html-blocks>
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
+
 use regex::Regex;
 
 use super::utils::blocks::*;
@@ -45,7 +46,7 @@ impl HTMLSequence {
 // An array of opening and corresponding closing sequences for html tags,
 // last argument defines whether it can terminate a paragraph or not
 //
-static HTML_SEQUENCES: Lazy<[HTMLSequence; 7]> = Lazy::new(|| {
+static HTML_SEQUENCES: LazyLock<[HTMLSequence; 7]> = LazyLock::new(|| {
     let block_names = HTML_BLOCKS.join("|");
     let open_close_tag_re = HTML_OPEN_CLOSE_TAG_RE.as_str();
 
@@ -66,7 +67,7 @@ static HTML_SEQUENCES: Lazy<[HTMLSequence; 7]> = Lazy::new(|| {
             true,
         ),
         HTMLSequence::new(
-            Regex::new(r#"^<![A-Z]"#).unwrap(),
+            Regex::new(r#"^<![A-Za-z]"#).unwrap(),
             Regex::new(r#">"#).unwrap(),
             true,
         ),
@@ -136,11 +137,14 @@ impl BlockRule for HtmlBlockScanner {
         // Let's roll down till block end.
         if !sequence.close.is_match(line_text) {
             while next_line < state.line_max {
-                if state.line_indent(next_line) < 0 {
+                let line_text = state.get_line(next_line);
+
+                // Blank lines may occur inside explicitly terminated HTML
+                // blocks. A non-empty negative-indent line, however, has left
+                // the current list or blockquote container.
+                if state.line_indent(next_line) < 0 && !line_text.is_empty() {
                     break;
                 }
-
-                let line_text = state.get_line(next_line);
 
                 if sequence.close.is_match(line_text) {
                     if !line_text.is_empty() {

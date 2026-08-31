@@ -3,11 +3,18 @@
 //! <https://github.github.com/gfm/#tables-extension->
 use crate::common::sourcemap::SourcePos;
 use crate::parser::block::{BlockRule, BlockState};
-use crate::parser::extset::RenderExt;
 use crate::parser::inline::InlineRoot;
 use crate::plugins::cmark::block::heading::HeadingScanner;
 use crate::plugins::cmark::block::list::ListScanner;
 use crate::{MarkdownIt, Node, NodeValue, Renderer};
+
+// Limit the number of empty cells synthesized for short table rows. Without
+// this cap, a table with N header columns and N one-cell body rows produces
+// O(N^2) AST nodes and output from O(N) input.
+//
+// Keep this aligned with markdown-it's limit. See:
+// https://github.com/markdown-it/markdown-it/issues/1000
+const MAX_AUTOCOMPLETED_CELLS: usize = 0x10000;
 
 #[derive(Debug)]
 pub struct Table {
@@ -41,8 +48,6 @@ pub struct TableRenderContext {
     pub index: usize,
     pub alignments: Vec<ColumnAlignment>,
 }
-
-impl RenderExt for TableRenderContext {}
 
 #[derive(Debug)]
 pub struct TableHead;
@@ -110,9 +115,9 @@ impl NodeValue for TableCell {
 
         match ctx.alignments.get(ctx.index).copied().unwrap_or_default() {
             ColumnAlignment::None => (),
-            ColumnAlignment::Left => attrs.push(("style", "text-align:left".to_owned())),
-            ColumnAlignment::Right => attrs.push(("style", "text-align:right".to_owned())),
-            ColumnAlignment::Center => attrs.push(("style", "text-align:center".to_owned())),
+            ColumnAlignment::Left => attrs.push(("style".into(), "text-align:left".to_owned())),
+            ColumnAlignment::Right => attrs.push(("style".into(), "text-align:right".to_owned())),
+            ColumnAlignment::Center => attrs.push(("style".into(), "text-align:center".to_owned())),
         }
 
         ctx.index += 1;
@@ -363,6 +368,7 @@ impl BlockRule for TableScanner {
 
         let start_line = state.line;
         state.line += 2;
+        let mut autocompleted_cells = 0usize;
 
         while state.line < state.line_max {
             //
@@ -386,11 +392,21 @@ impl BlockRule for TableScanner {
                 break;
             }
 
-            let mut row_node = Node::new(TableRow);
-            row_node.srcmap = state.get_map(state.line, state.line);
             let line = state.get_line(state.line);
 
             let mut body_row = Self::scan_row(line);
+            let missing_cells = table_cell_count.saturating_sub(body_row.len());
+            let Some(total_autocompleted_cells) = autocompleted_cells.checked_add(missing_cells)
+            else {
+                break;
+            };
+            if total_autocompleted_cells > MAX_AUTOCOMPLETED_CELLS {
+                break;
+            }
+            autocompleted_cells = total_autocompleted_cells;
+
+            let mut row_node = Node::new(TableRow);
+            row_node.srcmap = state.get_map(state.line, state.line);
             let mut end_of_line = RowContent {
                 str: String::new(),
                 srcmap: vec![(0, line.len())],
@@ -421,7 +437,7 @@ impl BlockRule for TableScanner {
 
 #[cfg(test)]
 mod tests {
-    use super::TableScanner;
+    use super::{MAX_AUTOCOMPLETED_CELLS, TableScanner};
 
     #[test]
     fn should_split_cells() {
@@ -492,7 +508,7 @@ mod tests {
 
     #[test]
     fn require_pipe_or_colon_in_align_row() {
-        let md = &mut crate::MarkdownIt::new();
+        let md = &mut crate::MarkdownIt::empty();
         crate::plugins::extra::tables::add(md);
         let html = md.parse("foo\n---\nbar").render();
         assert_eq!(html.trim(), "foo\n---\nbar");
@@ -502,5 +518,28 @@ mod tests {
         assert!(html.trim().starts_with("<table"));
         let html = md.parse("foo\n:---\nbar").render();
         assert!(html.trim().starts_with("<table"));
+    }
+
+    #[test]
+    fn should_limit_autocompleted_cells() {
+        let column_count = 257;
+        let missing_cells_per_row = column_count - 1;
+        let accepted_rows = MAX_AUTOCOMPLETED_CELLS / missing_cells_per_row;
+        let body_row_count = accepted_rows + 2;
+
+        let src = format!(
+            "{}\n{}\n{}",
+            "x|".repeat(column_count),
+            "-|".repeat(column_count),
+            "x|\n".repeat(body_row_count),
+        );
+
+        let mut md = crate::MarkdownIt::empty();
+        crate::plugins::cmark::add(&mut md);
+        crate::plugins::extra::tables::add(&mut md);
+        let html = md.render(&src);
+
+        assert_eq!(html.matches("<td>").count(), column_count * accepted_rows);
+        assert!(html.ends_with("<p>x|\nx|</p>\n"));
     }
 }

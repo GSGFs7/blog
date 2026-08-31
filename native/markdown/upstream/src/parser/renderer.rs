@@ -1,21 +1,41 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use crate::Node;
 use crate::common::utils::escape_html;
 use crate::parser::extset::RenderExtSet;
+use crate::parser::node::{HtmlAttribute, Node};
+use crate::parser::render_options::RenderOptions;
 
 /// Each node outputs its HTML using this API.
 ///
 /// Renderer is a struct that walks through AST and collects HTML from each node
 /// into internal buffer.
 pub trait Renderer {
+    fn options(&self) -> Option<&RenderOptions> {
+        None
+    }
+
+    /// Whether this renderer emits XHTML-compatible output.
+    fn is_xhtml(&self) -> bool {
+        self.options().is_some_and(|options| options.xhtml_out)
+    }
+
+    fn softbreak(&mut self) {
+        let breaks = self.options().is_some_and(|options| options.breaks);
+        if breaks {
+            self.self_close("br", &[]);
+            self.cr();
+        } else {
+            self.cr();
+        }
+    }
+
     /// Write opening html tag with attributes, e.g. `<a href="url">`.
-    fn open(&mut self, tag: &str, attrs: &[(&str, String)]);
+    fn open(&mut self, tag: &str, attrs: &[HtmlAttribute]);
     /// Write closing html tag, e.g. `</a>`.
     fn close(&mut self, tag: &str);
     /// Write self-closing html tag with attributes, e.g. `<img src="url"/>`.
-    fn self_close(&mut self, tag: &str, attrs: &[(&str, String)]);
+    fn self_close(&mut self, tag: &str, attrs: &[HtmlAttribute]);
     /// Loop through child nodes and render each one.
     fn contents(&mut self, nodes: &[Node]);
     /// Write line break (`\n`). Default renderer ignores it if last char in the buffer is `\n` already.
@@ -28,18 +48,20 @@ pub trait Renderer {
     fn ext(&mut self) -> &mut RenderExtSet;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 /// Default HTML/XHTML renderer.
-pub(crate) struct HTMLRenderer<const XHTML: bool> {
+pub(crate) struct HTMLRenderer<'a> {
     result: String,
     ext: RenderExtSet,
+    options: &'a RenderOptions,
 }
 
-impl<const XHTML: bool> HTMLRenderer<XHTML> {
-    pub fn new() -> Self {
+impl<'a> HTMLRenderer<'a> {
+    pub fn new(options: &'a RenderOptions) -> Self {
         Self {
             result: String::new(),
             ext: RenderExtSet::new(),
+            options,
         }
     }
 
@@ -56,14 +78,17 @@ impl<const XHTML: bool> HTMLRenderer<XHTML> {
         self.result.push('"');
     }
 
-    fn make_attrs(&mut self, attrs: &[(&str, String)]) {
+    fn make_attrs(&mut self, attrs: &[HtmlAttribute]) {
         let mut attr_hash = HashMap::new();
         let mut attr_order = Vec::with_capacity(attrs.len());
 
         for (name, value) in attrs {
-            let entry = attr_hash.entry(*name).or_insert(Vec::new());
-            entry.push(value.as_str());
-            attr_order.push(*name);
+            let name = name.as_str();
+            attr_hash
+                .entry(name)
+                .or_insert_with(Vec::new)
+                .push(value.as_str());
+            attr_order.push(name);
         }
 
         for name in attr_order {
@@ -84,8 +109,8 @@ impl<const XHTML: bool> HTMLRenderer<XHTML> {
     }
 }
 
-impl<const XHTML: bool> From<HTMLRenderer<XHTML>> for String {
-    fn from(f: HTMLRenderer<XHTML>) -> Self {
+impl<'a> From<HTMLRenderer<'a>> for String {
+    fn from(f: HTMLRenderer) -> Self {
         #[cold]
         fn replace_null(input: String) -> String {
             input.replace('\0', "\u{FFFD}")
@@ -102,8 +127,13 @@ impl<const XHTML: bool> From<HTMLRenderer<XHTML>> for String {
     }
 }
 
-impl<const XHTML: bool> Renderer for HTMLRenderer<XHTML> {
-    fn open(&mut self, tag: &str, attrs: &[(&str, String)]) {
+impl<'a> Renderer for HTMLRenderer<'a> {
+    // cover this to provide the options
+    fn options(&self) -> Option<&RenderOptions> {
+        Some(self.options)
+    }
+
+    fn open(&mut self, tag: &str, attrs: &[HtmlAttribute]) {
         self.result.push('<');
         self.result.push_str(tag);
         self.make_attrs(attrs);
@@ -117,11 +147,11 @@ impl<const XHTML: bool> Renderer for HTMLRenderer<XHTML> {
         self.result.push('>');
     }
 
-    fn self_close(&mut self, tag: &str, attrs: &[(&str, String)]) {
+    fn self_close(&mut self, tag: &str, attrs: &[HtmlAttribute]) {
         self.result.push('<');
         self.result.push_str(tag);
         self.make_attrs(attrs);
-        if XHTML {
+        if self.is_xhtml() {
             self.result.push(' ');
             self.result.push('/');
         }
@@ -130,7 +160,9 @@ impl<const XHTML: bool> Renderer for HTMLRenderer<XHTML> {
 
     fn contents(&mut self, nodes: &[Node]) {
         for node in nodes.iter() {
-            self.render(node);
+            stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
+                self.render(node);
+            });
         }
     }
 

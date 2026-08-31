@@ -1,8 +1,8 @@
 //! Link validator and formatter
 
 use std::fmt::Debug;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 pub trait LinkFormatter: Debug + Send + Sync {
@@ -38,11 +38,11 @@ impl MDLinkFormatter {
 impl LinkFormatter for MDLinkFormatter {
     fn validate_link(&self, url: &str) -> Option<()> {
         // url should be normalized at this point, and existing entities are decoded
-        static BAD_PROTO_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r#"(?i)^(vbscript|javascript|file|data):"#).unwrap());
+        static BAD_PROTO_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r#"(?i)^(vbscript|javascript|file|data):"#).unwrap());
 
-        static GOOD_DATA_RE: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r#"(?i)^data:image/(gif|png|jpeg|webp);"#).unwrap());
+        static GOOD_DATA_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r#"(?i)^data:image/(gif|png|jpeg|webp);"#).unwrap());
 
         if !BAD_PROTO_RE.is_match(url) || GOOD_DATA_RE.is_match(url) {
             Some(())
@@ -52,11 +52,11 @@ impl LinkFormatter for MDLinkFormatter {
     }
 
     fn normalize_link(&self, url: &str) -> String {
-        mdurl::urlencode::encode(url, mdurl::urlencode::ENCODE_DEFAULT_CHARS, true).into()
+        mdurl::format_url_for_computers(url)
     }
 
     fn normalize_link_text(&self, url: &str) -> String {
-        url.to_owned()
+        mdurl::decode_url_for_display(url)
     }
 }
 

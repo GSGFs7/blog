@@ -7,7 +7,7 @@
 //!
 //! Add each plugin you need by invoking `add` function like this:
 //! ```rust
-//! let md = &mut markdown_it::MarkdownIt::new();
+//! let md = &mut markdown_it::MarkdownIt::empty();
 //! markdown_it::plugins::cmark::add(md);
 //! markdown_it::plugins::directives::add(md);
 //! markdown_it::plugins::extra::add(md);
@@ -15,8 +15,10 @@
 //! markdown_it::plugins::sourcepos::add(md);
 //! // ...
 //! ```
+pub mod cjk_friendly;
 pub mod cmark;
 pub mod directives;
 pub mod extra;
 pub mod html;
+pub mod presets;
 pub mod sourcepos;
