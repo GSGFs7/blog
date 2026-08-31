@@ -74,7 +74,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["I", "E", "F"]
-exclude = ["**/migrations/*.py"]
+exclude = ["**/migrations/*.py", "native/markdown/upstream/*"]
 
 [tool.ruff.format]
 exclude = ["**/migrations/*.py", "native/markdown/upstream/*"]
