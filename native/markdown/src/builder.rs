@@ -1,7 +1,7 @@
 use markdown_it::MarkdownIt;
 
 pub(crate) fn build() -> MarkdownIt {
-    let mut inner = MarkdownIt::new();
+    let mut inner = MarkdownIt::empty();
     markdown_it::plugins::extra::front_matter::add(&mut inner);
     markdown_it::plugins::cmark::add(&mut inner);
     markdown_it::plugins::extra::tables::add(&mut inner);
