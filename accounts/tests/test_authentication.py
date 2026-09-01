@@ -18,7 +18,11 @@ TEST_CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "accounts-tests",
-    }
+    },
+    "image_metadata": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "accounts-image-metadata-tests",
+    },
 }
 
 

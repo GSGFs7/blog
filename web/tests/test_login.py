@@ -15,7 +15,11 @@ TEST_CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "unified-login-tests",
-    }
+    },
+    "image_metadata": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "unified-login-image-metadata-tests",
+    },
 }
 
 
