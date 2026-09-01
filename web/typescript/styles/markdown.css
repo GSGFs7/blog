@@ -278,6 +278,14 @@
   z-index: 100;
 }
 
+/* tooltip may expand the container in mobile device */
+@media (hover: none), (pointer: coarse) {
+  .markdown-body a > span[data-domain]::before,
+  .markdown-body a > span[data-domain]::after {
+    content: none;
+  }
+}
+
 .markdown-body a > span[data-domain]:hover::after {
   opacity: 1;
   visibility: visible;
@@ -911,7 +919,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.65rem 1rem;
+  padding: 0.55rem 1rem;
   border: 0;
   border-top: 1px solid var(--md-border);
   color: var(--md-link);

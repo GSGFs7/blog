@@ -1,3 +1,5 @@
+{% load media_tags %}
+
 <nav class="site-navbar">
   <div class="site-navbar__shell">
     <div class="site-navbar__inner">
@@ -43,14 +45,7 @@
           href="/login"
           preload="mouseover"
         >
-          {# TODO #}
-          <img
-            alt="user's avatar"
-            width="40"
-            height="40"
-            class="site-navbar__avatar"
-            src="https://img.gsgfs.moe/img/f56806663519c6680691407d0d8fa7ed.png"
-          >
+          {% render_image "https://img.gsgfs.moe/images/raw/e9/21/e9219023195fe475843833018eba1094e7d7793dbc1fcdaa5aae4a2d7f15175c.png" alt="user's avatar" img_class="site-navbar__avatar" loading="eager" sizes="40px" %}
         </a>
       </div>
 

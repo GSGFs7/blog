@@ -11,7 +11,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from accounts.services.otp import usable_devices
 
 INPUT_CLASSES = (
-    "mt-2 w-full bg-white/5 px-3 py-2 text-gray-100 outline-none "
+    "mt-2 w-full rounded-sm bg-white/5 px-3 py-2 text-gray-100 outline-none "
     "transition-colors focus:bg-white/10"
 )
 
