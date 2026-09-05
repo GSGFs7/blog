@@ -77,7 +77,9 @@ impl Linkify {
                 let mut start = link.start();
                 if kind == LinkKind::Email
                     && start >= "mailto:".len()
-                    && input[start - "mailto:".len()..start].eq_ignore_ascii_case("mailto:")
+                    && input
+                        .get(start - "mailto:".len()..start)
+                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mailto:"))
                 {
                     start -= "mailto:".len();
                 }
@@ -212,6 +214,14 @@ mod tests {
         assert_eq!(
             matches("mailto:test@example.com"),
             vec![("mailto:test@example.com", LinkKind::Email)]
+        );
+    }
+
+    #[test]
+    fn handles_unicode_before_email() {
+        assert_eq!(
+            matches("组     test@example.com"),
+            vec![("test@example.com", LinkKind::Email)]
         );
     }
 
