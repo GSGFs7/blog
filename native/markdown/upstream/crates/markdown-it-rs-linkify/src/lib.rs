@@ -219,10 +219,18 @@ mod tests {
 
     #[test]
     fn handles_unicode_before_email() {
-        assert_eq!(
-            matches("组     test@example.com"),
-            vec![("test@example.com", LinkKind::Email)]
-        );
+        for input in [
+            "组     test@example.com",
+            "é      test@example.com",
+            "💥    test@example.com",
+            "中文    test@example.com",
+        ] {
+            assert_eq!(
+                matches(input),
+                vec![("test@example.com", LinkKind::Email)],
+                "{input:?}"
+            );
+        }
     }
 
     #[test]
@@ -258,5 +266,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["http://example.org"]
         );
+    }
+
+    #[test]
+    fn includes_mailto_after_unicode() {
+        for input in [
+            "组 mailto:test@example.com",
+            "é MAILTO:test@example.com",
+            "💥 MaIlTo:test@example.com",
+        ] {
+            assert_eq!(
+                matches(input),
+                vec![(input.split_once(' ').unwrap().1, LinkKind::Email)],
+                "{input:?}"
+            );
+        }
     }
 }
