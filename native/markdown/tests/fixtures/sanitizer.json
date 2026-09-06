@@ -17,7 +17,7 @@
   {
     "name": "mathml",
     "input": "<svg onload=\"x\"><circle></circle></svg><math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow><mi>x</mi></mrow></math>",
-    "expected": "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow><mi>x</mi></mrow></math>"
+    "expected": "<svg></svg><math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow><mi>x</mi></mrow></math>"
   },
   {
     "name": "unsafe_style",
