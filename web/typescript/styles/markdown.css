@@ -14,6 +14,7 @@
   --md-table-tr-bg: #ffffff;
   --md-table-tr-2n-bg: #f6f8fa;
   --md-code-bg: rgba(175, 184, 193, 0.2);
+  --md-spoiler-hover-bg: rgba(175, 184, 193, 0.12);
   --md-pre-bg: #f6f8fa;
   --md-pre-border: #d0d7de;
   --md-link: #0969da;
@@ -59,6 +60,7 @@
   --md-table-tr-bg: #0d1117;
   --md-table-tr-2n-bg: #161b22;
   --md-code-bg: rgb(64 67 75 / 0.4);
+  --md-spoiler-hover-bg: rgb(64 67 75 / 0.2);
   --md-pre-bg: #151b23;
   --md-pre-border: #30363d;
   --md-link: #4493f8;
@@ -945,4 +947,80 @@
 .markdown-body .code-expander__toggle:focus-visible {
   outline: 2px solid var(--md-link);
   outline-offset: -2px;
+}
+
+/* Spoiler */
+.markdown-body details.spoiler {
+  overflow: hidden;
+  margin-block: 1em;
+  padding-inline: 1rem;
+  border: 1px solid var(--md-border);
+  border-radius: 8px;
+  background: var(--md-pre-bg);
+}
+
+.markdown-body details.spoiler > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65em;
+  list-style: none;
+  margin-inline: -1rem;
+  padding: 0.55rem 1rem;
+  color: var(--md-fg);
+  /* LXGW Wenkai has a poor readability in small size */
+  /* Maple Mono may fallback to a fuzzy font when display Chinese */
+  /* tall browser use the system UI font */
+  font-family: system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 180ms ease;
+}
+
+.markdown-body details.spoiler > summary::before {
+  content: "";
+  flex: none;
+  width: 0.6em;
+  height: 0.7em;
+  background: currentColor;
+  clip-path: polygon(15% 0, 100% 50%, 15% 100%);
+  transform: rotate(0deg);
+  transition: transform 180ms ease;
+}
+
+.markdown-body details.spoiler[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body details.spoiler > summary,
+  .markdown-body details.spoiler > summary::before {
+    transition: none;
+  }
+}
+
+.markdown-body details.spoiler > summary:hover {
+  background: var(--md-spoiler-hover-bg);
+}
+
+.markdown-body details.spoiler > summary:focus-visible {
+  outline: 2px solid var(--md-link);
+  outline-offset: -2px;
+}
+
+.markdown-body details.spoiler[open] {
+  padding-bottom: 1rem;
+}
+
+.markdown-body details.spoiler[open] > summary {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.markdown-body details.spoiler > summary + * {
+  margin-top: 0;
+}
+
+.markdown-body details.spoiler > :last-child {
+  margin-bottom: 0;
 }

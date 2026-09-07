@@ -12,6 +12,49 @@ class TestMarkdownPostProcess(SimpleTestCase):
     def setUp(self):
         self.md = Markdown()
 
+    def test_spoiler_is_collapsed_and_renders_markdown(self):
+        html = self.md.render(":::spoiler\n**结局**\n\n- 第一项\n- 第二项\n:::")
+
+        self.assertIn('<details class="spoiler">', html)
+        self.assertIn("<summary>以下内容涉及剧透，点击展开</summary>", html)
+        self.assertIn("<strong>结局</strong>", html)
+        self.assertIn("<li>第一项</li>", html)
+        self.assertIn("</details>", html)
+        self.assertNotIn(" open", html)
+
+    def test_spoiler_title_is_escaped_and_attributes_are_not_forwarded(self):
+        html = self.md.render(
+            ':::spoiler{title="<img src=x onerror=alert(1)> & 结局" '
+            'open="true" onclick="alert(1)"}\n内容\n:::'
+        )
+
+        self.assertIn(
+            "<summary>&lt;img src=x onerror=alert(1)&gt; &amp; 结局</summary>",
+            html,
+        )
+        self.assertIn('<details class="spoiler">', html)
+        self.assertNotIn("<img", html)
+        self.assertNotIn("onclick", html)
+        self.assertNotIn(" open", html)
+
+    def test_spoiler_blank_title_uses_default(self):
+        html = self.md.render(':::spoiler{title="   "}\n内容\n:::')
+
+        self.assertIn("<summary>以下内容涉及剧透，点击展开</summary>", html)
+
+    def test_nested_spoilers_and_surrounding_content(self):
+        html = self.md.render(
+            '之前\n\n::::spoiler{title="外层"}\n外层内容\n\n'
+            ':::spoiler{title="内层"}\n内层内容\n:::\n::::\n\n之后'
+        )
+
+        self.assertHTMLEqual(
+            html,
+            '<p>之前</p><details class="spoiler"><summary>外层</summary>'
+            '<p>外层内容</p><details class="spoiler"><summary>内层</summary>'
+            "<p>内层内容</p></details></details><p>之后</p>",
+        )
+
     def test_image_wrapping_and_centering(self):
         """Test that images are wrapped in a span with md-img-container class."""
         markdown_text = "![alt](test.png)"
