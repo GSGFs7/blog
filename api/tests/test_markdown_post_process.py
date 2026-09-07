@@ -153,7 +153,7 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertNotIn("onerror", html)
         self.assertNotIn("<script", html)
 
-    def test_sanitizer_rejects_svg_and_non_image_data_urls(self):
+    def test_sanitizer_rejects_active_svg_and_non_image_data_urls(self):
         html = self.md.render(
             '<svg onload="alert(1)"><circle></circle></svg>'
             "<math><mrow><mi>x</mi></mrow></math>"
@@ -161,7 +161,9 @@ class TestMarkdownPostProcess(SimpleTestCase):
             'style="background-image:url(data:text/html,boom);width:1px">'
         )
 
-        self.assertNotIn("<svg", html)
+        self.assertIn("<svg></svg>", html)
+        self.assertNotIn("<circle", html)
+        self.assertNotIn("onload", html)
         self.assertNotIn("alert(1)", html)
         self.assertIn("<math><mrow><mi>x</mi></mrow></math>", html)
         self.assertIn('<img src="safe.png">', html)
