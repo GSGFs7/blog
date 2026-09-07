@@ -16,7 +16,7 @@ class TestMarkdownPostProcess(SimpleTestCase):
         html = self.md.render(":::spoiler\n**结局**\n\n- 第一项\n- 第二项\n:::")
 
         self.assertIn('<details class="spoiler">', html)
-        self.assertIn("<summary>以下内容涉及剧透，点击展开</summary>", html)
+        self.assertIn("<summary>spoiler</summary>", html)
         self.assertIn("<strong>结局</strong>", html)
         self.assertIn("<li>第一项</li>", html)
         self.assertIn("</details>", html)
@@ -40,7 +40,7 @@ class TestMarkdownPostProcess(SimpleTestCase):
     def test_spoiler_blank_title_uses_default(self):
         html = self.md.render(':::spoiler{title="   "}\n内容\n:::')
 
-        self.assertIn("<summary>以下内容涉及剧透，点击展开</summary>", html)
+        self.assertIn("<summary>spoiler</summary>", html)
 
     def test_nested_spoilers_and_surrounding_content(self):
         html = self.md.render(
