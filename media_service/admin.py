@@ -360,7 +360,7 @@ class ImageAdmin(admin.ModelAdmin):
 
     @admin.display(description="height")
     def height_px(self, obj: Image):
-        return f"{obj.resource.width} px"
+        return f"{obj.resource.height} px"
 
 
 admin.site.register(Image, ImageAdmin)
