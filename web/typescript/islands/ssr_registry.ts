@@ -4,6 +4,7 @@ import type { Component } from "solid-js";
 
 import type { ComponentProps } from "../types";
 import Counter from "./Counter";
+import MusicTrack from "./MusicPlayer/MusicTrack.island";
 import WIP from "./WIP";
 
 type IslandDefinition = {
@@ -26,3 +27,5 @@ export const SSR_COMPONENTS: Record<string, IslandDefinition> = {
     },
   },
 };
+
+export const STATIC_COMPONENTS = { MusicTrack };

@@ -40,11 +40,12 @@ impl PyRenderPlan {
         PyTuple::new(py, self.image_checksums.iter())
     }
 
-    #[pyo3(signature = (images = None))]
+    #[pyo3(signature = (images = None, *, music_placeholder = None))]
     fn finish(
         &mut self,
         py: Python<'_>,
         images: Option<&Bound<'_, PyMapping>>,
+        music_placeholder: Option<String>,
     ) -> PyResult<String> {
         if self.root.is_none() {
             return Err(PyRuntimeError::new_err("render plan already finished"));
@@ -56,8 +57,15 @@ impl PyRenderPlan {
         let image_picture_source_prefixes = std::mem::take(&mut self.image_picture_source_prefixes);
 
         // release GIL
-        py.detach(move || Self::render_and_rewrite(root, images, &image_picture_source_prefixes))
-            .map_err(MarkdownError::into_pyerr)
+        py.detach(move || {
+            Self::render_and_rewrite(
+                root,
+                images,
+                &image_picture_source_prefixes,
+                music_placeholder.as_deref(),
+            )
+        })
+        .map_err(MarkdownError::into_pyerr)
     }
 }
 
@@ -100,9 +108,15 @@ impl PyRenderPlan {
         root: Node,
         images: ResolvedImages,
         image_picture_source_prefixes: &[String],
+        music_placeholder: Option<&str>,
     ) -> Result<String, MarkdownError> {
-        suffix::rewrite(&root.render(), &images, image_picture_source_prefixes)
-            .map_err(|_| MarkdownError::RewriteFailed)
+        suffix::rewrite(
+            &root.render(),
+            &images,
+            image_picture_source_prefixes,
+            music_placeholder,
+        )
+        .map_err(|_| MarkdownError::RewriteFailed)
     }
 }
 
@@ -132,14 +146,17 @@ mod tests {
             images.set_item(&checksum, PyDict::new(py)).unwrap();
             let images = images.cast::<PyMapping>().unwrap();
 
-            let error = plan.finish(py, Some(images)).unwrap_err();
+            let error = plan.finish(py, Some(images), None).unwrap_err();
             assert!(error.is_instance_of::<PyValueError>(py));
 
             let metadata = PyDict::new(py);
             metadata.set_item("src", "image.jpg").unwrap();
             images.set_item(&checksum, metadata).unwrap();
 
-            assert_eq!(plan.finish(py, Some(images)).unwrap(), "<p>hello</p>\n");
+            assert_eq!(
+                plan.finish(py, Some(images), None).unwrap(),
+                "<p>hello</p>\n"
+            );
         });
     }
 

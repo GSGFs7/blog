@@ -1,6 +1,8 @@
 /* tribute to GitHub Primer */
 /* styled with markdown art */
 
+@import "../islands/MusicPlayer/music.css";
+
 .markdown-body {
   /* Default variables */
   --md-font-size: 18px;

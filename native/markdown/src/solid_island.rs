@@ -1,5 +1,5 @@
 use lol_html::errors::RewritingError;
-use lol_html::html_content::Element;
+use lol_html::html_content::{ContentType, Element};
 use lol_html::{HandlerResult, RewriteStrSettings, element, rewrite_str};
 
 use crate::rewriter::escape_html;
@@ -9,11 +9,13 @@ enum Component {
     PythonRepl,
     PythonPlayground,
     Chart,
+    Music,
 }
 
 impl Component {
     fn from_directive(name: &str) -> Option<Self> {
         match name {
+            "music" => Some(Self::Music),
             "counter" => Some(Self::Counter),
             "python-wasm" | "python-repl" => Some(Self::PythonRepl),
             "python-playground" => Some(Self::PythonPlayground),
@@ -24,6 +26,7 @@ impl Component {
 
     fn name(&self) -> &'static str {
         match self {
+            Self::Music => "MusicTrack",
             Self::Counter => "Counter",
             Self::PythonRepl => "PythonREPL",
             Self::PythonPlayground => "PythonPlayground",
@@ -33,6 +36,7 @@ impl Component {
 
     fn allows_prop(&self, name: &str) -> bool {
         match self {
+            Self::Music => name == "src",
             Self::Counter => name == "initial",
             Self::PythonRepl => false,
             Self::PythonPlayground => name == "source",
@@ -68,7 +72,15 @@ fn rewrite_element(element: &mut Element<'_, '_>) -> HandlerResult {
     let attributes: Vec<_> = element
         .attributes()
         .iter()
-        .map(|attribute| (attribute.name(), attribute.value()))
+        .map(|attribute| {
+            let value = attribute.value();
+            let value = if matches!(component, Component::Music) {
+                html_escape::decode_html_entities(&value).into_owned()
+            } else {
+                value
+            };
+            (attribute.name(), value)
+        })
         .collect();
     let props = attributes
         .iter()
@@ -81,7 +93,26 @@ fn rewrite_element(element: &mut Element<'_, '_>) -> HandlerResult {
     }
     element.set_attribute("data-solid-island", component.name())?;
     element.set_attribute("data-props", &props)?;
+    if matches!(component, Component::Music) {
+        element.set_inner_content("", ContentType::Html);
+    }
     Ok(())
+}
+
+pub(crate) fn inject_music_placeholder(
+    html: &str,
+    placeholder: &str,
+) -> Result<String, RewritingError> {
+    rewrite_str(
+        html,
+        RewriteStrSettings::new().append_element_content_handler(element!(
+            "[data-solid-island=MusicTrack]",
+            |element| {
+                element.set_inner_content(placeholder, ContentType::Html);
+                Ok(())
+            }
+        )),
+    )
 }
 
 fn serialize_props<'a>(props: impl Iterator<Item = (&'a str, &'a str)>) -> String {
@@ -112,6 +143,31 @@ mod tests {
         input: String,
         rewritten: String,
         sanitized: String,
+    }
+
+    #[test]
+    fn music_directive_preserves_only_src_through_sanitization() {
+        let rendered = crate::builder::build()
+            .parse(
+                r#"::music{src="https://example.com/a.mp3?x=1&y=2" url="ignored" onclick="bad"}"#,
+            )
+            .render();
+        let cleaned = sanitize(&rewrite(&rendered).unwrap());
+        assert!(cleaned.contains("data-solid-island=\"MusicTrack\""));
+        assert!(cleaned.contains("https://example.com/a.mp3?x=1&amp;y=2"));
+        assert!(!cleaned.contains("ignored"));
+        assert!(!cleaned.contains("onclick"));
+        assert!(!cleaned.contains("data-solid-ssr"));
+    }
+
+    #[test]
+    fn music_placeholder_replaces_directive_content() {
+        for tag in ["span", "div"] {
+            let html =
+                format!("<{tag} class=\"directive music\" src=\"song.mp3\"><b>ignored</b></{tag}>");
+            let cleaned = sanitize(&rewrite(&html).unwrap());
+            assert!(!cleaned.contains("ignored"));
+        }
     }
 
     #[test]

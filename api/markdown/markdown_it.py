@@ -3,6 +3,7 @@ from typing import Any
 from markdown_it_rs_py import MarkdownIt
 
 from .images import _image_picture_source_prefixes, _resolve_images
+from .islands import music_placeholder
 
 
 class Markdown:
@@ -14,7 +15,9 @@ class Markdown:
             markdown,
             image_picture_source_prefixes=_image_picture_source_prefixes(),
         )
-        return plan.finish(_resolve_images(plan.image_checksums))
+        return plan.finish(
+            _resolve_images(plan.image_checksums), music_placeholder=music_placeholder()
+        )
 
     def render_with_toc(self, markdown: str) -> tuple[str, list[dict[str, Any]]]:
         """markdown -> (HTML, TOC)"""
@@ -23,7 +26,9 @@ class Markdown:
             include_toc=True,
             image_picture_source_prefixes=_image_picture_source_prefixes(),
         )
-        html = plan.finish(_resolve_images(plan.image_checksums))
+        html = plan.finish(
+            _resolve_images(plan.image_checksums), music_placeholder=music_placeholder()
+        )
         return html, plan.toc
 
     def render_with_frontmatter(self, markdown: str) -> tuple[dict[str, Any], str]:
@@ -33,7 +38,9 @@ class Markdown:
             include_frontmatter=True,
             image_picture_source_prefixes=_image_picture_source_prefixes(),
         )
-        html = plan.finish(_resolve_images(plan.image_checksums))
+        html = plan.finish(
+            _resolve_images(plan.image_checksums), music_placeholder=music_placeholder()
+        )
         return plan.frontmatter or {}, html
 
     def extract_frontmatter(self, markdown: str) -> dict[str, Any]:

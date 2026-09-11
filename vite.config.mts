@@ -87,6 +87,10 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
         }),
     ],
     resolve: mode === "test" ? { conditions: ["solid", "browser"] } : undefined,
+    optimizeDeps: {
+      // runtime-imported by the music islands, pre-bundle to avoid a dev reload on first use
+      include: ["@tokenizer/http", "music-metadata"],
+    },
     build: {
       outDir: isSsrBuild ? "web/static/ssr" : "web/static/dist",
       assetsDir: "",

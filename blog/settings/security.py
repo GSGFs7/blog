@@ -9,6 +9,7 @@ SECRET_KEY = require("DJANGO_SECRET_KEY")
 
 IMAGE_CDN_ORIGIN = "https://img.gsgfs.moe"
 STATIC_CDN_ORIGIN = "https://static.gsgfs.moe"
+MUSIC_CDN_ORIGIN = "https://music.gsgfs.moe"
 
 # proxy
 USE_X_FORWARDED_HOST = True
@@ -62,9 +63,9 @@ CSP_POLICY = {
     "style-src-attr": [CSP.UNSAFE_INLINE],
     "img-src": [CSP.SELF, "data:", "blob:", IMAGE_CDN_ORIGIN, STATIC_CDN_ORIGIN],
     "font-src": [CSP.SELF, "data:", STATIC_CDN_ORIGIN],
-    "connect-src": [CSP.SELF, STATIC_CDN_ORIGIN],
+    "connect-src": [CSP.SELF, STATIC_CDN_ORIGIN, MUSIC_CDN_ORIGIN],
     "worker-src": [CSP.SELF, "blob:", STATIC_CDN_ORIGIN],
-    "media-src": [CSP.SELF],
+    "media-src": [CSP.SELF, MUSIC_CDN_ORIGIN],
     "manifest-src": [CSP.SELF],
 }
 if is_debug():

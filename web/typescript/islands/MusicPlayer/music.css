@@ -1,0 +1,228 @@
+.music-track,
+.music-dock {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #fff;
+  /* LXGW Wenkai has a poor readability in small size */
+  font-family: system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  box-shadow: 0 4px 18px #0003;
+}
+
+.music-track {
+  background-color: #29272e;
+  max-width: 28rem;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
+
+.music-track button,
+.music-dock button {
+  cursor: pointer;
+  color: inherit;
+  border: 0;
+  background: transparent;
+}
+
+.music-track button:focus-visible,
+.music-dock button:focus-visible,
+.music-dock input:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.music-cover {
+  position: relative;
+  width: 5rem;
+  height: 5rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+
+.music-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0;
+  transition:
+    filter 0.25s ease,
+    transform 0.25s ease;
+}
+
+.music-cover:hover img,
+.music-cover:focus-visible img {
+  filter: blur(4px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .music-cover:hover img,
+  .music-cover:focus-visible img {
+    transform: scale(1.1);
+  }
+}
+
+.music-note {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  background: #ffffff18;
+}
+
+.music-play-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0004;
+}
+
+.music-divider {
+  align-self: stretch;
+  width: 1px;
+  flex-shrink: 0;
+  background: #ffffff33;
+}
+
+.music-track-info,
+.music-dock-info {
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+
+.music-track-info .music-details {
+  margin-top: auto;
+}
+
+.music-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.music-artist,
+.music-details,
+.music-times {
+  color: #ddd;
+}
+
+.music-artist {
+  font-size: 0.8125rem;
+}
+
+.music-details,
+.music-times {
+  font-size: 0.75rem;
+}
+
+.music-dock {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 50;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .music-dock {
+    animation: music-dock-in 0.18s ease-out;
+  }
+  .music-dock[data-state="closed"] {
+    animation: music-dock-out 0.18s ease-in forwards;
+  }
+}
+@keyframes music-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.96);
+  }
+}
+@keyframes music-dock-out {
+  to {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.96);
+  }
+}
+
+.music-spin {
+  animation: music-spin 1s linear infinite;
+}
+
+@keyframes music-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.music-cover svg,
+.music-dock-control button svg {
+  filter: drop-shadow(0 1px 2px #0009);
+}
+.music-dock-control {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: #ffffff18;
+}
+
+.music-dock-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  object-fit: cover;
+  transition:
+    filter 0.25s ease,
+    transform 0.25s ease;
+}
+
+.music-dock-control:hover .music-dock-art,
+.music-dock-control:has(> button:focus-visible) .music-dock-art {
+  filter: blur(4px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .music-dock-control:hover .music-dock-art,
+  .music-dock-control:has(> button:focus-visible) .music-dock-art {
+    transform: scale(1.1);
+  }
+}
+
+.music-dock-control button {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.music-dock input {
+  display: block;
+  width: 100%;
+  margin: 0;
+  margin-top: auto;
+  accent-color: #a5b4fc;
+}
+
+.music-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: auto;
+  user-select: none;
+}

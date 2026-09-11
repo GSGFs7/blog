@@ -1,8 +1,8 @@
 // compile this file with ssr mode.
 
-import { renderToString } from "solid-js/web";
+import { NoHydration, renderToString } from "solid-js/web";
 
-import { SSR_COMPONENTS } from "./islands/ssr_registry";
+import { SSR_COMPONENTS, STATIC_COMPONENTS } from "./islands/ssr_registry";
 
 type Props = Record<string, unknown>;
 
@@ -32,6 +32,18 @@ export function buildSsrManifest() {
 
   return {
     islands,
+    staticIslands: Object.fromEntries(
+      Object.entries(STATIC_COMPONENTS).map(([name, Component]) => [
+        name,
+        renderToString(() => (
+          // some component may be handled incorrectly by sanitize.
+          // for this reaseon, disable hydration for itey.
+          <NoHydration>
+            <Component />
+          </NoHydration>
+        )),
+      ]),
+    ),
   };
 }
 

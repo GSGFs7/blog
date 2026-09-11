@@ -7,7 +7,7 @@ import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation";
 
 let registry: ComponentRegistry = {};
 
-type IslandElement = HTMLElement & {
+export type IslandElement = HTMLElement & {
   __solidDispose__?: () => void;
   __solidMountToken__?: symbol; // avoid concurrency issues
 };

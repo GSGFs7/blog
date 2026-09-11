@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
+from api.markdown.islands import music_placeholder
 from api.markdown.markdown_it import Markdown
 from api.models import Gal, Post
 from media_service.models import ImageResource
@@ -11,6 +12,22 @@ from media_service.models import ImageResource
 class TestMarkdownPostProcess(SimpleTestCase):
     def setUp(self):
         self.md = Markdown()
+
+    def test_music_uses_static_ssr_in_all_render_paths(self):
+        source = '::music{src="https://example.com/song.mp3" onclick="bad()"}'
+        placeholder = music_placeholder()
+        self.assertIn('class="music-track"', placeholder)
+        self.assertIn("disabled", placeholder)
+        self.assertNotIn("data-hk", placeholder)
+        for html in (
+            self.md.render(source),
+            self.md.render_with_toc(source)[0],
+            self.md.render_with_frontmatter(source)[1],
+        ):
+            self.assertIn(placeholder, html)
+            self.assertIn('data-solid-island="MusicTrack"', html)
+            self.assertNotIn("data-solid-ssr", html)
+            self.assertNotIn("bad()", html)
 
     def test_spoiler_is_collapsed_and_renders_markdown(self):
         html = self.md.render(":::spoiler\n**结局**\n\n- 第一项\n- 第二项\n:::")
