@@ -9,8 +9,9 @@ Asynchronous Django + Django-Ninja + pgvector + Celery + HTMX/Native Navigation 
 ```bash
 # Setup: podman-compose up -d blog-postgres blog-redis
 uv run manage.py migrate                # Database migrations
-uv run manage.py test                   # Run tests
-ruff check --fix && ruff format .       # Lint and format
+uv run manage.py test <test_label>      # Run affected tests (omit label for full suite)
+uv run ruff check --fix <paths>         # Lint affected Python files
+uv run ruff format <paths>              # Format affected Python files
 ```
 
 ## Project Map
@@ -23,7 +24,7 @@ ruff check --fix && ruff format .       # Lint and format
 - `accounts/`: Authentication, account forms, admin views, and account URLs.
 - `core/`: Shared security, request, storage, and field utilities.
 - `media_service/`: Dedicated media app for image resources, processing, admin, signals, and tests.
-- `blog/settings.py`: Global settings, environment detection, Redis/Celery/database configuration.
+- `blog/settings/`: Settings modules for environment detection, Redis/Celery/database configuration, security, storage, and integrations.
 - `web/`: Django views, templates, HTMX, Native Navigation API, Solid islands, Vite assets, and frontend tests.
 - `templates/`: Shared Django templates and admin templates.
 - `native/`: Native extensions for CRC64-NVMe and Markdown processing.
@@ -38,3 +39,7 @@ ruff check --fix && ruff format .       # Lint and format
 ## Troubleshooting
 
 - **Sandbox Environment Check**: If you cannot connect to the database, Redis, or other local services, first check if you are running in a restricted sandbox environment (e.g., a terminal sandbox that blocks network or host access) and request necessary permissions (e.g., `unsandboxed` command action) or run the commands accordingly.
+
+## Completion
+
+For implementation tasks, complete the relevant verification and fix failures introduced by the requested change before handing back the result. Stay within the requested scope and existing permissions; report any unresolved blocker and checks that could not be completed.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Frontend Architecture"
-  short_description: "Guide frontend changes in this Django hybrid app"
-  default_prompt: "Use $frontend-architecture to implement a frontend change that follows this project’s rendering, navigation, island, and verification conventions."
+  short_description: "Guide frontend architecture and cross-layer integration"
+  default_prompt: "Use $frontend-architecture to resolve layer ownership and integration for this project’s rendering, navigation, islands, Markdown, and assets."

@@ -28,8 +28,8 @@
 
 - Register every client island in `web/typescript/islands/index.ts`.
 - A template island rendered with `{% solid_island %}` also needs a compatible entry in `web/typescript/islands/ssr_registry.ts`; otherwise it fails in production.
-- Markdown directive islands are client-rendered. Add only intentional, sanitized directives to `api/markdown/post_processors.py`; add SSR support only when the component is browser-independent.
+- Markdown directive islands are client-rendered. Define allowed directives and props in `native/markdown/src/solid_island.rs` and preserve the sanitizer boundary. Music uses a build-time placeholder loaded by `api/markdown/islands.py`; the client replaces it rather than hydrating it.
 
 ## Verification
 
-Run the checks that match the change: `pnpm test`, `pnpm test:e2e` (adapter-independent journeys), `pnpm test:e2e:htmx`, `pnpm test:e2e:native`, `pnpm test:ssr`, `pnpm typecheck`, `pnpm build:all`, and focused Django tests under `web/tests/`. Use `pnpm test:e2e:base:htmx` and `pnpm test:e2e:base:native` to verify the shared journeys against a forced adapter.
+Choose checks for the affected behavior and layer using [Test selection](../.agents/skills/frontend-architecture/references/architecture.md#test-selection). Expand coverage when a change crosses layers or a failure exposes a wider impact.

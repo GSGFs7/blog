@@ -4,10 +4,8 @@
 
 This is not a single SPA. Django renders pages, a protocol-driven navigation layer selects an HTMX or Native Navigation API adapter per deployment mode, Solid powers on-demand interactive islands, and Vite builds client and SSR assets.
 
-- Main content, reading flows, and basic navigation must work without JavaScript.
-- Django templates own page content and SEO semantics; JavaScript enhances them.
-- Page responses expose `app-build-id`, `app-navigation-version`, and `page-navigation-mode`. A client-side swap is allowed only when the protocol matches; otherwise reload the page.
-- Keep Solid islands small and self-contained.
+The shared frontend invariants are in [web/AGENTS.md](../../../../web/AGENTS.md). The sections below describe implementation details for the relevant integration.
+
 - Never edit `web/static/dist/` or `web/static/ssr/`, and never hard-code their filenames.
 
 ## Ownership map
@@ -27,7 +25,10 @@ This is not a single SPA. Django renders pages, a protocol-driven navigation lay
 | `web/typescript/admin/` | Django admin enhancements |
 | `web/typescript/styles/` | CSS entries composed by Vite |
 | `web/context_processors.py` | Navigation build ID, mode, and version |
-| `api/markdown/post_processors.py` | Safe article post-processing and directive mappings |
+| `api/markdown/markdown_it.py` | Python integration with the native Markdown renderer |
+| `api/markdown/islands.py` | Loading the built music placeholder |
+| `native/markdown/src/solid_island.rs` | Allowed directive components and props, island rewriting, and music placeholder insertion |
+| `native/markdown/src/sanitizer.rs` | Markdown HTML sanitization |
 | `vite.config.mts` | Development server and client/SSR builds |
 
 ## Rendering and navigation lifecycle
@@ -60,9 +61,9 @@ Register behaviors in `core/behaviors/index.ts`. Their `mount(root, context)` ma
 
 The client registry is `web/typescript/islands/index.ts`; use dynamic imports so Solid and island code stay out of the first bundle. `core/lazy-islands.ts` scans for `[data-solid-island]` before loading the runtime. Containers use `data-solid-island`, JSON `data-props`, and optionally `data-solid-ssr`. Hydrate SSR containers and fall back to client rendering if hydration fails.
 
-Template islands must be registered in both the client registry and `web/typescript/islands/ssr_registry.ts`, then rendered with `{% solid_island "Name" key=value %}`. Client-only islands cannot use this tag in production. `Counter` and `WIP` support hydration; `PythonREPL`, `Chart`, and `MusicDock` are client-only. `MusicTrack` is registered separately in `STATIC_COMPONENTS`: Solid renders its initial state inside `NoHydration` into the manifest's `staticIslands` section. Python supplies this trusted build output to the native Markdown renderer, which inserts it after sanitizing user HTML. The wrapper has no `data-solid-ssr`, so the client replaces the placeholder. Keep music styles in the initial Markdown CSS bundle to reserve space before JavaScript loads.
+Template islands must be registered in both the client registry and `web/typescript/islands/ssr_registry.ts`, then rendered with `{% solid_island "Name" key=value %}`. Supply safe placeholder props for components that need them during SSR generation. Client-only islands cannot use this tag in production. `Counter` and `WIP` support hydration; `PythonREPL`, `Chart`, and `MusicDock` are client-only. `MusicTrack` is registered separately in `STATIC_COMPONENTS`: Solid renders its initial state inside `NoHydration` into the manifest's `staticIslands` section. Python supplies this trusted build output to the native Markdown renderer, which inserts it after sanitizing user HTML. The wrapper has no `data-solid-ssr`, so the client replaces the placeholder. Keep music styles in the initial Markdown CSS bundle to reserve space before JavaScript loads.
 
-Markdown directives are intentional named mappings in `native/markdown/src/solid_island.rs` (`Component::from_directive`). Current mappings are `counter` to `Counter`, `python-wasm` and `python-repl` to `PythonREPL`, `python-playground` to `PythonPlayground`, `chart` and `charts` to `Chart`, and `music` to `MusicTrack`, which only forwards its `src`. Never accept arbitrary component names. Keep required elements and `data-*` attributes aligned with the `nh3` sanitizer allowlist, and keep directive URLs within the origins the CSP allows (music playback and metadata need them under `media-src` and `connect-src`).
+Markdown directives are intentional named mappings in `native/markdown/src/solid_island.rs` (`Component::from_directive`). Current mappings are `counter` to `Counter`, `python-wasm` and `python-repl` to `PythonREPL`, `python-playground` to `PythonPlayground`, `chart` and `charts` to `Chart`, and `music` to `MusicTrack`, which only forwards its `src`. Never accept arbitrary component names. Keep required elements and `data-*` attributes aligned with the sanitizer allowlist in `native/markdown/src/sanitizer.rs`, and keep directive URLs within the origins the CSP allows (music playback and metadata need them under `media-src` and `connect-src`).
 
 ## Styles, assets, and builds
 
@@ -82,4 +83,13 @@ The client entries are `index`, `loadTheme`, `globalCss`, `fontCss`, `markdownCs
 | `web/e2e/native/*.spec.ts` | Native adapter behavior |
 | `web/e2e/ssr/*.ssr.spec.ts` | Built SSR output and hydration |
 
-Use `pnpm test`, `pnpm test:unit`, `pnpm test:browser`, `pnpm test:e2e`, `pnpm test:e2e:htmx`, `pnpm test:e2e:native`, `pnpm test:e2e:base:htmx`, `pnpm test:e2e:base:native`, `pnpm test:ssr`, `pnpm typecheck`, `pnpm lint`, and `pnpm build:all` as appropriate. For server coverage, use `uv run manage.py test web.tests` and `uv run manage.py test api.tests.test_markdown_post_process`.
+Choose checks according to the changed behavior:
+
+- TypeScript logic and DOM behavior: focused tests through `pnpm test:unit`; use `pnpm test:browser` for real browser APIs and `pnpm typecheck` for TypeScript changes.
+- Django views, templates, and Markdown integration: focused test labels under `web.tests` or `api.tests.test_markdown_post_process`, using `uv run manage.py test <test_label>`.
+- Native Markdown directives or sanitization: relevant Rust tests in `native/markdown`, plus Python integration coverage when rendered output changes.
+- Navigation: the affected adapter suite (`pnpm test:e2e:htmx` or `pnpm test:e2e:native`). For shared navigation changes, exercise both adapters; `pnpm test:e2e:base:htmx` and `pnpm test:e2e:base:native` run shared journeys against each adapter. `pnpm test:e2e` runs the base journeys with the configured mode.
+- Template island output or hydration: `pnpm test:ssr`, which already builds SSR assets and runs Django island tests and browser hydration coverage.
+- Build configuration, manifests, or static asset integration: `pnpm build:all`, which builds client and SSR assets and runs `collectstatic`. Use `pnpm build` or `pnpm build:ssr` when only that output needs verification.
+
+Reuse current build outputs where the selected check permits it. Avoid rerunning a build already covered by a successful check unless inputs changed or another check requires it.
