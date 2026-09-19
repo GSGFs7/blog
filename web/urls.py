@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("test", views.test, name="test"),
     path("blog", views.blog, name="blog"),
+    path("blog.md", views.blog_markdown, name="blog_markdown"),
     path("blog/random", views.blog_random_post, name="blog_random_post"),
     path("blog/latest", views.blog_latest, name="blog_latest"),
     path("blog/feed.atom", feed.BlogPostFeed(), name="blog_feed"),

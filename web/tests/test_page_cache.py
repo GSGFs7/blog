@@ -300,6 +300,8 @@ class PageCacheViewTests(TestCase):
 
     def test_markdown_feed_and_sitemap_are_outside_page_cache_protocol(self):
         paths = [
+            reverse("blog_markdown"),
+            reverse("llms"),
             reverse("blog_post_markdown", args=[self.post.slug]),
             reverse("blog_feed"),
             reverse("django.contrib.sitemaps.views.sitemap"),
@@ -319,7 +321,6 @@ class PageCacheViewTests(TestCase):
         redirect_responses = [
             self.client.get(reverse("favicon")),
             self.client.get(reverse("robots")),
-            self.client.get(reverse("llms")),
         ]
         responses = [
             *redirect_responses,
@@ -342,7 +343,6 @@ class PageCacheViewTests(TestCase):
         assets = {
             "favicon": r"favicon\.[0-9a-f]{12}\.ico",
             "robots": r"robots\.[0-9a-f]{12}\.txt",
-            "llms": r"llms\.[0-9a-f]{12}\.txt",
         }
 
         for view_name, asset_pattern in assets.items():

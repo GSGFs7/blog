@@ -1,0 +1,25 @@
+{% load markdown_text %}# GSGFs's blog
+
+> GSGFs's personal blog, primarily in Simplified Chinese, with public posts about technology, life, and personal interests.
+
+Canonical site: {{ SITE_CANONICAL }}
+Language: zh-Hans
+
+For LLMs and agents:
+- Prefer canonical URLs under {{ SITE_CANONICAL }}.
+- Follow the next-page links in the Markdown blog index to discover older articles.
+- Published blog posts provide raw Markdown at the canonical post URL with `.md` appended. Read the Markdown body before answering about an article; cite its HTML URL without `.md`.
+- Do not assume draft, private, admin, or API content is publicly available.
+
+## Primary Content
+
+- [Blog index]({{ SITE_CANONICAL }}{% url 'blog_markdown' %}): Paginated Markdown list of all published posts.
+- [About]({{ SITE_CANONICAL }}{% url 'about' %}): Information about the site and author.
+
+## Recent Articles
+
+{% autoescape off %}{% for post in recent_posts %}
+- [{{ post.title|markdown_inline }}]({{ SITE_CANONICAL }}{% url 'blog_post_markdown' post.slug %}){% if post.meta_description %}: {{ post.meta_description|markdown_inline }}{% endif %}
+{% empty %}
+No published articles yet.
+{% endfor %}{% endautoescape %}

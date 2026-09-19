@@ -28,8 +28,7 @@ def test(request: HttpRequest) -> HttpResponse:
     return private_page_response(render(request, "web/pages/test.html"))
 
 
-@require_safe
-async def blog(request: HttpRequest) -> HttpResponse:
+async def _get_blog_page_context(request: HttpRequest) -> dict:
     # page
     page = request.GET.get("page", "1")
     page = max(1, int(page)) if page.isdigit() else 1
@@ -59,7 +58,15 @@ async def blog(request: HttpRequest) -> HttpResponse:
         "has_next": has_next,
         "previous_page_number": previous_page_number,
         "next_page_number": next_page_number,
+        "total_pages": await paginator.anum_pages(),
+        "total_posts": await paginator.acount(),
     }
+    return context
+
+
+@require_safe
+async def blog(request: HttpRequest) -> HttpResponse:
+    context = await _get_blog_page_context(request)
 
     response = TemplateResponse(
         request,
@@ -70,6 +77,18 @@ async def blog(request: HttpRequest) -> HttpResponse:
         response,
         edge_max_age=300,
         max_stale=86400,
+    )
+
+
+@require_safe
+async def blog_markdown(request: HttpRequest) -> HttpResponse:
+    context = await _get_blog_page_context(request)
+
+    return TemplateResponse(
+        request,
+        "web/pages/blog.md",
+        context=context,
+        content_type="text/markdown; charset=utf-8",
     )
 
 
@@ -220,7 +239,17 @@ def robots(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def llms(request: HttpRequest) -> HttpResponse:
-    return HttpResponsePermanentRedirect(static("llms.txt"))
+    recent_posts = (
+        Post.objects.filter(status="published")
+        .only("title", "slug", "meta_description")
+        .order_by("-published_at", "-created_at", "-pk")[:5]
+    )
+    return render(
+        request,
+        "web/llms.txt",
+        {"recent_posts": recent_posts},
+        content_type="text/plain; charset=utf-8",
+    )
 
 
 # sync only
