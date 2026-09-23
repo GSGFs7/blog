@@ -13,20 +13,26 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("removes the placeholder blur marker after the image loads", async () => {
-  document.body.innerHTML = '<img class="image-placeholder" src="/pending.jpg" alt="test">';
+test("removes the blurred background after a transparent image loads", async () => {
+  document.body.innerHTML =
+    '<img class="image-placeholder" style="background-image: url(/placeholder.webp); background-size: cover; border-radius: 8px" src="/pending.jpg" alt="test">';
   const image = document.querySelector("img")!;
   teardown = setupBehaviors();
   await waitForBehaviorMount();
 
   expect(image).toHaveClass("image-placeholder");
+  expect(image.style.backgroundImage).toContain("placeholder.webp");
   fireEvent.load(image);
 
   expect(image).not.toHaveClass("image-placeholder");
+  expect(image.style.backgroundImage).toBe("");
+  expect(image.style.backgroundSize).toBe("");
+  expect(image.style.borderRadius).toBe("8px");
 });
 
-test("removes the marker from an image loaded before mount", async () => {
-  document.body.innerHTML = '<img class="image-placeholder" src="/cached.jpg" alt="test">';
+test("removes the blurred background from an image loaded before mount", async () => {
+  document.body.innerHTML =
+    '<img class="image-placeholder" style="background-image: url(/placeholder.webp); background-size: cover; border-radius: 8px" src="/cached.jpg" alt="test">';
   const image = document.querySelector("img")!;
   Object.defineProperties(image, {
     complete: { configurable: true, value: true },
@@ -37,18 +43,25 @@ test("removes the marker from an image loaded before mount", async () => {
   await waitForBehaviorMount();
 
   expect(image).not.toHaveClass("image-placeholder");
+  expect(image.style.backgroundImage).toBe("");
+  expect(image.style.backgroundSize).toBe("");
+  expect(image.style.borderRadius).toBe("8px");
 });
 
 test("handles placeholder images mounted after a page swap", async () => {
   teardown = setupBehaviors();
   runPageSwap(() => {
     document.body.innerHTML =
-      '<main id="swap-target"><img class="image-placeholder" src="/next.jpg" alt="test"></main>';
+      '<main id="swap-target"><img class="image-placeholder" style="background-image: url(/placeholder.webp); background-size: cover; border-radius: 8px" src="/next.jpg" alt="test"></main>';
   });
   await waitForBehaviorMount();
 
   const image = document.querySelector("img")!;
+  expect(image.style.backgroundImage).toContain("placeholder.webp");
   fireEvent.load(image);
 
   expect(image).not.toHaveClass("image-placeholder");
+  expect(image.style.backgroundImage).toBe("");
+  expect(image.style.backgroundSize).toBe("");
+  expect(image.style.borderRadius).toBe("8px");
 });

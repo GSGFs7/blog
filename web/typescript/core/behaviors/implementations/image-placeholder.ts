@@ -3,6 +3,12 @@ import type { Behavior } from "../types";
 
 const selector = "img.image-placeholder";
 
+function clearPlaceholder(image: HTMLImageElement) {
+  image.style.removeProperty("background-image");
+  image.style.removeProperty("background-size");
+  image.classList.remove("image-placeholder");
+}
+
 export function createImagePlaceholderBehavior(): Behavior {
   const mounted = new WeakSet<HTMLImageElement>();
 
@@ -13,7 +19,7 @@ export function createImagePlaceholderBehavior(): Behavior {
           continue;
         }
         if (image.complete && image.naturalWidth > 0) {
-          image.classList.remove("image-placeholder");
+          clearPlaceholder(image);
           continue;
         }
         if (mounted.has(image)) {
@@ -21,7 +27,7 @@ export function createImagePlaceholderBehavior(): Behavior {
         }
 
         mounted.add(image);
-        image.addEventListener("load", () => image.classList.remove("image-placeholder"), {
+        image.addEventListener("load", () => clearPlaceholder(image), {
           once: true,
           signal,
         });
