@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import os
+import warnings
 from dataclasses import dataclass
 from io import BytesIO
 from typing import IO
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
@@ -15,7 +17,11 @@ from PIL import ExifTags, ImageOps
 from PIL import Image as PILImage
 
 from core.hash import calculate_blake3_hash
-from media_service.constants import IMAGE_ALLOWED_FORMAT, RESPONSIVE_IMAGE_WIDTHS
+from media_service.constants import (
+    IMAGE_ALLOWED_FORMAT,
+    RESPONSIVE_IMAGE_WIDTHS,
+    allowed_pil_formats,
+)
 from media_service.exiftool import AsyncExifTool, SyncExifTool
 
 from .base import BaseModel
@@ -272,8 +278,12 @@ class Image(BaseModel):
         # 0. extract basic info and verify file integrity
         try:
             inspection = cls._inspect_image(content)
-        except Exception:
-            raise ValidationError("Unrecognizable image file or file is corrupted")
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                "Unrecognizable image file or file is corrupted"
+            ) from exc
 
         # 0.5. normalize orientation
         try:
@@ -338,8 +348,12 @@ class Image(BaseModel):
         # 0. verify
         try:
             inspection = await cls._ainspect_image(content)
-        except Exception:
-            raise ValidationError("Unrecognizable image file or file is corrupted")
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                "Unrecognizable image file or file is corrupted"
+            ) from exc
 
         # 0.5. normalize orientation
         try:
@@ -394,36 +408,87 @@ class Image(BaseModel):
     # --- verify & normalize ---
 
     @staticmethod
-    def _inspect_image(content: IO[bytes]) -> ImageInspection:
+    def _validate_frame_size(size: tuple[int, int]) -> int:
+        width, height = size
+        if width <= 0 or height <= 0:
+            raise ValidationError("Invalid image dimensions")
+
+        if max(width, height) > settings.MAX_IMAGE_SIDE:
+            raise ValidationError("Image dimensions exceed the limit")
+
+        pixels = width * height
+        if pixels > settings.MAX_FRAME_PIXELS:
+            raise ValidationError("Image frame exceeds the pixel limit")
+
+        return pixels
+
+    @classmethod
+    def _inspect_frames(cls, source: PILImage.Image) -> int:
+        frame_count = 0
+        total_pixels = 0
+
+        while True:
+            try:
+                source.seek(frame_count)
+            except EOFError:
+                break
+
+            total_pixels += cls._validate_frame_size(source.size)
+            if total_pixels > settings.MAX_TOTAL_PIXELS:
+                raise ValidationError("Image exceeds the total pixel limit")
+
+            frame_count += 1
+            if frame_count > settings.MAX_IMAGE_FRAMES:
+                raise ValidationError("Image has too many frames")
+
+        return frame_count
+
+    @classmethod
+    def _inspect_image(cls, content: IO[bytes]) -> ImageInspection:
         content.seek(0)
 
         try:
-            with PILImage.open(content) as source:
-                image_format = source.format
-                mime_type = PILImage.MIME.get(image_format)
-                if image_format is None or mime_type not in IMAGE_ALLOWED_FORMAT:
-                    raise ValidationError("Not allowed image types")
+            with warnings.catch_warnings(record=False):
+                # catch PIL's decode bomb warning
+                warnings.simplefilter("error", PILImage.DecompressionBombWarning)
 
-                orientation = source.getexif().get(ExifTags.Base.Orientation, 1)
-                if not isinstance(orientation, int) or orientation not in range(1, 9):
-                    orientation = 1
+                with PILImage.open(content, formats=allowed_pil_formats()) as source:
+                    image_format = source.format
+                    mime_type = PILImage.MIME.get(image_format)
+                    if image_format is None or mime_type not in IMAGE_ALLOWED_FORMAT:
+                        raise ValidationError("Not allowed image types")
 
-                inspection = ImageInspection(
-                    image_format=image_format,
-                    mime_type=mime_type,
-                    width=source.width,
-                    height=source.height,
-                    orientation=orientation,
-                    frame_count=getattr(source, "n_frames", 1),
-                )
+                    width, height = source.size
+                    cls._validate_frame_size((width, height))
 
-            # verify
-            content.seek(0)
-            with PILImage.open(content) as source:
-                source.verify()
+                    orientation = source.getexif().get(ExifTags.Base.Orientation, 1)
+                    if not isinstance(orientation, int) or orientation not in range(
+                        1, 9
+                    ):
+                        orientation = 1
+
+                    frame_count = cls._inspect_frames(source)
+
+                    inspection = ImageInspection(
+                        image_format=image_format,
+                        mime_type=mime_type,
+                        width=width,
+                        height=height,
+                        orientation=orientation,
+                        frame_count=frame_count,
+                    )
+
+                # verify
+                content.seek(0)
+                with PILImage.open(content) as source:
+                    source.verify()
 
             return inspection
-        # not catch it
+        except (
+            PILImage.DecompressionBombWarning,
+            PILImage.DecompressionBombError,
+        ) as exc:
+            raise ValidationError("Image exceeds the safe decoding limit") from exc
         finally:
             content.seek(0)
 

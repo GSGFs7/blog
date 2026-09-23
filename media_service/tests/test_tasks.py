@@ -68,6 +68,62 @@ class MediaTasksTest(TestCase):
         image_resource.refresh_from_db()
         self.assertTrue(image_resource.placeholder)
 
+    @override_settings(MAX_FRAME_PIXELS=9_999)
+    def test_tasks_reject_oversized_resource_before_encoding(self):
+        file, size = self.build_image_resource_content()
+        resource = ImageResource.objects.create(
+            checksum="f" * 64,
+            file=file,
+            width=100,
+            height=100,
+            size=size,
+            mime_type="image/png",
+            responsive_variants_enabled=True,
+        )
+
+        for task in (process_image, process_responsive_variants):
+            with (
+                self.subTest(task=task.name),
+                patch("media_service.tasks.save_optimized_image") as encode,
+                self.assertLogs("media_service.tasks", level="WARNING") as logs,
+            ):
+                task(resource.pk)
+                encode.assert_not_called()
+                self.assertIn("Rejected image resource", logs.output[0])
+
+        resource.refresh_from_db()
+        self.assertFalse(resource.is_processed)
+        self.assertFalse(resource.avif_file)
+        self.assertFalse(resource.webp_file)
+        self.assertFalse(resource.thumbnail)
+        self.assertFalse(resource.placeholder)
+        self.assertFalse(resource.variants.exists())
+
+    def test_failed_encoding_does_not_mark_complete_or_reschedule(self):
+        file, size = self.build_image_resource_content()
+        resource = ImageResource.objects.create(
+            checksum="g" * 64,
+            file=file,
+            width=100,
+            height=100,
+            size=size,
+            mime_type="image/png",
+        )
+
+        with (
+            patch("media_service.tasks.save_optimized_image", side_effect=OSError),
+            patch("media_service.signals.process_image.delay") as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertLogs("media_service.tasks", level="WARNING"),
+        ):
+            process_image(resource.pk)
+
+        enqueue.assert_not_called()
+        resource.refresh_from_db()
+        self.assertFalse(resource.is_processed)
+        self.assertFalse(resource.avif_file)
+        self.assertFalse(resource.webp_file)
+
     def test_animated_images_keep_frames_and_timing(self):
         for source_format, default_image in (
             ("GIF", False),

@@ -2,7 +2,7 @@ from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from PIL import ExifTags, UnidentifiedImageError
 from PIL import Image as PILImage
 
@@ -86,7 +86,7 @@ class ImageInspectionTest(SimpleTestCase):
         PILImage.new("RGBA", (16, 16), "red").save(content, format="ICO")
         content.seek(0)
 
-        with self.assertRaisesMessage(ValidationError, "Not allowed image types"):
+        with self.assertRaises(UnidentifiedImageError):
             Image._inspect_image(content)
 
         self.assertEqual(content.tell(), 0)
@@ -95,6 +95,30 @@ class ImageInspectionTest(SimpleTestCase):
         content = BytesIO(b"this not a image")
 
         with self.assertRaises(UnidentifiedImageError):
+            Image._inspect_image(content)
+
+        self.assertEqual(content.tell(), 0)
+
+    @override_settings(MAX_FRAME_PIXELS=31)
+    def test_rejects_frame_over_pixel_limit(self):
+        content = self.build_jpeg()  # 8 × 4 = 32 px
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Image frame exceeds the pixel limit",
+        ):
+            Image._inspect_image(content)
+
+        self.assertEqual(content.tell(), 0)
+
+    @override_settings(MAX_FRAME_PIXELS=32, MAX_TOTAL_PIXELS=63)
+    def test_rejects_animation_over_total_pixel_limit(self):
+        content = self.build_animated_gif()
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Image exceeds the total pixel limit",
+        ):
             Image._inspect_image(content)
 
         self.assertEqual(content.tell(), 0)

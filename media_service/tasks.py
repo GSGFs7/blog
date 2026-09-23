@@ -1,16 +1,41 @@
 import base64
 import logging
+import warnings
+from contextlib import contextmanager
 from io import BytesIO
 
 from celery import shared_task
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from PIL import Image as PILImage
 from PIL import ImageFilter
 
-from media_service.constants import RESPONSIVE_IMAGE_WIDTHS
-from media_service.models import ImageResource, ImageVariant
+from media_service.constants import RESPONSIVE_IMAGE_WIDTHS, allowed_pil_formats
+from media_service.models import Image, ImageResource, ImageVariant
 
 logger = logging.getLogger(__name__)
+
+IMAGE_SAFETY_ERRORS = (
+    ValidationError,
+    PILImage.DecompressionBombWarning,
+    PILImage.DecompressionBombError,
+)
+
+
+@contextmanager
+def open_checked_image(resource: ImageResource):
+    with resource.file.open("rb") as source:
+        Image._inspect_image(source)
+        source.seek(0)
+
+        with warnings.catch_warnings(record=False):
+            warnings.simplefilter("error", PILImage.DecompressionBombWarning)
+
+            with PILImage.open(
+                source,
+                formats=allowed_pil_formats(),
+            ) as image:
+                yield image
 
 
 @shared_task
@@ -24,7 +49,7 @@ def process_image(image_resource_id: int, force: bool = False):
 
         # PIL only close its own fd, Django FieldFile is still opened.
         # explicit call to close it.
-        with image_res_obj.file.open("rb") as source, PILImage.open(source) as img:
+        with open_checked_image(image_res_obj) as img:
             # AVIF
             if force or not image_res_obj.avif_file:
                 try:
@@ -40,6 +65,8 @@ def process_image(image_resource_id: int, force: bool = False):
                     )
 
                     logger.info(f"Successfully generated AVIF for {image_resource_id}")
+                except IMAGE_SAFETY_ERRORS:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Could not generate AVIF for {image_resource_id}: {e}"
@@ -59,6 +86,8 @@ def process_image(image_resource_id: int, force: bool = False):
                     )
 
                     logger.info(f"Successfully generated WebP for {image_resource_id}")
+                except IMAGE_SAFETY_ERRORS:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Could not generate WebP for {image_resource_id}: {e}"
@@ -82,6 +111,8 @@ def process_image(image_resource_id: int, force: bool = False):
                     logger.info(
                         f"Successfully generated thumbnail for {image_resource_id}"
                     )
+                except IMAGE_SAFETY_ERRORS:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Failed to generate thumbnail for {image_resource_id}: {e}"
@@ -99,12 +130,21 @@ def process_image(image_resource_id: int, force: bool = False):
                     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
                     encoded_img = f"data:image/webp;base64,{encoded}"
                     image_res_obj.placeholder = encoded_img
+                except IMAGE_SAFETY_ERRORS:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Failed to generate placeholder for {image_resource_id}: {e}"
                     )
 
-            image_res_obj.is_processed = True
+            image_res_obj.is_processed = all(
+                (
+                    image_res_obj.avif_file,
+                    image_res_obj.webp_file,
+                    image_res_obj.thumbnail,
+                    image_res_obj.placeholder,
+                )
+            )
             # save updated fields only
             # avoid race conditions
             image_res_obj.save(
@@ -119,6 +159,8 @@ def process_image(image_resource_id: int, force: bool = False):
             )
     except ImageResource.DoesNotExist:
         logger.error(f"Image not found: {image_resource_id}")
+    except IMAGE_SAFETY_ERRORS as exc:
+        logger.warning("Rejected image resource %s: %s", image_resource_id, exc)
     except Exception as e:
         logger.error(f"Error processing image {image_resource_id}: {e}")
 
@@ -130,7 +172,7 @@ def process_responsive_variants(image_resource_id: int):
         if not resource.responsive_variants_enabled:
             return
 
-        with resource.file.open("rb") as source, PILImage.open(source) as img:
+        with open_checked_image(resource) as img:
             for width in target_widths(img.width):
                 generate_variant(
                     resource,
@@ -150,6 +192,8 @@ def process_responsive_variants(image_resource_id: int):
                 )
     except ImageResource.DoesNotExist:
         logger.error(f"Image not found: {image_resource_id}")
+    except IMAGE_SAFETY_ERRORS as exc:
+        logger.warning("Rejected image resource %s: %s", image_resource_id, exc)
     except Exception as e:
         logger.error(
             f"Error processing responsive variants for {image_resource_id}: {e}"

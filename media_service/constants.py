@@ -1,3 +1,7 @@
+from functools import lru_cache
+
+from PIL import Image as PILImage
+
 IMAGE_ALLOWED_FORMAT: set[str] = {
     "image/apng",  # Animated PNG
     "image/avif",  # AV1 encoded image
@@ -25,3 +29,14 @@ IMAGE_ALLOWED_FORMAT: set[str] = {
 }
 
 RESPONSIVE_IMAGE_WIDTHS = (320, 640, 1280, 1920)
+
+
+@lru_cache(maxsize=1)
+def allowed_pil_formats() -> tuple[str, ...]:
+    PILImage.init()
+
+    return tuple(
+        image_format
+        for image_format in PILImage.OPEN
+        if PILImage.MIME.get(image_format) in IMAGE_ALLOWED_FORMAT
+    )

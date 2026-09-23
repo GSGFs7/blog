@@ -18,6 +18,10 @@ def trigger_image_processing(sender, instance: ImageResource, created, **kwargs)
 
     sync function, it will running in the thead pool
     """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_processed" in update_fields:
+        return
+
     if (
         created
         or not instance.webp_file
