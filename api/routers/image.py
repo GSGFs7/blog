@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from ninja import Form, Router, Status, UploadedFile
 
 from api.auth import AsyncTimeBaseAuth
@@ -46,18 +47,21 @@ async def upload_test(
     except Exception:
         return Status(400, {"message": "error when getting actor"})
 
-    img, img_res, _ = await AsyncImageService.upload_image(
-        content=file,
-        filename=file.name,
-        alt_text=data.alt_text or "",
-        description=data.description or "",
-        uploader=uploader,
-        metadata={
-            "uploaded_via": str(request.auth),
-            "uploader_type": data.uploader_type,
-            "uploader_id": data.uploader_id,
-        },
-    )
+    try:
+        img, img_res, _ = await AsyncImageService.upload_image(
+            content=file,
+            filename=file.name,
+            alt_text=data.alt_text or "",
+            description=data.description or "",
+            uploader=uploader,
+            metadata={
+                "uploaded_via": str(request.auth),
+                "uploader_type": data.uploader_type,
+                "uploader_id": data.uploader_id,
+            },
+        )
+    except ValidationError as exc:
+        return Status(400, {"message": "; ".join(exc.messages)})
 
     return Status(
         201,
