@@ -21,11 +21,20 @@ app.conf.update(worker_concurrency=1 if is_k8s_env() else 2)
 app.autodiscover_tasks()  # discover tasks for django
 
 
+def is_image_worker() -> bool:
+    active_queues = set(app.amqp.queues.consume_from)
+    # not empty & is subset
+    return bool(active_queues) and active_queues <= {"images"}
+
+
 @worker_process_init.connect
 def preload_ml_model(sender, **kwargs):
     """
     Preload ML model in each worker process when it starts to avoid first task timeout.
     """
+    if is_image_worker():
+        return
+
     logger.info("Worker process initializing, preloading ML model...")
     try:
         # Import inside signal handler to avoid loading model when importing celery.py
@@ -42,6 +51,9 @@ def preload_ml_model(sender, **kwargs):
 
 @worker_process_shutdown.connect
 def close_ml_model(sender, **kwargs):
+    if is_image_worker():
+        return
+
     from api.ml_model import RemoteEmbedding
 
     model = RemoteEmbedding._instance

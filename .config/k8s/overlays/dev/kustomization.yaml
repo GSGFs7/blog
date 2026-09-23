@@ -85,6 +85,27 @@ patches:
               - name: blog-celery-worker
                 imagePullPolicy: Never
 
+  # blog-celery-worker-image Deployment
+  - target:
+      kind: Deployment
+      name: blog-celery-worker-image
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: blog-celery-worker-image
+      spec:
+        template:
+          spec:
+            initContainers:
+              - name: wait-for-db
+                imagePullPolicy: Never
+              - name: wait-for-redis
+                imagePullPolicy: Never
+            containers:
+              - name: blog-celery-worker-image
+                imagePullPolicy: Never
+
   # blog-celery-beat Deployment
   - target:
       kind: Deployment

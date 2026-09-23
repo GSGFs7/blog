@@ -1,0 +1,145 @@
+# k8s/base/celery-worker.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog-celery-worker-image
+  labels:
+    app: blog-celery-worker-image
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: blog-celery-worker-image
+  template:
+    metadata:
+      labels:
+        app: blog-celery-worker-image
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: wait-for-db
+          image: blog-app:latest
+          command:
+            - python
+            - -c
+            - |
+              import socket, time
+              addr = ('blog-pgbouncer', 6432)
+              while True:
+                  try:
+                      socket.create_connection(addr, timeout=2)
+                      break
+                  except Exception:
+                      print('waiting for pgbouncer...')
+                      time.sleep(2)
+        - name: wait-for-redis
+          image: blog-app:latest
+          command:
+            - python
+            - -c
+            - |
+              import socket, time
+              addr = ('blog-redis', 6379)
+              while True:
+                  try:
+                      socket.create_connection(addr, timeout=2)
+                      break
+                  except Exception:
+                      print('waiting for redis...')
+                      time.sleep(2)
+      containers:
+        - name: blog-celery-worker-image
+          image: blog-app:latest
+          command:
+            - celery
+            - -A
+            - blog
+            - worker
+            - --queues=images
+            - --pool=prefork
+            - --concurrency=1
+            - --prefetch-multiplier=1
+            - --max-tasks-per-child=20
+            - --loglevel=info
+          envFrom:
+            - configMapRef:
+                name: blog-config
+            - secretRef:
+                name: blog-secrets
+          env:
+            - name: DATABASE_HOST
+              value: blog-pgbouncer
+            - name: DATABASE_PORT
+              value: "6432"
+            - name: DATABASE_USE_PGBOUNCER
+              value: "True"
+            - name: DATABASE_CONN_MAX_AGE
+              value: "0"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - celery -A blog inspect ping -d "celery@$HOSTNAME" --timeout 15 || exit 1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 10
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - celery -A blog inspect ping -d "celery@$HOSTNAME" --timeout 15 || exit 1
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+              readOnly: true
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: blog-model-pvc
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: blog-celery-worker-image-hpa
+spec:
+  minReplicas: 1
+  maxReplicas: 3
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: blog-celery-worker-image
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 85
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 95

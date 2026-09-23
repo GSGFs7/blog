@@ -67,6 +67,10 @@ CACHE_TTL = 60 * 10
 CELERY_BROKER_URL = _redis_url
 CELERY_RESULT_BACKEND = _redis_url
 CELERY_TIMEZONE = "Asia/Shanghai"
+CELERY_TASK_ROUTES = {
+    "media_service.tasks.process_image": {"queue": "images"},
+    "media_service.tasks.process_responsive_variants": {"queue": "images"},
+}
 # Celery scheduled tasks use database storage,
 # if hasn't set it django_celery_beat will not work
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"

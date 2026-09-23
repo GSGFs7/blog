@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from io import BytesIO
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from PIL import Image as PILImage
@@ -38,7 +39,7 @@ def open_checked_image(resource: ImageResource):
                 yield image
 
 
-@shared_task
+@shared_task(soft_time_limit=45, time_limit=60, acks_late=False)
 def process_image(image_resource_id: int, force: bool = False):
     """Generate optimized versions (WebP, AVIF) and thumbnail for an image."""
     try:
@@ -67,6 +68,8 @@ def process_image(image_resource_id: int, force: bool = False):
                     logger.info(f"Successfully generated AVIF for {image_resource_id}")
                 except IMAGE_SAFETY_ERRORS:
                     raise
+                except SoftTimeLimitExceeded:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Could not generate AVIF for {image_resource_id}: {e}"
@@ -87,6 +90,8 @@ def process_image(image_resource_id: int, force: bool = False):
 
                     logger.info(f"Successfully generated WebP for {image_resource_id}")
                 except IMAGE_SAFETY_ERRORS:
+                    raise
+                except SoftTimeLimitExceeded:
                     raise
                 except Exception as e:
                     logger.warning(
@@ -113,6 +118,8 @@ def process_image(image_resource_id: int, force: bool = False):
                     )
                 except IMAGE_SAFETY_ERRORS:
                     raise
+                except SoftTimeLimitExceeded:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Failed to generate thumbnail for {image_resource_id}: {e}"
@@ -131,6 +138,8 @@ def process_image(image_resource_id: int, force: bool = False):
                     encoded_img = f"data:image/webp;base64,{encoded}"
                     image_res_obj.placeholder = encoded_img
                 except IMAGE_SAFETY_ERRORS:
+                    raise
+                except SoftTimeLimitExceeded:
                     raise
                 except Exception as e:
                     logger.warning(
@@ -161,11 +170,13 @@ def process_image(image_resource_id: int, force: bool = False):
         logger.error(f"Image not found: {image_resource_id}")
     except IMAGE_SAFETY_ERRORS as exc:
         logger.warning("Rejected image resource %s: %s", image_resource_id, exc)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.error(f"Error processing image {image_resource_id}: {e}")
 
 
-@shared_task
+@shared_task(soft_time_limit=45, time_limit=60, acks_late=False)
 def process_responsive_variants(image_resource_id: int):
     try:
         resource = ImageResource.objects.get(id=image_resource_id)
@@ -194,6 +205,8 @@ def process_responsive_variants(image_resource_id: int):
         logger.error(f"Image not found: {image_resource_id}")
     except IMAGE_SAFETY_ERRORS as exc:
         logger.warning("Rejected image resource %s: %s", image_resource_id, exc)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.error(
             f"Error processing responsive variants for {image_resource_id}: {e}"

@@ -12,6 +12,7 @@ resources:
   - redis.yaml
   - django.yaml
   - celery-worker.yaml
+  - celery-worker-image.yaml
   - celery-beat.yaml
   - job-migrate.yaml
   - job-backup.yaml
