@@ -10,6 +10,7 @@ enum Component {
     PythonPlayground,
     Chart,
     Music,
+    ModelViewer,
 }
 
 impl Component {
@@ -20,6 +21,7 @@ impl Component {
             "python-wasm" | "python-repl" => Some(Self::PythonRepl),
             "python-playground" => Some(Self::PythonPlayground),
             "chart" | "charts" => Some(Self::Chart),
+            "model" => Some(Self::ModelViewer),
             _ => None,
         }
     }
@@ -31,6 +33,7 @@ impl Component {
             Self::PythonRepl => "PythonREPL",
             Self::PythonPlayground => "PythonPlayground",
             Self::Chart => "Chart",
+            Self::ModelViewer => "ModelViewer",
         }
     }
 
@@ -41,6 +44,7 @@ impl Component {
             Self::PythonRepl => false,
             Self::PythonPlayground => name == "source",
             Self::Chart => matches!(name, "formula" | "x-min" | "x-max" | "y-min" | "y-max"),
+            Self::ModelViewer => matches!(name, "src" | "alt"),
         }
     }
 }
@@ -93,8 +97,15 @@ fn rewrite_element(element: &mut Element<'_, '_>) -> HandlerResult {
     }
     element.set_attribute("data-solid-island", component.name())?;
     element.set_attribute("data-props", &props)?;
+
+    // placehold
     if matches!(component, Component::Music) {
         element.set_inner_content("", ContentType::Html);
+    } else if matches!(component, Component::ModelViewer) {
+        element.set_inner_content(
+            r#"<span class="model-viewer-status">Scroll here to load the model</span>"#,
+            ContentType::Html,
+        );
     }
     Ok(())
 }
@@ -168,6 +179,23 @@ mod tests {
             let cleaned = sanitize(&rewrite(&html).unwrap());
             assert!(!cleaned.contains("ignored"));
         }
+    }
+
+    #[test]
+    fn model_placeholder_survives_sanitization() {
+        let rendered = crate::builder::build()
+            .parse(r#"::model{src="https://example.com/model.glb" alt="3D model" onclick="bad"}"#)
+            .render();
+        let cleaned = sanitize(&rewrite(&rendered).unwrap());
+        assert!(cleaned.contains("data-solid-island=\"ModelViewer\""));
+        assert!(
+            cleaned.contains(
+                r#"<span class="model-viewer-status">Scroll here to load the model</span>"#
+            )
+        );
+        assert!(cleaned.contains("https://example.com/model.glb"));
+        assert!(!cleaned.contains("onclick"));
+        assert!(!cleaned.contains("data-solid-ssr"));
     }
 
     #[test]

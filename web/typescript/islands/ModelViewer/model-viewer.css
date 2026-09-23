@@ -1,0 +1,26 @@
+[data-solid-island="ModelViewer"] {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 420px;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: var(--md-code-bg);
+}
+
+.model-viewer-stage {
+  width: 100%;
+  height: 100%;
+}
+
+.model-viewer-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: var(--md-code-bg);
+  font-family: system-ui, sans-serif;
+  text-align: center;
+  pointer-events: none;
+}

@@ -11,4 +11,5 @@ export const COMPONENTS: Record<string, () => Promise<SolidComponent<ComponentPr
   WIP: async () => (await import("./WIP")).default,
   MusicTrack: async () => (await import("./MusicPlayer/MusicTrack.island")).default,
   MusicDock: async () => (await import("./MusicPlayer/MusicDock.island")).default,
+  ModelViewer: async () => (await import("./ModelViewer")).default,
 } as const;

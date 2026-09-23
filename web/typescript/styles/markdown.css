@@ -2,6 +2,7 @@
 /* styled with markdown art */
 
 @import "../islands/MusicPlayer/music.css";
+@import "../islands/ModelViewer/model-viewer.css";
 
 .markdown-body {
   /* Default variables */
