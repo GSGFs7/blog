@@ -13,7 +13,6 @@ from media_service.models import ImageResource, ImageVariant
 logger = logging.getLogger(__name__)
 
 
-# TODO: animated AVIF & WebP
 @shared_task
 def process_image(image_resource_id: int, force: bool = False):
     """Generate optimized versions (WebP, AVIF) and thumbnail for an image."""
@@ -30,7 +29,7 @@ def process_image(image_resource_id: int, force: bool = False):
             if force or not image_res_obj.avif_file:
                 try:
                     buffer = BytesIO()  # in memory
-                    img.save(buffer, format="AVIF", quality=80)
+                    save_optimized_image(img, buffer, "AVIF", 80)
 
                     data = buffer.getvalue()
                     # filename also use raw image check sum
@@ -50,7 +49,7 @@ def process_image(image_resource_id: int, force: bool = False):
             if force or not image_res_obj.webp_file:
                 try:
                     buffer = BytesIO()
-                    img.save(buffer, format="WEBP", quality=80)
+                    save_optimized_image(img, buffer, "WEBP", 80)
 
                     data = buffer.getvalue()
                     filename = f"{image_res_obj.checksum}.webp"
@@ -90,7 +89,7 @@ def process_image(image_resource_id: int, force: bool = False):
 
             if force or not image_res_obj.placeholder:
                 try:
-                    placeholder = img.copy()
+                    placeholder = img.convert("RGBA")
                     placeholder.thumbnail((32, 32))
                     placeholder = placeholder.filter(ImageFilter.GaussianBlur(radius=2))
 
@@ -161,6 +160,54 @@ def target_widths(original_width: int) -> list[int]:
     return sorted({min(width, original_width) for width in RESPONSIVE_IMAGE_WIDTHS})
 
 
+def save_optimized_image(
+    source: PILImage.Image,
+    buffer: BytesIO,
+    image_format: str,
+    quality: int,
+    size: tuple[int, int] | None = None,
+):
+    if not getattr(source, "is_animated", False):
+        if size is None or source.size == size:
+            source.save(buffer, format=image_format, quality=quality)
+        else:
+            with source.resize(size, PILImage.Resampling.LANCZOS) as resized:
+                resized.save(buffer, format=image_format, quality=quality)
+        return
+
+    # process animated images
+    original_frame = source.tell()
+    frames = []
+    durations = []
+    loop = source.info.get("loop", 0)
+    first_frame = 1 if source.info.get("default_image", False) else 0
+    try:
+        for index in range(first_frame, getattr(source, "n_frames", 1)):
+            source.seek(index)
+            frame = source.convert("RGBA")
+            if size is not None and frame.size != size:
+                resized = frame.resize(size, PILImage.Resampling.LANCZOS)
+                frame.close()
+                frame = resized
+            frames.append(frame)
+            durations.append(round(source.info.get("duration", 0)))
+
+        # save first frame & append durations
+        frames[0].save(
+            buffer,
+            format=image_format,
+            quality=quality,
+            save_all=len(frames) > 1,
+            append_images=frames[1:],
+            duration=durations,
+            loop=loop,
+        )
+    finally:
+        for frame in frames:
+            frame.close()
+        source.seek(original_frame)
+
+
 def generate_variant(
     resource: ImageResource,
     source: PILImage.Image,
@@ -179,13 +226,8 @@ def generate_variant(
     if variant.file:
         return
 
-    if width == source.width:
-        resized = source.copy()
-    else:
-        resized = source.resize((width, height), PILImage.Resampling.LANCZOS)
-
     buffer = BytesIO()
-    resized.save(buffer, format=pil_format, quality=quality)
+    save_optimized_image(source, buffer, pil_format, quality, (width, height))
 
     variant.height = height
     variant.size = buffer.tell()

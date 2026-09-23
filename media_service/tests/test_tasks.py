@@ -1,3 +1,4 @@
+import base64
 import shutil
 import tempfile
 from io import BytesIO
@@ -66,6 +67,81 @@ class MediaTasksTest(TestCase):
         blur.assert_called_once_with(radius=2)
         image_resource.refresh_from_db()
         self.assertTrue(image_resource.placeholder)
+
+    def test_animated_images_keep_frames_and_timing(self):
+        for source_format, default_image in (
+            ("GIF", False),
+            ("WEBP", False),
+            ("PNG", False),
+            ("AVIF", False),
+            ("PNG", True),
+        ):
+            with self.subTest(source_format=source_format, default_image=default_image):
+                buffer = BytesIO()
+                frames = [
+                    PILImage.new("RGB", (100, 60), color)
+                    for color in ("red", "green", "blue")
+                ]
+                if default_image:
+                    frames.insert(0, PILImage.new("RGB", (100, 60), "darkred"))
+                frames[0].save(
+                    buffer,
+                    format=source_format,
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=[100, 200, 300],
+                    loop=2,
+                    default_image=default_image,
+                )
+                resource = ImageResource.objects.create(
+                    checksum=f"{source_format.lower()}{int(default_image)}".ljust(
+                        64, "a"
+                    ),
+                    file=ContentFile(buffer.getvalue(), name=f"test.{source_format}"),
+                    width=100,
+                    height=60,
+                    size=buffer.tell(),
+                    mime_type=PILImage.MIME[source_format],
+                    responsive_variants_enabled=True,
+                )
+
+                process_image(resource.pk)
+                resource.refresh_from_db()
+                with patch("media_service.tasks.RESPONSIVE_IMAGE_WIDTHS", (50, 100)):
+                    process_responsive_variants(resource.pk)
+
+                outputs = [(resource.avif_file, 100), (resource.webp_file, 100)]
+                outputs.extend(
+                    (variant.file, variant.width) for variant in resource.variants.all()
+                )
+                self.assertEqual(len(outputs), 6)
+                for file, width in outputs:
+                    with file.open("rb") as data, PILImage.open(data) as result:
+                        self.assertEqual(result.n_frames, 3)
+                        self.assertEqual(result.size, (width, round(width * 0.6)))
+                        if result.format == "WEBP" and source_format != "AVIF":
+                            self.assertEqual(result.info["loop"], 2)
+                        for index, duration in enumerate((100, 200, 300)):
+                            result.seek(index)
+                            result.load()
+                            self.assertAlmostEqual(
+                                result.info["duration"], duration, delta=1
+                            )
+                            pixel = result.convert("RGB").getpixel((0, 0))
+                            self.assertEqual(pixel.index(max(pixel)), index)
+
+                with (
+                    resource.thumbnail.open("rb") as data,
+                    PILImage.open(data) as thumbnail,
+                ):
+                    self.assertEqual(getattr(thumbnail, "n_frames", 1), 1)
+                    pixel = thumbnail.convert("RGB").getpixel((0, 0))
+                    self.assertEqual(pixel.index(max(pixel)), 0)
+                placeholder = BytesIO(
+                    base64.b64decode(resource.placeholder.split(",", 1)[1])
+                )
+                with PILImage.open(placeholder) as result:
+                    self.assertEqual(getattr(result, "n_frames", 1), 1)
 
     def test_responsive_variants_are_only_generated_when_enabled(self):
         file, size = self.build_image_resource_content()

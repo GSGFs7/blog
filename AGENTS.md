@@ -39,7 +39,3 @@ uv run ruff format <paths>              # Format affected Python files
 ## Troubleshooting
 
 - **Sandbox Environment Check**: If you cannot connect to the database, Redis, or other local services, first check if you are running in a restricted sandbox environment (e.g., a terminal sandbox that blocks network or host access) and request necessary permissions (e.g., `unsandboxed` command action) or run the commands accordingly.
-
-## Completion
-
-For implementation tasks, complete the relevant verification and fix failures introduced by the requested change before handing back the result. Stay within the requested scope and existing permissions; report any unresolved blocker and checks that could not be completed.
