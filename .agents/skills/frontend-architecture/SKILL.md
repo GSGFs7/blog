@@ -1,31 +1,25 @@
 ---
 name: frontend-architecture
-description: Guide architectural decisions across Django rendering, navigation, Solid islands, Markdown, and Vite. Use for layer ownership or cross-layer integration, not localized edits answerable from the affected code.
+description: "Describe the project's frontend architecture: server-first Django rendering, the protocol-driven navigation layer, Solid islands, Markdown integration, and Vite assets. Use to understand layer ownership and cross-layer integration."
 ---
 
 # Frontend Architecture
 
-Understand and preserve the project's server-first, progressively enhanced frontend architecture.
+The frontend is server-first and progressively enhanced. Django renders pages, a protocol-driven navigation layer selects an HTMX or Native Navigation API adapter per deployment mode, Solid powers on-demand interactive islands, and Vite builds client and SSR assets.
 
-## Relevant Guidance
+## Layer ownership
 
-Use [web/AGENTS.md](../../../web/AGENTS.md) for frontend invariants, including when integrating Markdown or native code outside `web/`. Consult the relevant section of [references/architecture.md](references/architecture.md) when resolving navigation lifecycle, SSR, Markdown rendering, or asset ownership. The layer table below is sufficient for straightforward ownership decisions.
-
-## Choose the Layer
-
-| Need | Use |
+| Concern | Layer |
 | --- | --- |
 | Page content, reading flow, or basic navigation | Django view and template |
-| Server-backed replacement, pagination, or form response | Django fragment and the existing navigation or HTMX interaction |
+| Server-backed replacement, pagination, or form response | Django fragment with the existing navigation or HTMX interaction |
 | Small enhancement to existing HTML | `web/typescript/core/behaviors/` |
 | Complex, isolated local state | `web/typescript/islands/` |
 | Interactive Markdown directive | `native/markdown/src/solid_island.rs` plus a client island; `api/markdown/islands.py` loads the music placeholder |
 | Django admin interaction | `web/typescript/admin/` |
 
-Do not turn an entire page, article body, or basic navigation into a Solid island.
+Entire pages, article bodies, and basic navigation are not Solid islands.
 
-## Verify the Change
+## Details
 
-Use [Test selection](references/architecture.md#test-selection) to choose checks for the affected behavior and build outputs.
-
-Do not assert generated Solid hydration markers or hand-copy generated SSR markup.
+[references/architecture.md](references/architecture.md) covers the system model, the ownership map, the rendering and navigation lifecycle, behaviors, Solid islands and SSR, and styles, assets, and builds. Frontend invariants are listed in [web/AGENTS.md](../../../web/AGENTS.md).

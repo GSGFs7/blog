@@ -1,4 +1,4 @@
 interface:
   display_name: "Frontend Architecture"
-  short_description: "Guide frontend architecture and cross-layer integration"
-  default_prompt: "Use $frontend-architecture to resolve layer ownership and integration for this project’s rendering, navigation, islands, Markdown, and assets."
+  short_description: "Describe the project's frontend architecture and layer ownership"
+  default_prompt: "Use $frontend-architecture to reference this project's frontend architecture: server-first Django rendering, the navigation layer, Solid islands, Markdown integration, and Vite assets."
