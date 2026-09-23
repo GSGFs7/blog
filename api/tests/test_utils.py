@@ -389,6 +389,51 @@ Content with python and django"""
         self.assertLessEqual(len(result["description"]), 150)
         self.assertTrue(result["description"].startswith("A"))
 
+    def test_description_uses_prose_without_markdown_structure(self):
+        source = """---
+title: Example
+---
+# Example
+## Why change?
+The first **real** paragraph explains the article.
+It continues on the next line with a [link](https://example.com).
+
+| Name | Value |
+| --- | --- |
+| A | B |
+
+::music{src="https://example.com/song.flac"}
+"""
+        self.assertEqual(
+            extract_metadata(source)["description"],
+            "The first real paragraph explains the article. "
+            "It continues on the next line with a link.",
+        )
+
+    def test_description_skips_directives_and_uses_list_as_fallback(self):
+        source = """# Music
+::music{src="https://example.com/song.flac"}
+:::terminal{shell="zsh"}:::
+![cover](cover.jpg)
+
+- A useful item
+- Another item
+"""
+        self.assertEqual(
+            extract_metadata(source)["description"], "A useful item Another item"
+        )
+
+    def test_front_matter_description_takes_priority(self):
+        source = """---
+description: A hand-written summary of the post.
+---
+Body text that should not replace it.
+"""
+        self.assertEqual(
+            extract_metadata(source)["description"],
+            "A hand-written summary of the post.",
+        )
+
     def test_remove_html_tags_edge_cases(self):
         test_cases = [
             ("<p>Hello<br>World</p>", "HelloWorld"),

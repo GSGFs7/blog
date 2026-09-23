@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import html
 import re
 from functools import wraps
 from typing import Any, Dict, List, Optional, TypedDict
@@ -205,6 +206,49 @@ def extract_first_image(text: str) -> Optional[str]:
     return None
 
 
+def extract_description(text: str, front_matter: Dict[str, Any]) -> str:
+    explicit = front_matter.get("description")
+    if isinstance(explicit, str) and explicit.strip():
+        return Truncator(" ".join(explicit.split())).chars(150)
+
+    text = remove_code_blocks(text)
+    text = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
+    text = re.sub(r"\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]", "", text)
+    paragraphs = []
+    list_items = []
+    current = []
+
+    def flush():
+        if current:
+            cleaned = remove_html_tags(remove_markdown(" ".join(current)))
+            cleaned = html.unescape(cleaned)
+            cleaned = re.sub(r"\\([\\`*_{}\[\]()#+.!|>-])", r"\1", cleaned)
+            cleaned = " ".join(cleaned.split())
+            if cleaned:
+                paragraphs.append(cleaned)
+            current.clear()
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            flush()
+        elif stripped == ":::" or re.match(r"^#{1,6}\s|^:{2,3}[\w-]+", stripped):
+            flush()
+        elif re.match(r"^(?:[-*+] |\d+[.)] )", stripped):
+            flush()
+            cleaned = " ".join(remove_html_tags(remove_markdown(stripped)).split())
+            if cleaned:
+                list_items.append(cleaned)
+        elif stripped.startswith("|") or stripped.endswith("|"):
+            flush()
+        elif re.match(r"^([-*_])\1\1+\s*$", stripped):
+            flush()
+        else:
+            current.append(stripped)
+    flush()
+    return Truncator(" ".join(paragraphs or list_items)).chars(150)
+
+
 def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
     from jieba import analyse as jieba_analyse
 
@@ -237,6 +281,8 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
     front_matter = extract_front_matter(text)
 
     first_image = extract_first_image(text)
+
+    description = extract_description(text, front_matter)
 
     # Remove HTML tags and Markdown syntax
     text = remove_code_blocks(text)
@@ -318,9 +364,6 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
             break
     if header_image is None and first_image:
         header_image = first_image
-
-    # === description ===
-    description = Truncator(text).chars(150)
 
     # === layout ===
     layout = front_matter.get("layout")
