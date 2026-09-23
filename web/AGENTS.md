@@ -34,15 +34,15 @@
 
 Choose checks for the affected behavior and layer:
 
-| Pattern | Runtime and scope |
-| --- | --- |
-| `web/typescript/**/*.test.ts(x)` | Vitest/jsdom for logic and DOM behavior |
-| `web/typescript/**/*.browser.test.ts(x)` | Vitest Browser for real browser APIs |
-| `web/tests/test_*.py` | Django rendering and server contracts |
-| `web/e2e/base/*.spec.ts` | Adapter-independent journeys |
-| `web/e2e/htmx/*.spec.ts` | HTMX adapter behavior |
-| `web/e2e/native/*.spec.ts` | Native adapter behavior |
-| `web/e2e/ssr/*.ssr.spec.ts` | Built SSR output and hydration |
+| Pattern                                  | Runtime and scope                       |
+| ---------------------------------------- | --------------------------------------- |
+| `web/typescript/**/*.test.ts(x)`         | Vitest/jsdom for logic and DOM behavior |
+| `web/typescript/**/*.browser.test.ts(x)` | Vitest Browser for real browser APIs    |
+| `web/tests/test_*.py`                    | Django rendering and server contracts   |
+| `web/e2e/base/*.spec.ts`                 | Adapter-independent journeys            |
+| `web/e2e/htmx/*.spec.ts`                 | HTMX adapter behavior                   |
+| `web/e2e/native/*.spec.ts`               | Native adapter behavior                 |
+| `web/e2e/ssr/*.ssr.spec.ts`              | Built SSR output and hydration          |
 
 - TypeScript logic and DOM behavior: focused tests through `pnpm test:unit`; use `pnpm test:browser` for real browser APIs and `pnpm typecheck` for TypeScript changes.
 - Django views, templates, and Markdown integration: focused test labels under `web.tests` or `api.tests.test_markdown_post_process`, using `uv run manage.py test <test_label>`.
