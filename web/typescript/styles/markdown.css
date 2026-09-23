@@ -423,7 +423,11 @@
   margin-top: 0.5em;
   font-size: 0.85em;
   color: var(--md-blockquote-fg);
-  font-style: italic;
+  /* simulate `font-style: italic` */
+  /* it has some problem in Firefox when display emoji */
+  font-style: normal;
+  transform: skewX(-8deg);
+  transform-origin: center;
 }
 
 .markdown-body .md-img-container[data-caption=""]::after {
