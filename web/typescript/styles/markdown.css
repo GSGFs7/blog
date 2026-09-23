@@ -170,6 +170,15 @@
   font-style: italic;
 }
 
+.markdown-body em .md-emoji,
+.markdown-body i .md-emoji {
+  display: inline-block;
+  font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-style: normal;
+  transform: skewX(-8deg);
+  transform-origin: center;
+}
+
 .markdown-body del,
 .markdown-body s {
   color: var(--md-blockquote-fg);

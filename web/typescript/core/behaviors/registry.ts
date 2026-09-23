@@ -27,4 +27,8 @@ export const behaviorRegistry = [
     selector: ".markdown-body a[href]",
     load: async () => (await import("./implementations/article-links")).createArticleLinkBehavior,
   },
+  {
+    selector: ".markdown-body em, .markdown-body i",
+    load: async () => (await import("./implementations/italic-emoji")).createItalicEmojiBehavior,
+  },
 ] satisfies readonly BehaviorDefinition[];
