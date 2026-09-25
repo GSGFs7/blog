@@ -11,6 +11,29 @@ from typing import IO
 
 logger = logging.getLogger(__name__)
 
+_SAFE_IMAGE_SUFFIXES = frozenset(
+    {
+        ".apng",
+        ".avif",
+        ".bmp",
+        ".gif",
+        ".heic",
+        ".heif",
+        ".jpeg",
+        ".jpg",
+        ".jxl",
+        ".png",
+        ".tif",
+        ".tiff",
+        ".webp",
+    }
+)
+
+
+def _validate_argument(argument: str):
+    if any(char in argument for char in "\r\n\x00"):
+        raise ValueError("ExifTool arguments must not contain CR, LF, or NUL")
+
 
 class SyncExifTool:
     # class attribute
@@ -61,6 +84,9 @@ class SyncExifTool:
     def _execute(self, *args: str):
         """execute a command without lock"""
 
+        for argument in args:
+            _validate_argument(argument)
+
         self._ensure_process_running()
 
         try:
@@ -104,6 +130,13 @@ class SyncExifTool:
     def clean(self, data: IO[bytes], filename: str | None = None) -> BytesIO:
         """clean image EXIF data"""
 
+        if filename is not None:
+            _validate_argument(filename)
+
+        ext = os.path.splitext(filename)[-1].lower() if filename else ""
+        if ext not in _SAFE_IMAGE_SUFFIXES:
+            ext = ""
+
         with self._lock:
             self._ensure_process_running()
 
@@ -117,7 +150,6 @@ class SyncExifTool:
             with tempfile.TemporaryDirectory(
                 dir=tmp_base, prefix="blog-exiftool-", delete=True
             ) as tmp_dir:
-                ext = os.path.splitext(filename)[-1] if filename else ""
                 tmp_in = os.path.join(tmp_dir, f"input{ext}")
                 tmp_out = os.path.join(tmp_dir, f"output{ext}")
 
