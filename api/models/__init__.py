@@ -1,5 +1,5 @@
 from .anime import Anime
-from .api_client import ApiClient
+from .api_client import ApiClient, ApiClientCredential
 from .base import BaseModel
 from .category import Category
 from .comment import Comment
@@ -32,6 +32,7 @@ __all__ = [
     "Gal",
     # api client (downstream)
     "ApiClient",
+    "ApiClientCredential",
     # OAuth
     "OAuthIdentity",
     "OAuthProvider",

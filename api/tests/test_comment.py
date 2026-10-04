@@ -2,8 +2,16 @@ import json
 
 from django.test import TestCase, override_settings
 
-from api.auth import TimeBaseAuth
-from api.models import Comment, Guest, OAuthIdentity, OAuthProvider, Post
+from api.auth import create_client_token
+from api.models import (
+    ApiClient,
+    ApiClientCredential,
+    Comment,
+    Guest,
+    OAuthIdentity,
+    OAuthProvider,
+    Post,
+)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -31,6 +39,12 @@ class TestComment(TestCase):
             provider=provider,
             user_id="114514",
         )
+        self.api_client = ApiClient.objects.create(
+            client_id="test-comment", scopes=["comment:create"]
+        )
+        self.credential = ApiClientCredential.objects.create(
+            client=self.api_client, kid="comment-key", secret="comment-secret"
+        )
 
     def test_new_comment_endpoint(self) -> None:
         data = {
@@ -56,7 +70,9 @@ class TestComment(TestCase):
         self.assertEqual(response.status_code, 401)
 
         # authed test
-        token = TimeBaseAuth.create_token("test comment")
+        token = create_client_token(
+            self.api_client.client_id, self.credential.kid, self.credential.secret
+        )
         headers = {"Authorization": f"Bearer {token}"}
         response = self.client.post(
             "/api/comment/new",

@@ -1,6 +1,5 @@
 import shutil
 import tempfile
-import time
 from io import BytesIO
 from unittest import skipIf
 from unittest.mock import patch
@@ -12,8 +11,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from PIL import Image as PILImage
 
-from api.auth import TimeBaseAuth
-from api.models import Guest
+from api.auth import create_client_token
+from api.models import ApiClient, ApiClientCredential, Guest
 from media_service.exiftool import SyncExifTool
 from media_service.models import Image
 
@@ -32,6 +31,12 @@ TEST_STORAGES = {
 class BaseImageUploadTest(TestCase):
     def setUp(self):
         super().setUp()
+        self.api_client = ApiClient.objects.create(
+            client_id="test-image-upload", scopes=["image:upload"]
+        )
+        self.credential = ApiClientCredential.objects.create(
+            client=self.api_client, kid="image-key", secret="image-secret"
+        )
         self.media_root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
         self.override = override_settings(
@@ -44,6 +49,11 @@ class BaseImageUploadTest(TestCase):
         self.process_image_delay = patch("media_service.signals.process_image.delay")
         self.mock_process_image_delay = self.process_image_delay.start()
         self.addCleanup(self.process_image_delay.stop)
+
+    def auth_token(self):
+        return create_client_token(
+            self.api_client.client_id, self.credential.kid, self.credential.secret
+        )
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -67,8 +77,8 @@ class ImageUploadTest(BaseImageUploadTest):
 
     def test_upload(self):
         file = self.generate_test_image()
-        client_id = f"test_{time.time()}"
-        token = TimeBaseAuth.create_token(client_id)
+        client_id = self.api_client.client_id
+        token = self.auth_token()
         response = self.client.post(
             "/api/image/upload",
             {
@@ -115,7 +125,7 @@ class ImageDeduplicationTest(BaseImageUploadTest):
     def test_duplicate_file_not_stored_twice(self):
         """Test that uploading the same image twice doesn't create duplicate files."""
         file1 = self.generate_test_image(name="first.png")
-        token = TimeBaseAuth.create_token(f"test_{time.time()}")
+        token = self.auth_token()
 
         # First upload
         response1 = self.client.post(
@@ -135,7 +145,7 @@ class ImageDeduplicationTest(BaseImageUploadTest):
 
         # Second upload with same content but different name
         file2 = self.generate_test_image(name="second.png")
-        token2 = TimeBaseAuth.create_token(f"test_{time.time()}_2")
+        token2 = self.auth_token()
 
         response2 = self.client.post(
             "/api/image/upload",
@@ -186,7 +196,7 @@ class WebImageUploadTest(BaseImageUploadTest):
 
     def test_image_upload(self):
         file = SimpleUploadedFile("test_image.png", self.image_content, "image/png")
-        token = TimeBaseAuth.create_token(f"test_{time.time()}")
+        token = self.auth_token()
         response = self.client.post(
             "/api/image/upload",
             {

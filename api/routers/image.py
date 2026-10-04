@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from ninja import Form, Router, Status, UploadedFile
 
-from api.auth import AsyncTimeBaseAuth
+from api.auth import ApiClientAuth
 from api.schemas import (
     ImageUploadRequestSchema,
     ImageUploadResponseSchema,
@@ -24,7 +24,7 @@ ALLOWED_UPLOADER_TYPES = {"api.guest"}
 @router.post(
     "/upload",
     response={201: ImageUploadResponseSchema, 400: MessageSchema},
-    auth=AsyncTimeBaseAuth(),
+    auth=ApiClientAuth("image:upload"),
 )
 async def upload_test(
     request,

@@ -14,7 +14,7 @@ from ninja import Router, Status
 from ninja.security import APIKeyCookie
 
 from accounts.services.login_flow import aclear_auth_flow
-from api.auth import AsyncTimeBaseAuth
+from api.auth import ApiClientAuth
 from api.models import OAuthIdentity, OAuthProvider
 from api.schemas import (
     ClientIdSchema,
@@ -39,7 +39,7 @@ from api.services.oauth_session import (
 router = Router()
 
 
-@router.get("/me", auth=AsyncTimeBaseAuth(), response={200: ClientIdSchema})
+@router.get("/me", auth=ApiClientAuth(), response={200: ClientIdSchema})
 async def get_client_id(request: HttpRequest) -> dict[str, str]:
     return {"client_id": str(request.auth)}
 

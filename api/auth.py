@@ -1,111 +1,83 @@
 import asyncio
-import logging
-import typing
+import base64
+import binascii
+import json
 import uuid
-from abc import ABC, abstractmethod
 
+from cryptography.fernet import InvalidToken
 from django.core.cache import cache
+from django.http.request import HttpRequest
+from ninja.errors import HttpError
 from ninja.security import HttpBearer
 
+from api.models import ApiClientCredential
 from core.fernet import get_fernet
 
-if typing.TYPE_CHECKING:
-    from cryptography.fernet import MultiFernet
 
-logger = logging.getLogger(__name__)
-
-
-class TimeBaseAuth(HttpBearer, ABC):
+def create_client_token(
+    client_id: str,
+    kid: str,
+    secret: str,
+    nonce: str | None = None,
+) -> str:
     """
-    S2S authentication based on Fernet. TTL: 30s
-
-    token format: client_id:nonce
+    token: v1.<client_id>.<kid>.<token>
     """
 
-    @classmethod
-    def create_token(cls, client_id: str, nonce: str | None = None) -> str:
-        if nonce is None:
-            nonce = uuid.uuid4().hex
-
-        f = cls.get_fernet()
-        payload = cls.generate_token_format(client_id, nonce).encode("utf-8")
-        return f.encrypt(payload).decode("utf-8")
-
-    @staticmethod
-    def generate_auth_token_cache_key(client_id: str, nonce: str) -> str:
-        return f"auth_token:{client_id}:{nonce}"
-
-    @staticmethod
-    def generate_token_format(client_id: str, nonce: str):
-        return f"{client_id}:{nonce}"
-
-    @staticmethod
-    def get_fernet() -> MultiFernet:
-        return get_fernet()
-
-    @abstractmethod
-    def authenticate(self, request, token):
-        raise NotImplementedError("use AsyncTimeBaseAuth or SyncTimeBaseAuth instead")
+    encoded_id = base64.urlsafe_b64encode(client_id.encode()).decode().rstrip("=")
+    payload = json.dumps([client_id, kid, nonce or uuid.uuid4().hex]).encode()
+    ciphertext = get_fernet(secret).encrypt(payload).decode()
+    return f"v1.{encoded_id}.{kid}.{ciphertext}"
 
 
-# TODO: Auth,
-#  1. multi-client and corresponding API key verification
-#  2. fine-grained permissions: read/write
-class AsyncTimeBaseAuth(TimeBaseAuth):
-    """
-    Asynchronous S2S authentication based on Fernet. TTL: 30s
-    """
+class ApiClientAuth(HttpBearer):
+    def __init__(self, required_scope: str | None = None):
+        super().__init__()
+        self.required_scope = required_scope
 
-    @classmethod
-    async def authenticate(cls, request, token):
+    async def authenticate(self, request: HttpRequest, token: str):
         try:
-            # fernet decrypt
-            f = cls.get_fernet()
-            decrypt_token_bytes: bytes = await asyncio.to_thread(
-                f.decrypt, token.encode(), ttl=30
+            version, encoded_id, kid, ciphertext = token.split(".", 3)
+            if version != "v1" or not encoded_id or not kid or not ciphertext:
+                return None
+            if len(encoded_id) > 88 or len(kid) > 32 or len(ciphertext) > 4096:
+                return None
+
+            client_id = base64.urlsafe_b64decode(
+                encoded_id + "=" * (-len(encoded_id) % 4)
+            ).decode()
+            credential = await ApiClientCredential.objects.select_related(
+                "client"
+            ).aget(kid=kid, client__client_id=client_id)
+            if (
+                not credential.secret
+                or not credential.is_active
+                or not credential.client.is_active
+            ):
+                return None
+
+            payload = await asyncio.to_thread(
+                get_fernet(credential.secret).decrypt, ciphertext.encode(), ttl=30
             )
-            decrypt_token = decrypt_token_bytes.decode()
-
-            # get payload
-            client_id, nonce = decrypt_token.split(":", 1)
-            if not client_id or not nonce:
+            authenticated_id, authenticated_kid, nonce = json.loads(payload)
+            if authenticated_id != client_id or authenticated_kid != kid or not nonce:
                 return None
-
-            cache_key = cls.generate_auth_token_cache_key(client_id, nonce)
-            # TODO: Auth, cache storage DOS protection
-            is_new_request = await cache.aadd(cache_key, 1, timeout=30)  # atomicity
-            if not is_new_request:
-                # protect against replay attacks
+            if not await cache.aadd(
+                f"api_client_auth_token:v1:{credential.pk}:{nonce}", 1, timeout=30
+            ):
                 return None
-
-            return client_id
-        except Exception as e:
-            # ban attackers?
-            logger.debug(e)
+        except (
+            ValueError,
+            UnicodeError,
+            binascii.Error,
+            InvalidToken,
+            ApiClientCredential.DoesNotExist,
+        ):
             return None
 
-
-class SyncTimeBaseAuth(TimeBaseAuth):
-    """
-    Synchronous S2S authentication based on Fernet. TTL: 30s
-    """
-
-    @classmethod
-    def authenticate(cls, request, token):
-        try:
-            f = cls.get_fernet()
-            decrypt_token = f.decrypt(token.encode(), ttl=30).decode("utf-8")
-
-            client_id, nonce = decrypt_token.split(":", 1)
-            if not client_id or not nonce:
-                return None
-
-            cache_key = cls.generate_auth_token_cache_key(client_id, nonce)
-            is_new_request = cache.add(cache_key, 1, timeout=30)
-            if not is_new_request:
-                return None
-
-            return client_id
-        except Exception as e:
-            logger.debug(e)
-            return None
+        scopes = credential.client.scopes
+        if self.required_scope and (
+            not isinstance(scopes, list) or self.required_scope not in scopes
+        ):
+            raise HttpError(403, "Insufficient API client scope")
+        return client_id

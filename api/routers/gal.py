@@ -3,7 +3,7 @@ from typing import List
 from ninja import Router, Status
 from ninja.pagination import paginate
 
-from api.auth import AsyncTimeBaseAuth
+from api.auth import ApiClientAuth
 from api.models import Gal
 from api.pagination import paginate_as
 from api.schemas import (
@@ -43,7 +43,7 @@ async def get_gal_from_id(request, gal_id: int):
 @router.post(
     "/{int:gal_id}",
     response={200: IdSchema, 400: MessageSchema, 404: MessageSchema},
-    auth=AsyncTimeBaseAuth(),
+    auth=ApiClientAuth("gal:write"),
 )
 async def update_gal(request, gal_id: int, body: GalUpdateSchema):
     if gal_id != body.id:

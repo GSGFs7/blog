@@ -3,14 +3,13 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
-from django.forms.models import ModelForm
-from django.http import HttpRequest
 from django.utils import timezone
 
 from api.constants import POST_RESERVED_SLUGS
 from api.models import (
     Anime,
     ApiClient,
+    ApiClientCredential,
     Comment,
     Gal,
     Guest,
@@ -319,6 +318,32 @@ class AnimeAdmin(admin.ModelAdmin):
     list_display = ["name", "created_at", "updated_at"]
 
 
+class ApiClientCredentialInlineForm(forms.ModelForm):
+    revoke = forms.BooleanField(required=False, label="Revoke")
+
+    class Meta:
+        model = ApiClientCredential
+        fields = ["description", "expires_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.revoked_at is not None:
+            self.fields["revoke"].initial = True
+            self.fields["revoke"].disabled = True
+
+    def has_changed(self):
+        return super().has_changed() or (self.is_bound and self.instance.pk is None)
+
+
+class ApiClientCredentialInline(admin.TabularInline):
+    model = ApiClientCredential
+    form = ApiClientCredentialInlineForm
+    fields = ["description", "expires_at", "revoked_at", "revoke", "created_at"]
+    readonly_fields = ["revoked_at", "created_at"]
+    extra = 0
+    can_delete = False
+
+
 class ApiClientAdmin(admin.ModelAdmin):
     list_display = [
         "client_id",
@@ -332,16 +357,16 @@ class ApiClientAdmin(admin.ModelAdmin):
     readonly_fields = [
         "created_at",
         "updated_at",
-        "masked_secret",
         "revoked_at",
     ]
+    inlines = [ApiClientCredentialInline]
 
     _add_fieldsets = [
         (None, {"fields": ["client_id", "scopes"]}),
         ("Lifecycle", {"fields": ["expires_at"]}),
     ]
     _change_fieldsets = [
-        (None, {"fields": ["client_id", "masked_secret", "scopes"]}),
+        (None, {"fields": ["client_id", "scopes"]}),
         ("Lifecycle", {"fields": ["expires_at", "revoked_at"]}),
         ("Timestamps", {"fields": ["created_at", "updated_at"]}),
     ]
@@ -350,14 +375,6 @@ class ApiClientAdmin(admin.ModelAdmin):
     @admin.display(boolean=True, description="Active")
     def display_is_active(self, obj):
         return obj.is_active
-
-    # do not display raw secret
-    @admin.display(description="Secret")
-    def masked_secret(self, obj):
-        raw = obj.secret
-        if not raw:
-            return "-"
-        return f"******{raw[-4:]}"
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
@@ -369,22 +386,48 @@ class ApiClientAdmin(admin.ModelAdmin):
             return []
         return self.readonly_fields
 
-    def save_model(
-        self, request: HttpRequest, obj: ApiClient, form: ModelForm, change: bool
-    ):
+    def get_inlines(self, request, obj):
+        return self.inlines if obj else []
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
         if not change:
-            raw_secret = ApiClient.generate_secret()
-            obj.secret = raw_secret
-            super().save_model(request, obj, form, change)
+            raw_secret = ApiClientCredential.generate_secret()
+            credential = ApiClientCredential.objects.create(
+                client=obj,
+                kid=ApiClientCredential.generate_kid(),
+                secret=raw_secret,
+            )
             self.message_user(
                 request,
-                f"“{obj.client_id}”的 secret （只会显示一次）: {raw_secret}",
+                f"“{obj.client_id}”的凭据 {credential.kid} secret "
+                f"（只会显示一次）: {raw_secret}",
                 level=messages.SUCCESS,
             )
-        else:
-            super().save_model(request, obj, form, change)
 
-    actions = ["regenerate_secret", "revoke_clients"]
+    def save_formset(self, request, form, formset, change):
+        credentials = formset.save(commit=False)
+        for credential in credentials:
+            inline_form = next(
+                item for item in formset.forms if item.instance is credential
+            )
+            if credential.pk is None:
+                credential.kid = ApiClientCredential.generate_kid()
+                credential.secret = ApiClientCredential.generate_secret()
+                credential.save()
+                self.message_user(
+                    request,
+                    f"“{credential.client.client_id}”的凭据 {credential.kid} secret "
+                    f"（只会显示一次）: {credential.secret}",
+                    level=messages.SUCCESS,
+                )
+            else:
+                if inline_form.cleaned_data.get("revoke") and not credential.revoked_at:
+                    credential.revoked_at = timezone.now()
+                credential.save()
+        formset.save_m2m()
+
+    actions = ["revoke_clients"]
 
     @admin.action(description="Revoke selected clients")
     def revoke_clients(self, request, queryset):
@@ -395,26 +438,6 @@ class ApiClientAdmin(admin.ModelAdmin):
         msg = f"已撤销 {count} 个客户端。"
         if skipped:
             msg += f" {skipped} 个已处于撤销状态，跳过。"
-        self.message_user(request, msg, level=messages.SUCCESS)
-
-    @admin.action(description="Regenerate secret for selected clients")
-    def regenerate_secret(self, request, queryset):
-        results = []
-        skipped = 0
-        for client in queryset:
-            if client.revoked_at is not None:
-                skipped += 1
-                continue
-            raw_secret = ApiClient.generate_secret()
-            client.secret = raw_secret
-            client.save(update_fields=["secret"])
-            results.append(f"  {client.client_id}: {raw_secret}")
-
-        msg = f"已重新生成 {len(results)} 个 secret（只会显示一次）:\n" + "\n".join(
-            results
-        )
-        if skipped:
-            msg += f"\n跳过 {skipped} 个已撤销的客户端。"
         self.message_user(request, msg, level=messages.SUCCESS)
 
 
