@@ -601,15 +601,15 @@
 .syntect-variable.syntect-function,
 .syntect-support.syntect-class,
 .syntect-entity.syntect-name:is(
-  .syntect-class,
-  .syntect-struct,
-  .syntect-enum,
-  .syntect-trait,
-  .syntect-type,
-  .syntect-interface,
-  .syntect-namespace,
-  .syntect-impl
-) {
+    .syntect-class,
+    .syntect-struct,
+    .syntect-enum,
+    .syntect-trait,
+    .syntect-type,
+    .syntect-interface,
+    .syntect-namespace,
+    .syntect-impl
+  ) {
   color: var(--syn-function);
 }
 .syntect-entity.syntect-other.syntect-attribute-name {

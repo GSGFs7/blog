@@ -17,6 +17,7 @@ import {
   readPageProtocol,
 } from "../../contracts";
 import { PAGE_TRANSITION_TIMING } from "../../runtime";
+import { preparePreservation } from "../../runtime/preservation";
 
 const EXTENSION_NAME = "app-page-lifecycle";
 export const HTMX_PAGE_TRANSITION_SWAP =
@@ -34,6 +35,8 @@ interface NavigationTransaction {
   source: PageNavigationSource;
   stage: TransactionStage;
   xhr?: XMLHttpRequest;
+  preservedRoots: readonly HTMLElement[];
+  historyResponse?: string;
 }
 
 interface HtmxHistorySwapDetails {
@@ -46,6 +49,8 @@ interface HtmxHistorySwapDetails {
 
 interface HtmxHistoryDetail extends HtmxHistorySwapDetails {
   path: string;
+  item?: { content: string };
+  response?: string;
   xhr?: XMLHttpRequest;
 }
 
@@ -128,39 +133,61 @@ export function setupHtmxPageLifecycle(
     transaction.finalUrl = toUrl(detail.pathInfo.responsePath ?? detail.pathInfo.finalRequestPath);
   };
 
+  const prepareResponse = (
+    transaction: NavigationTransaction,
+    html: string,
+    fragment = false,
+  ): string => {
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const plan = preparePreservation(document.body, parsed.body);
+    for (const element of parsed.body.querySelectorAll("[data-app-preserve]")) {
+      element.removeAttribute("hx-preserve");
+      element.removeAttribute("data-hx-preserve");
+    }
+    for (const { incoming } of plan.pairs) {
+      incoming.setAttribute("hx-preserve", "true");
+    }
+    transaction.preservedRoots = plan.roots;
+    return fragment ? parsed.body.innerHTML : parsed.documentElement.outerHTML;
+  };
+
   const guardHistoryResponse = (xhr: XMLHttpRequest, transaction: NavigationTransaction): void => {
-    xhr.addEventListener(
-      "load",
-      (event) => {
-        if (transaction.stage !== "loading") {
-          return;
-        }
-
-        if (xhr.status < 200 || xhr.status >= 400) {
-          return;
-        }
-
-        const responseProtocol = parsePageProtocol(xhr.responseText);
-        if (protocolsMatch(currentProtocol, responseProtocol)) {
-          return;
-        }
-
+    const onload = xhr.onload;
+    const restore = () => {
+      if (xhr.onload === guardedLoad) xhr.onload = onload;
+      historyGuardController.signal.removeEventListener("abort", restore);
+    };
+    const guardedLoad: NonNullable<XMLHttpRequest["onload"]> = function (event) {
+      restore();
+      if (transaction.stage !== "loading" || activeTransaction !== transaction) {
         event.stopImmediatePropagation();
-
-        const finalUrl = xhr.responseURL ? toUrl(xhr.responseURL) : transaction.requestedUrl;
-        fallbackTransaction(transaction, finalUrl);
-      },
-      {
-        capture: true,
-        once: true,
-        signal: historyGuardController.signal,
-      },
-    );
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 400) {
+        try {
+          if (!protocolsMatch(currentProtocol, parsePageProtocol(xhr.responseText))) {
+            throw new Error("Invalid history page protocol");
+          }
+          transaction.historyResponse = prepareResponse(transaction, xhr.responseText);
+        } catch {
+          event.stopImmediatePropagation();
+          fallbackTransaction(
+            transaction,
+            xhr.responseURL ? toUrl(xhr.responseURL) : transaction.requestedUrl,
+          );
+          return;
+        }
+      }
+      onload?.call(this, event);
+    };
+    xhr.onload = guardedLoad;
+    historyGuardController.signal.addEventListener("abort", restore, { once: true });
   };
 
   const detailFor = (transaction: NavigationTransaction): PageNavigationDetail => ({
     navigationId: transaction.id,
     root: document.body,
+    preservedRoots: transaction.preservedRoots,
     from: new URL(transaction.from),
     requestedUrl: new URL(transaction.requestedUrl),
     navigationType: transaction.navigationType,
@@ -171,6 +198,7 @@ export function setupHtmxPageLifecycle(
   const swapDetailFor = (transaction: NavigationTransaction): PageSwapDetail => ({
     navigationId: transaction.id,
     root: document.body,
+    preservedRoots: transaction.preservedRoots,
   });
 
   const finish = (transaction: NavigationTransaction, outcome: PageNavigationOutcome) => {
@@ -250,6 +278,7 @@ export function setupHtmxPageLifecycle(
       navigationType,
       source,
       stage: "loading",
+      preservedRoots: [],
     };
 
     activeTransaction = transaction;
@@ -332,6 +361,14 @@ export function setupHtmxPageLifecycle(
           return fallbackTransaction(transaction, transaction.finalUrl ?? transaction.requestedUrl);
         }
 
+        try {
+          detail.serverResponse = prepareResponse(transaction, detail.serverResponse);
+        } catch {
+          detail.shouldSwap = false;
+          customEvent.preventDefault();
+          return fallbackTransaction(transaction, transaction.finalUrl ?? transaction.requestedUrl);
+        }
+
         transaction.stage = "swapping";
         swapTransaction = transaction;
 
@@ -353,6 +390,13 @@ export function setupHtmxPageLifecycle(
 
         const transaction = start(requestedUrl, "traverse", "cache");
         transaction.finalUrl = requestedUrl;
+        try {
+          if (!detail.item) throw new Error("Missing history snapshot");
+          detail.item.content = prepareResponse(transaction, detail.item.content, true);
+        } catch {
+          customEvent.preventDefault();
+          return fallbackTransaction(transaction, requestedUrl);
+        }
         transaction.stage = "swapping";
         historyTransaction = transaction;
         swapTransaction = transaction;
@@ -388,6 +432,8 @@ export function setupHtmxPageLifecycle(
           return true;
         }
 
+        const detail = customEvent.detail as HtmxHistoryDetail;
+        detail.response = transaction.historyResponse;
         transaction.finalUrl = transaction.xhr?.responseURL
           ? toUrl(transaction.xhr.responseURL)
           : transaction.requestedUrl;

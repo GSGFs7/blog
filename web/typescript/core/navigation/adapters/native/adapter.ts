@@ -14,6 +14,7 @@ import {
 import { readPageProtocol } from "../../contracts";
 import { isPageNavigationUrl, shouldInterceptNavigation } from "../../policy";
 import { PAGE_TRANSITION_TIMING, setupPageTransition } from "../../runtime";
+import { preparePreservation } from "../../runtime/preservation";
 import { preparePageHead } from "./head";
 import { type FetchedPage, page, PageLoadError, type PageLoadResult } from "./page";
 
@@ -28,6 +29,7 @@ interface NavigationTransaction {
   deliverySource?: PageNavigationDeliverySource;
   stage: TransactionStage;
   controller: AbortController;
+  preservedRoots: readonly HTMLElement[];
 }
 
 interface NativePageNavigationOptions {
@@ -104,6 +106,7 @@ export function setupNativePageNavigation(
   const detailFor = (t: NavigationTransaction): PageNavigationDetail => ({
     navigationId: t.id,
     root: document.body,
+    preservedRoots: t.preservedRoots,
     from: new URL(t.from),
     requestedUrl: new URL(t.requestedUrl),
     navigationType: t.navigationType,
@@ -115,6 +118,7 @@ export function setupNativePageNavigation(
   const swapDetailFor = (t: NavigationTransaction): PageSwapDetail => ({
     navigationId: t.id,
     root: document.body,
+    preservedRoots: t.preservedRoots,
   });
 
   const finish = (t: NavigationTransaction, outcome: PageNavigationOutcome) => {
@@ -152,11 +156,7 @@ export function setupNativePageNavigation(
       return;
     }
 
-    const restorePage = t.stage === "swapping";
     t.controller.abort(new DOMException("Navigation cancelled", "AbortError"));
-    if (restorePage) {
-      emitPageEvent(document, APP_PAGE_EVENT.afterSwap, swapDetailFor(t));
-    }
     finish(t, "cancelled");
   };
 
@@ -177,11 +177,6 @@ export function setupNativePageNavigation(
     t.controller.abort(error);
     fail(t, phase, error);
     navigate(url);
-  };
-
-  const swapBodyChildren = (target: HTMLElement, source: HTMLElement) => {
-    const nodes = Array.from(source.childNodes).map((node) => document.importNode(node, true));
-    target.replaceChildren(...nodes);
   };
 
   const loadTransaction = async (
@@ -240,6 +235,7 @@ export function setupNativePageNavigation(
     }
 
     let head: Awaited<ReturnType<typeof preparePageHead>> | undefined;
+
     try {
       head = await prepareHead(document, fetchedPage.document, {
         signal,
@@ -253,7 +249,7 @@ export function setupNativePageNavigation(
       }
 
       transaction.stage = "swapping";
-      emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
+      emitPageEvent(document, APP_PAGE_EVENT.beforeLeave, swapDetailFor(transaction));
       if (!prefersReducedMotion()) {
         await wait(PAGE_TRANSITION_TIMING.swapDelay, signal);
       }
@@ -263,8 +259,16 @@ export function setupNativePageNavigation(
         return;
       }
 
+      const incomingBody = document.importNode(fetchedPage.document.body, true);
+      const plan = preparePreservation(document.body, incomingBody);
+      transaction.preservedRoots = plan.roots;
+
       head.commit();
-      swapBodyChildren(document.body, fetchedPage.document.body);
+      emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
+      for (const { current, incoming } of plan.pairs) {
+        incoming.replaceWith(current);
+      }
+      document.body.replaceChildren(...Array.from(incomingBody.childNodes));
       transaction.stage = "settling";
       emitPageEvent(document, APP_PAGE_EVENT.afterSwap, swapDetailFor(transaction));
       if (!prefersReducedMotion()) {
@@ -339,6 +343,7 @@ export function setupNativePageNavigation(
       navigationType: event.navigationType as "push" | "replace" | "traverse",
       stage: "loading",
       controller: new AbortController(),
+      preservedRoots: [],
     };
 
     const signal = AbortSignal.any([
@@ -407,7 +412,7 @@ export function setupNativePageNavigation(
     signal: controller.signal,
   });
 
-  const stopPageTransition = setupPageTransition(document);
+  const stopPageTransition = setupPageTransition(document, { prefersReducedMotion });
 
   return () => {
     if (activeTransaction) {

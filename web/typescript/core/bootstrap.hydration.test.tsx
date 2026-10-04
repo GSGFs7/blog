@@ -107,6 +107,7 @@ test("does not mount an island whose page was replaced during component loading"
   emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, {
     navigationId: 1,
     root: document.body,
+    preservedRoots: [],
   });
   document.body.replaceChildren();
   resolveComponent?.(() => null);

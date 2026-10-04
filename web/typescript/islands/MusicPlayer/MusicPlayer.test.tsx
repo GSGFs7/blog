@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { cleanup as cleanupIslands } from "../../core/bootstrap";
+import { preparePreservation } from "../../core/navigation/runtime/preservation";
 import { coverBackground, extractMusicMetadata } from "./metadata";
 import MusicDock from "./MusicDock.island";
 import MusicTrack from "./MusicTrack.island";
@@ -14,9 +15,17 @@ vi.mock("./metadata", () => ({
   }),
   coverBackground: vi.fn(),
 }));
+beforeEach(() => {
+  const slot = document.createElement("div");
+  slot.id = "app-persistent-root";
+  slot.setAttribute("data-app-preserve", "");
+  document.body.append(slot);
+});
+
 afterEach(() => {
   cleanup();
   cleanupIslands(document);
+  document.getElementById("app-persistent-root")?.remove();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -24,11 +33,11 @@ afterEach(() => {
 test("the dock mounts on first play, is reused, and can remount after navigation cleanup", async () => {
   vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  const play = vi
-    .spyOn(HTMLMediaElement.prototype, "play")
-    .mockImplementation(async function (this: HTMLAudioElement) {
-      this.dispatchEvent(new Event("playing"));
-    });
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function (
+    this: HTMLAudioElement,
+  ) {
+    this.dispatchEvent(new Event("playing"));
+  });
   render(() => <MusicTrack src="https://example.com/song.mp3" />);
   expect(document.querySelector("audio")).toBeNull();
   expect(document.querySelector('[data-solid-island="MusicDock"]')).toBeNull();
@@ -43,6 +52,7 @@ test("the dock mounts on first play, is reused, and can remount after navigation
   expect(document.querySelector("audio")).toBe(audio);
   play.mockClear();
   cleanupIslands(document.body);
+  expect(document.getElementById("app-persistent-root")).not.toBeNull();
   expect(player.track()).toBeNull();
   expect(audio.hasAttribute("src")).toBe(false);
   expect(document.querySelector('[data-solid-island="MusicDock"]')).toBeNull();
@@ -223,4 +233,35 @@ test("the dock shows a buffering icon and keeps the pause action", async () => {
   expect(pause).toHaveBeenCalledOnce();
   expect(document.querySelector(".lucide-play")).not.toBeNull();
   expect(button).not.toHaveAttribute("aria-busy", "true");
+});
+
+test("the shared persistent root preserves the audio and player state when the source card is removed", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function (
+    this: HTMLAudioElement,
+  ) {
+    this.dispatchEvent(new Event("playing"));
+  });
+  const card = render(() => <MusicTrack src="https://example.com/song.mp3" />);
+  fireEvent.click(await screen.findByRole("button", { name: "play song.mp3" }));
+  const slot = document.getElementById("app-persistent-root")!;
+  const audio = slot.querySelector("audio")!;
+  audio.currentTime = 42;
+  audio.dispatchEvent(new Event("timeupdate"));
+  const next = document.createElement("body");
+  next.innerHTML = '<main>next page</main><div id="app-persistent-root" data-app-preserve></div>';
+  const plan = preparePreservation(document.body, next);
+  expect(plan.roots).toEqual([slot]);
+  pause.mockClear();
+  cleanupIslands(document.body, plan.roots);
+  card.unmount();
+  for (const { current, incoming } of plan.pairs) incoming.replaceWith(current);
+  document.body.replaceChildren(...Array.from(next.childNodes));
+  expect(document.querySelector("audio")).toBe(audio);
+  expect(player.time()).toBe(42);
+  expect(player.playing()).toBe(true);
+  expect(player.track()?.src).toBe("https://example.com/song.mp3");
+  expect(play).toHaveBeenCalledOnce();
+  expect(pause).not.toHaveBeenCalled();
 });

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import { cleanup, type IslandElement } from "../../../bootstrap";
 import {
   APP_PAGE_EVENT,
   type PageNavigationDetail,
@@ -240,6 +241,7 @@ test("completes a page navigation with transition timing and lifecycle events", 
   ]);
   expect(eventNames()).toEqual([
     APP_PAGE_EVENT.navigationStart,
+    APP_PAGE_EVENT.beforeLeave,
     APP_PAGE_EVENT.beforeSwap,
     APP_PAGE_EVENT.afterSwap,
     APP_PAGE_EVENT.navigationEnd,
@@ -474,8 +476,7 @@ test("leaves a navigation during the swap phase to the browser", async () => {
   expect(document.body).toHaveTextContent("current page");
   expect(eventNames()).toEqual([
     APP_PAGE_EVENT.navigationStart,
-    APP_PAGE_EVENT.beforeSwap,
-    APP_PAGE_EVENT.afterSwap,
+    APP_PAGE_EVENT.beforeLeave,
     APP_PAGE_EVENT.navigationEnd,
   ]);
   expect(recordedEvents.at(-1)?.detail).toMatchObject({ outcome: "cancelled" });
@@ -506,4 +507,89 @@ test("fully reloads an excluded same-document history entry", async () => {
   expect(harness.navigate).not.toHaveBeenCalled();
   expect(harness.reload).toHaveBeenCalledOnce();
   expect(recordedEvents).toEqual([]);
+});
+
+test("reuses preserved islands and disposes only removed islands at commit", async () => {
+  document.body.innerHTML =
+    '<div id="dock" data-app-preserve data-solid-island="MusicDock"><audio></audio></div><div id="removed" data-solid-island="Example"></div>';
+  const dock = document.getElementById("dock") as IslandElement;
+  const audio = dock.firstElementChild;
+  const disposeDock = vi.fn();
+  const disposeRemoved = vi.fn();
+  dock.__solidDispose__ = disposeDock;
+  (document.getElementById("removed") as IslandElement).__solidDispose__ = disposeRemoved;
+  document.addEventListener(
+    APP_PAGE_EVENT.beforeSwap,
+    (event) => {
+      cleanup(event.detail.root, event.detail.preservedRoots);
+    },
+    { signal: recordingController.signal },
+  );
+  const wait = vi.fn(async () => {
+    expect(disposeDock).not.toHaveBeenCalled();
+    if (document.getElementById("removed")) {
+      expect(disposeRemoved).not.toHaveBeenCalled();
+      expect(document.body).toHaveAttribute("data-page-transition", "leaving");
+    }
+  });
+  const harness = setup({ wait });
+  const result = swapResult("/about");
+  if (result.kind !== "swap") throw new Error("Expected page");
+  result.page.document.body.innerHTML =
+    '<main>new content</main><div id="dock" data-app-preserve data-solid-island="MusicDock"></div>';
+  harness.loadPage.mockResolvedValue(result);
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  expect(document.getElementById("dock")).toBe(dock);
+  expect(dock.firstElementChild).toBe(audio);
+  expect(dock.__solidDispose__).toBe(disposeDock);
+  expect(disposeDock).not.toHaveBeenCalled();
+  expect(disposeRemoved).toHaveBeenCalledOnce();
+  expect(document.querySelector("main")).toHaveTextContent("new content");
+  for (const event of recordedEvents.filter(
+    ({ name }) => name === APP_PAGE_EVENT.beforeSwap || name === APP_PAGE_EVENT.afterSwap,
+  )) {
+    expect(event.detail.preservedRoots).toEqual([dock]);
+  }
+});
+
+test("disposes a marked island when the next page has no matching slot", async () => {
+  document.body.innerHTML = '<div id="dock" data-app-preserve data-solid-island="MusicDock"></div>';
+  const dock = document.getElementById("dock") as IslandElement;
+  const dispose = vi.fn();
+  dock.__solidDispose__ = dispose;
+  document.addEventListener(
+    APP_PAGE_EVENT.beforeSwap,
+    (event) => {
+      cleanup(event.detail.root, event.detail.preservedRoots);
+    },
+    { signal: recordingController.signal },
+  );
+  const harness = setup();
+  harness.loadPage.mockResolvedValue(swapResult("/about"));
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(dock.isConnected).toBe(false);
+});
+
+test("invalid preservation declarations fall back before cleanup or head commit", async () => {
+  const harness = setup();
+  const result = swapResult("/about");
+  if (result.kind !== "swap") throw new Error("Expected page");
+  result.page.document.body.innerHTML =
+    '<div id="same" data-app-preserve></div><div id="same"></div>';
+  harness.loadPage.mockResolvedValue(result);
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+  expect(harness.commit).not.toHaveBeenCalled();
+  expect(harness.rollback).toHaveBeenCalledOnce();
+  expect(eventNames()).not.toContain(APP_PAGE_EVENT.beforeSwap);
+  expect(document.body).toHaveTextContent("current page");
+  expect(harness.navigate.mock.calls[0][0].pathname).toBe("/about");
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ phase: "swap" });
 });

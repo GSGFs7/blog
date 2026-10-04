@@ -2,6 +2,7 @@ export const APP_PAGE_EVENT = {
   navigationStart: "app:navigation-start",
   navigationEnd: "app:navigation-end",
   navigationError: "app:navigation-error",
+  beforeLeave: "app:before-leave",
   beforeSwap: "app:before-swap",
   afterSwap: "app:after-swap",
 } as const;
@@ -15,6 +16,7 @@ export type PageNavigationDeliverySource = "service-worker" | "origin" | "cloudf
 export interface PageSwapDetail {
   readonly navigationId: number;
   readonly root: HTMLElement;
+  readonly preservedRoots: readonly HTMLElement[];
 }
 
 export interface PageNavigationDetail extends PageSwapDetail {
@@ -39,6 +41,7 @@ export interface PageEventDetailMap {
   "app:navigation-start": PageNavigationDetail;
   "app:navigation-end": PageNavigationEndDetail;
   "app:navigation-error": PageNavigationErrorDetail;
+  "app:before-leave": PageSwapDetail;
   "app:before-swap": PageSwapDetail;
   "app:after-swap": PageSwapDetail;
 }
@@ -48,6 +51,7 @@ declare global {
     "app:navigation-start": CustomEvent<PageNavigationDetail>;
     "app:navigation-end": CustomEvent<PageNavigationEndDetail>;
     "app:navigation-error": CustomEvent<PageNavigationErrorDetail>;
+    "app:before-leave": CustomEvent<PageSwapDetail>;
     "app:before-swap": CustomEvent<PageSwapDetail>;
     "app:after-swap": CustomEvent<PageSwapDetail>;
   }

@@ -4,6 +4,7 @@ import { render, hydrate } from "solid-js/web";
 
 import type { ComponentProps, ComponentRegistry } from "../types";
 import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation";
+import { isPreserved } from "./navigation/runtime/preservation";
 
 let registry: ComponentRegistry = {};
 
@@ -85,17 +86,25 @@ export function bootstrap(root: ParentNode = document) {
   });
 }
 
-export function cleanup(root: ParentNode) {
-  root.querySelectorAll("[data-solid-island]").forEach((element) => {
-    const island = element as IslandElement;
+export function cleanup(root: ParentNode, preservedRoots: readonly HTMLElement[] = []) {
+  const elements = Array.from(root.querySelectorAll<IslandElement>("[data-solid-island]"));
+  if (root instanceof HTMLElement && root.matches("[data-solid-island]")) {
+    elements.unshift(root as IslandElement);
+  }
+
+  for (const island of elements) {
+    if (isPreserved(island, preservedRoots)) {
+      continue;
+    }
+
     island.__solidDispose__?.();
     delete island.__solidDispose__;
     delete island.__solidMountToken__;
-  });
+  }
 }
 
 function handleBeforeSwap(event: CustomEvent<PageSwapDetail>) {
-  cleanup(event.detail.root);
+  cleanup(event.detail.root, event.detail.preservedRoots);
 }
 
 function handleAfterSwap(event: CustomEvent<PageSwapDetail>) {

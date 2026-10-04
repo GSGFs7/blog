@@ -323,6 +323,7 @@ test("bridges a history cache hit", () => {
   const detail = {
     historyElt: document.body,
     path: "/cached",
+    item: { content: "<main>cached</main>" },
     swapSpec: { swapDelay: 0, settleDelay: 0 },
   };
 
@@ -353,6 +354,8 @@ test("bridges a history cache miss", () => {
   };
 
   notify("htmx:historyCacheMiss", detail);
+  setXhrResponse(xhr, pageHtml());
+  xhr.dispatchEvent(new ProgressEvent("load"));
   notify("htmx:historyCacheMissLoad", detail);
   notify("htmx:afterSwap", {});
   notify("htmx:afterSettle", {});
@@ -474,4 +477,148 @@ test("recognizes inherited hx-replace-url navigation", () => {
   expect(recordedEvents[0].detail).toMatchObject({
     navigationType: "replace",
   });
+});
+
+test("maps compatible preserved roots into HTMX markup before island cleanup", () => {
+  document.body.innerHTML = '<div id="dock" data-app-preserve><audio></audio></div>';
+  const dock = document.getElementById("dock");
+  const request = requestDetail("/about");
+  const swap = beforeSwapDetail(
+    request,
+    true,
+    pageHtml().replace("<body></body>", '<body><div id="dock" data-app-preserve></div></body>'),
+  );
+  notify("htmx:beforeRequest", request);
+  notify("htmx:beforeSwap", swap);
+  const incoming = new DOMParser().parseFromString(swap.serverResponse, "text/html");
+  expect(incoming.getElementById("dock")?.getAttribute("hx-preserve")).toBe("true");
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ preservedRoots: [dock] });
+  expect(dock?.isConnected).toBe(true);
+});
+
+test("does not preserve incompatible component types even with a cached hx-preserve", () => {
+  document.body.innerHTML = '<div id="same" data-app-preserve data-solid-island="Counter"></div>';
+  const detail = {
+    path: "/cached",
+    historyElt: document.body,
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
+    item: {
+      content: '<div id="same" data-app-preserve data-solid-island="MusicDock" hx-preserve></div>',
+    },
+  };
+  expect(notify("htmx:historyCacheHit", detail)).toBe(true);
+  expect(detail.item.content).not.toContain("hx-preserve");
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ preservedRoots: [] });
+});
+
+test("maps preserved roots in a history cache hit", () => {
+  document.body.innerHTML = '<div id="dock" data-app-preserve></div>';
+  const detail = {
+    path: "/cached",
+    historyElt: document.body,
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
+    item: { content: '<div id="dock" data-app-preserve></div>' },
+  };
+  expect(notify("htmx:historyCacheHit", detail)).toBe(true);
+  expect(detail.item.content).toContain('hx-preserve="true"');
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({
+    preservedRoots: [document.getElementById("dock")],
+  });
+});
+
+test("maps preserved roots in a history cache miss response", () => {
+  document.body.innerHTML = '<div id="dock" data-app-preserve></div>';
+  const xhr = new XMLHttpRequest();
+  const html = pageHtml().replace(
+    "<body></body>",
+    '<body><div id="dock" data-app-preserve></div></body>',
+  );
+  const detail = {
+    path: "/restored",
+    historyElt: document.body,
+    swapSpec: { swapDelay: 0, settleDelay: 0 },
+    xhr,
+    response: html,
+  };
+  notify("htmx:historyCacheMiss", detail);
+  setXhrResponse(xhr, html);
+  xhr.dispatchEvent(new ProgressEvent("load"));
+  notify("htmx:historyCacheMissLoad", detail);
+  expect(detail.response).toContain('hx-preserve="true"');
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({
+    preservedRoots: [document.getElementById("dock")],
+  });
+});
+
+test.each(["response", "cache", "history-response"])(
+  "rejects duplicate preservation IDs in %s before cleanup",
+  (source) => {
+    const invalid = '<div id="dock" data-app-preserve></div><div id="dock"></div>';
+    const html = pageHtml().replace("<body></body>", `<body>${invalid}</body>`);
+    if (source === "response") {
+      const request = requestDetail("/about");
+      const swap = beforeSwapDetail(request, true, html);
+      notify("htmx:beforeRequest", request);
+      expect(notify("htmx:beforeSwap", swap)).toBe(false);
+      expect(swap.shouldSwap).toBe(false);
+    } else if (source === "cache") {
+      expect(
+        notify("htmx:historyCacheHit", {
+          path: "/cached",
+          historyElt: document.body,
+          swapSpec: {},
+          item: { content: invalid },
+        }),
+      ).toBe(false);
+    } else {
+      const xhr = new XMLHttpRequest();
+      notify("htmx:historyCacheMiss", {
+        path: "/restored",
+        historyElt: document.body,
+        swapSpec: {},
+        xhr,
+      });
+      setXhrResponse(xhr, html);
+      const downstream = vi.fn();
+      xhr.addEventListener("load", downstream);
+      xhr.dispatchEvent(new ProgressEvent("load"));
+      expect(downstream).not.toHaveBeenCalled();
+    }
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(eventNames()).not.toContain(APP_PAGE_EVENT.beforeSwap);
+    expect(recordedEvents.at(-1)?.detail).toMatchObject({ outcome: "fallback" });
+  },
+);
+
+test("validates history before HTMX's already registered onload handler", () => {
+  const xhr = new XMLHttpRequest();
+  const htmxLoad = vi.fn();
+  xhr.onload = htmxLoad;
+  notify("htmx:historyCacheMiss", {
+    path: "/restored",
+    historyElt: document.body,
+    swapSpec: {},
+    xhr,
+  });
+  setXhrResponse(xhr, pageHtml({ ...CURRENT_PROTOCOL, buildId: "next" }));
+  xhr.dispatchEvent(new ProgressEvent("load"));
+  expect(htmxLoad).not.toHaveBeenCalled();
+  expect(navigate).toHaveBeenCalledOnce();
+});
+
+test("delegates a valid history response to the original handler and restores it", () => {
+  const xhr = new XMLHttpRequest();
+  const htmxLoad = vi.fn();
+  xhr.onload = htmxLoad;
+  notify("htmx:historyCacheMiss", {
+    path: "/restored",
+    historyElt: document.body,
+    swapSpec: {},
+    xhr,
+  });
+  setXhrResponse(xhr, pageHtml());
+  xhr.dispatchEvent(new ProgressEvent("load"));
+  expect(htmxLoad).toHaveBeenCalledOnce();
+  expect(xhr.onload).toBe(htmxLoad);
+  expect(navigate).not.toHaveBeenCalled();
 });

@@ -17,23 +17,20 @@ interface DockState {
   duration: number;
 }
 
-let dockRoot: IslandElement | undefined;
-
 export function ensureMusicDock() {
-  if (dockRoot?.isConnected && dockRoot.__solidDispose__) {
+  const slot = document.getElementById("app-persistent-root");
+  if (!slot || slot.querySelector('[data-solid-island="MusicDock"]')) {
     return;
   }
 
   const root: IslandElement = document.createElement("div");
   root.dataset.solidIsland = "MusicDock";
-  document.body.append(root);
+  slot.append(root);
   const dispose = render(() => <MusicDock />, root);
   root.__solidDispose__ = () => {
     dispose();
     root.remove();
-    dockRoot = undefined;
   };
-  dockRoot = root;
 }
 
 export default function MusicDock() {

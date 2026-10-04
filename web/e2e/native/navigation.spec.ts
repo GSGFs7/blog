@@ -230,3 +230,45 @@ test("commits and swaps the final URL from a redirect", async ({ page }) => {
   await expect(page).toHaveURL(/\/test$/);
   await expectCompletedLifecycle(page, "traverse");
 });
+
+test("preserves a live Solid island across a native page swap", async ({ page }) => {
+  const initialDocumentId = await openNativeTestPage(page);
+  const counter = page.locator('[data-solid-island="Counter"]');
+  await expect(counter.getByText("Count: 1024", { exact: true })).toBeVisible();
+  await counter.getByRole("button", { name: "+1" }).click();
+  await counter.evaluate((element) => {
+    element.id = "preserved-counter";
+    element.setAttribute("data-app-preserve", "");
+  });
+  const original = await counter.elementHandle();
+
+  await page.route(/\/about$/, async (route) => {
+    const response = await route.fetch();
+    const html = await response.text();
+    await route.fulfill({
+      response,
+      body: html.replace(
+        "</body>",
+        '<div id="preserved-counter" data-app-preserve data-solid-island="Counter"></div></body>',
+      ),
+    });
+  });
+  await page
+    .locator(".site-navbar__links")
+    .getByRole("link", { name: "About", exact: true })
+    .click();
+  await expectCompletedLifecycle(page, "push");
+  expect((await probe(page)).documentId).toBe(initialDocumentId);
+  expect(
+    await original!.evaluate((element) => element === document.getElementById("preserved-counter")),
+  ).toBe(true);
+  await expect(counter.getByText("Count: 1025", { exact: true })).toBeVisible();
+  await counter.getByRole("button", { name: "+1" }).click();
+  await expect(counter.getByText("Count: 1026", { exact: true })).toBeVisible();
+
+  await clearProbeEvents(page);
+  await page.goBack({ waitUntil: "commit" });
+  await expectCompletedLifecycle(page, "traverse");
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(false);
+  await expect(counter.getByText("Count: 1024", { exact: true })).toBeVisible();
+});

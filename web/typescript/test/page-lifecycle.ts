@@ -7,6 +7,7 @@ export function runPageSwap(swap: () => void, targetDocument: Document = window.
   const detail = {
     navigationId,
     root: targetDocument.body,
+    preservedRoots: [],
   };
 
   emitPageEvent(targetDocument, APP_PAGE_EVENT.beforeSwap, detail);

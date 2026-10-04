@@ -32,6 +32,9 @@ export function setupPageTransition(
   };
 
   const beforeSwap = (event: DocumentEventMap["app:before-swap"]): void => {
+    if (active?.navigationId === event.detail.navigationId && active.root === event.detail.root) {
+      return;
+    }
     clear();
 
     if (prefersReducedMotion()) {
@@ -68,12 +71,14 @@ export function setupPageTransition(
     finish(event.detail.navigationId);
   };
 
+  document.addEventListener(APP_PAGE_EVENT.beforeLeave, beforeSwap);
   document.addEventListener(APP_PAGE_EVENT.beforeSwap, beforeSwap);
   document.addEventListener(APP_PAGE_EVENT.afterSwap, afterSwap);
   document.addEventListener(APP_PAGE_EVENT.navigationEnd, navigationEnd);
   document.addEventListener(APP_PAGE_EVENT.navigationError, navigationError);
 
   return () => {
+    document.removeEventListener(APP_PAGE_EVENT.beforeLeave, beforeSwap);
     document.removeEventListener(APP_PAGE_EVENT.beforeSwap, beforeSwap);
     document.removeEventListener(APP_PAGE_EVENT.afterSwap, afterSwap);
     document.removeEventListener(APP_PAGE_EVENT.navigationEnd, navigationEnd);
