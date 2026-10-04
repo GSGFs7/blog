@@ -27,6 +27,14 @@ export function musicDockNavigationTest(mode: "native" | "htmx", cacheMiss = fal
     if (browserName === "chromium") await context.grantPermissions(["local-network-access"]);
     const errors: Error[] = [];
     page.on("pageerror", (error) => errors.push(error));
+    // headless CI has no audio sink; muting avoids OnMediaSinkAudioError while keeping playback state
+    await page.addInitScript(() => {
+      const originalPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement): Promise<void> {
+        this.muted = true;
+        return originalPlay.call(this);
+      };
+    });
     const wave = silentWave();
     await page.route(/\/dock-test.wav$/, (route) =>
       route.fulfill({ contentType: "audio/wav", body: wave }),
