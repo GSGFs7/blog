@@ -14,6 +14,7 @@
     "test:browser:ui": "vitest --project browser --browser.headless=false",
     "test:e2e": "E2E_SUITE=base playwright test",
     "test:e2e:htmx": "E2E_SUITE=htmx playwright test",
+    "test:e2e:compatibility": "E2E_SUITE=compatibility playwright test",
     "test:e2e:native": "E2E_SUITE=native playwright test",
     "test:e2e:base:htmx": "E2E_SUITE=base E2E_NAVIGATION_MODE=htmx playwright test",
     "test:e2e:base:native": "E2E_SUITE=base E2E_NAVIGATION_MODE=native playwright test",

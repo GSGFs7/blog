@@ -21,6 +21,7 @@ interface TestNavigateEvent {
   event: NavigateEvent;
   intercept: ReturnType<typeof vi.fn>;
   redirect: ReturnType<typeof vi.fn>;
+  scroll: ReturnType<typeof vi.fn>;
   addHandler: ReturnType<typeof vi.fn>;
   run(): Promise<void>;
 }
@@ -89,6 +90,7 @@ function navigateEvent(
     interceptOptions = options;
   });
   const redirect = vi.fn();
+  const scroll = vi.fn();
   const addHandler = vi.fn((handler: NavigationInterceptHandler) => {
     postCommitHandlers.push(handler);
   });
@@ -103,12 +105,14 @@ function navigateEvent(
     signal: { value: signalController.signal },
     sourceElement: { value: null },
     intercept: { value: intercept },
+    scroll: { value: scroll },
   });
 
   return {
     event,
     intercept,
     redirect,
+    scroll,
     addHandler,
     async run() {
       const precommitHandler = interceptOptions?.precommitHandler;
@@ -190,6 +194,8 @@ beforeEach(() => {
     <meta name="app-navigation-version" content="1">
     <meta name="app-build-id" content="test-build">
   `;
+  window.history.scrollRestoration = "auto";
+  document.body.removeAttribute("style");
   document.body.className = "site-body";
   document.body.innerHTML = "<main>current page</main>";
 
@@ -592,4 +598,61 @@ test("invalid preservation declarations fall back before cleanup or head commit"
   expect(document.body).toHaveTextContent("current page");
   expect(harness.navigate.mock.calls[0][0].pathname).toBe("/about");
   expect(recordedEvents.at(-1)?.detail).toMatchObject({ phase: "swap" });
+});
+
+test("keeps scroll extent through the swap and restores inline height and history ownership", async () => {
+  document.body.style.setProperty("min-height", "120px", "important");
+  const height = vi.spyOn(document.documentElement, "scrollHeight", "get").mockReturnValue(2400);
+  const harness = setup();
+  harness.loadPage.mockResolvedValue(swapResult("/about"));
+  const request = navigateEvent("/about");
+  request.scroll.mockImplementation(() => {
+    expect(document.body).toHaveTextContent("next page");
+    expect(document.body.style.minHeight).toBe("2400px");
+    expect(window.history.scrollRestoration).toBe("manual");
+  });
+  try {
+    navigation.dispatchEvent(request.event);
+    await request.run();
+    expect(request.scroll).toHaveBeenCalledOnce();
+    expect(document.body.style.minHeight).toBe("120px");
+    expect(document.body.style.getPropertyPriority("min-height")).toBe("important");
+    teardown?.();
+    expect(window.history.scrollRestoration).toBe("auto");
+  } finally {
+    height.mockRestore();
+  }
+});
+
+test("restores scroll state before falling back after a swap failure", async () => {
+  const prepareHead = vi.fn<typeof preparePageHead>().mockResolvedValue({
+    commit: () => {
+      throw new Error("head commit failed");
+    },
+    rollback: vi.fn(),
+  });
+  const navigate = vi.fn(() => {
+    expect(window.history.scrollRestoration).toBe("auto");
+    expect(document.body.style.minHeight).toBe("");
+  });
+  const harness = setup({ prepareHead, navigate });
+  harness.loadPage.mockResolvedValue(swapResult("/about"));
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(request.scroll).not.toHaveBeenCalled();
+});
+
+test("returns scroll restoration to the browser for excluded navigations", async () => {
+  const harness = setup();
+  harness.loadPage.mockResolvedValue(swapResult("/about"));
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+  expect(window.history.scrollRestoration).toBe("manual");
+  const excluded = navigateEvent("/account/login");
+  navigation.dispatchEvent(excluded.event);
+  expect(excluded.intercept).not.toHaveBeenCalled();
+  expect(window.history.scrollRestoration).toBe("auto");
 });

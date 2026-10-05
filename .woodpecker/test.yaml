@@ -78,6 +78,7 @@ steps:
       - pnpm run test:e2e:htmx
       - pnpm run test:e2e:base:native
       - pnpm run test:e2e:native
+      - pnpm run test:e2e:compatibility
       - E2E_SUITE=ssr pnpm exec playwright test
 
   - name: scan

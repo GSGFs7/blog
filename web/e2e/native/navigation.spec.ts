@@ -1,7 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import { expect, test, type Page } from "@playwright/test";
+
+import { installArticleFixture } from "../helpers/article";
 
 interface NavigationProbeEvent {
   name: string;
@@ -305,18 +304,7 @@ test("waits for article CSS before swapping and restores it without duplicates",
   page,
 }) => {
   const documentId = await openNativeTestPage(page, "/about");
-  const buildId = await page.locator('meta[name="app-build-id"]').getAttribute("content");
-  const viteUrl = await page.locator('script[src*="/@vite/client"]').getAttribute("src");
-  expect(buildId).toBeTruthy();
-  expect(viteUrl).toBeTruthy();
-  const { stdout: html } = await promisify(execFile)(
-    "uv",
-    ["run", "python", "-m", "web.e2e.fixtures.article", buildId!, new URL(viteUrl!).origin],
-    { maxBuffer: 2 * 1024 * 1024 },
-  );
-  await page.route("**/blog/e2e-navigation", (route) =>
-    route.fulfill({ contentType: "text/html", body: html }),
-  );
+  await installArticleFixture(page);
 
   const cssRequested = deferred();
   const releaseCss = deferred();
@@ -452,5 +440,104 @@ test("reloads once when the fetched page has a different build", async ({ page }
   await expect(page).toHaveURL(/\/about$/);
   await expect(page).toHaveTitle(/^About -/);
   expect(requestTypes).toEqual(["fetch", "document"]);
+  await expectIdle(page);
+});
+
+test("uses same-page anchors without fetching or swapping", async ({ page }) => {
+  const documentId = await openNativeTestPage(page, "/about");
+  await installArticleFixture(page);
+  await navigateByLink(page, "/blog/e2e-navigation");
+  await expectCompletedLifecycle(page, "push");
+  await clearProbeEvents(page);
+  const article = await page.locator("article").elementHandle();
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "fetch" || request.isNavigationRequest()) {
+      requests.push(request.url());
+    }
+  });
+
+  await navigateByLink(page, "#reading-target");
+  await expect(page).toHaveURL(/#reading-target$/);
+  await expect(page.getByRole("heading", { name: /Reading target$/ })).toBeInViewport();
+  expect(await article!.evaluate((node) => node === document.querySelector("article"))).toBe(true);
+  expect((await probe(page)).documentId).toBe(documentId);
+  expect((await probe(page)).events).toEqual([]);
+  expect(requests).toEqual([]);
+  await expectIdle(page);
+});
+
+test("positions a cross-page anchor after the body swap", async ({ page }) => {
+  const documentId = await openNativeTestPage(page, "/about");
+  await installArticleFixture(page);
+  await navigateByLink(page, "/blog/e2e-navigation#reading-target");
+  await expectCompletedLifecycle(page, "push");
+  await expect(page).toHaveURL(/\/blog\/e2e-navigation#reading-target$/);
+  await expect(page.getByRole("heading", { name: /Reading target$/ })).toBeInViewport();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+  expect((await probe(page)).documentId).toBe(documentId);
+  await expectIdle(page);
+});
+
+test("restores article scroll position through back and forward", async ({ page }) => {
+  const documentId = await openNativeTestPage(page, "/about");
+  await installArticleFixture(page);
+  await navigateByLink(page, "/blog/e2e-navigation");
+  await expectCompletedLifecycle(page, "push");
+  await page.evaluate(async () => {
+    await window.navigation.transition?.finished;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    window.scrollTo({ top: 900, behavior: "instant" });
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(900);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await clearProbeEvents(page);
+  await navigateByLink(page, "/about");
+  await expectCompletedLifecycle(page, "push");
+  await page.evaluate(async () => {
+    await window.navigation.transition?.finished;
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
+  await clearProbeEvents(page);
+  await page.goBack({ waitUntil: "commit" });
+  await expectCompletedLifecycle(page, "traverse");
+  await expect.poll(() => page.evaluate(() => Math.abs(window.scrollY - 900))).toBeLessThan(3);
+  await clearProbeEvents(page);
+  await page.goForward({ waitUntil: "commit" });
+  await expectCompletedLifecycle(page, "traverse");
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  expect((await probe(page)).documentId).toBe(documentId);
+  await expectIdle(page);
+});
+
+test("resets focus after keyboard navigation and keeps Tab navigation usable", async ({ page }) => {
+  const documentId = await openNativeTestPage(page);
+  const link = page
+    .locator(".site-navbar__links")
+    .getByRole("link", { name: "About", exact: true });
+  await link.focus();
+  await expect(link).toBeFocused();
+  const original = await link.elementHandle();
+  await page.keyboard.press("Enter");
+  await expectCompletedLifecycle(page, "push");
+  expect(await original!.evaluate((node) => node.isConnected)).toBe(false);
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(page.locator(".site-navbar__inner .site-navbar__brand")).toBeFocused();
+  expect((await probe(page)).documentId).toBe(documentId);
   await expectIdle(page);
 });

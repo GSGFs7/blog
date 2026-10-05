@@ -17,7 +17,10 @@ def main():
 
     html, toc = Markdown().render_with_toc(
         "# Navigation fixture\n\n## Formula\n\n$$\nx^2 + y^2 = z^2\n$$\n\n"
-        "```python\nprint('navigation')\n```\n"
+        "```python\nprint('navigation')\n```\n\n"
+        + "Reading paragraph for scroll restoration.\n\n" * 40
+        + "## Reading target\n\n[Read again](/blog/e2e-navigation?visit=2)\n\n"
+        + "More article content below the anchor.\n\n" * 25
     )
     post = SimpleNamespace(
         title="Navigation fixture",
@@ -38,7 +41,7 @@ def main():
         override_settings(
             DEBUG=True,
             APP_BUILD_ID=sys.argv[1],
-            PAGE_NAVIGATION_MODE="native",
+            PAGE_NAVIGATION_MODE=sys.argv[3],
             VITE_DEV_SERVER_URL=sys.argv[2],
             SOLID_ISLANDS_SSR=False,
         ),

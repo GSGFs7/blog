@@ -1,7 +1,7 @@
 import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/test";
 import { loadEnv } from "vite";
 
-type E2ESuite = "base" | "htmx" | "native" | "ssr";
+type E2ESuite = "base" | "htmx" | "native" | "compatibility" | "ssr";
 type NavigationMode = "auto" | "htmx" | "native";
 
 type WebServerOptions = {
@@ -32,7 +32,13 @@ const djangoBaseUrl = `http://127.0.0.1:${djangoPort}`;
 function getE2ESuite(): E2ESuite {
   const suite = process.env.E2E_SUITE ?? "base";
 
-  if (suite === "base" || suite === "htmx" || suite === "native" || suite === "ssr") {
+  if (
+    suite === "base" ||
+    suite === "htmx" ||
+    suite === "native" ||
+    suite === "compatibility" ||
+    suite === "ssr"
+  ) {
     return suite;
   }
 
@@ -40,7 +46,8 @@ function getE2ESuite(): E2ESuite {
 }
 
 function getNavigationMode(suite: E2ESuite): NavigationMode {
-  const defaultMode = suite === "base" ? "auto" : suite === "native" ? "native" : "htmx";
+  const defaultMode =
+    suite === "base" || suite === "compatibility" ? "auto" : suite === "native" ? "native" : "htmx";
   const mode = process.env.E2E_NAVIGATION_MODE ?? defaultMode;
 
   if (mode !== "auto" && mode !== "htmx" && mode !== "native") {
@@ -48,6 +55,9 @@ function getNavigationMode(suite: E2ESuite): NavigationMode {
   }
   if (suite === "htmx" && mode !== "htmx") {
     throw new Error("The HTMX E2E suite requires E2E_NAVIGATION_MODE=htmx");
+  }
+  if (suite === "compatibility" && mode !== "auto") {
+    throw new Error("The compatibility E2E suite requires E2E_NAVIGATION_MODE=auto");
   }
   if (suite === "native" && mode !== "native") {
     throw new Error("The native E2E suite requires E2E_NAVIGATION_MODE=native");
@@ -142,6 +152,28 @@ function createSuiteConfig(suite: E2ESuite, navigationMode: NavigationMode): Pla
         use: {
           baseURL: djangoBaseUrl,
         },
+        webServer: createWebServers({
+          pageNavigationMode: navigationMode,
+          debug: true,
+          reuseDjangoServer: false,
+        }),
+      };
+    case "compatibility":
+      return {
+        testDir: "./web/e2e/compatibility",
+        workers: 1,
+        projects: ["Desktop Chrome", "Desktop Firefox"].flatMap((device) => [
+          {
+            name: `auto-${devices[device].defaultBrowserType}`,
+            testMatch: "**/auto.spec.ts",
+            use: { ...devices[device] },
+          },
+          {
+            name: `no-js-${devices[device].defaultBrowserType}`,
+            testMatch: "**/no-js.spec.ts",
+            use: { ...devices[device], javaScriptEnabled: false },
+          },
+        ]),
         webServer: createWebServers({
           pageNavigationMode: navigationMode,
           debug: true,

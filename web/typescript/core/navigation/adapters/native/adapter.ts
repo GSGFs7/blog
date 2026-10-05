@@ -73,6 +73,11 @@ export function setupNativePageNavigation(
     return () => undefined;
   }
 
+  const originalScrollRestoration = view.history.scrollRestoration;
+  const restoreScrollRestoration = () => {
+    view.history.scrollRestoration = originalScrollRestoration;
+  };
+
   let fullNavigationPending = false;
   let nextNavigationId = 0;
   let currentUrl = new URL(view.location.href);
@@ -164,6 +169,7 @@ export function setupNativePageNavigation(
     fullNavigationPending = true;
     t.controller.abort(new DOMException("Falling back to full navigation", "AbortError"));
     finish(t, "fallback");
+    restoreScrollRestoration();
     navigate(url);
   };
 
@@ -176,6 +182,7 @@ export function setupNativePageNavigation(
     fullNavigationPending = true;
     t.controller.abort(error);
     fail(t, phase, error);
+    restoreScrollRestoration();
     navigate(url);
   };
 
@@ -229,6 +236,7 @@ export function setupNativePageNavigation(
     transaction: NavigationTransaction,
     fetchedPage: FetchedPage,
     signal: AbortSignal,
+    scroll: () => void,
   ): Promise<void> => {
     if (!isCurrent(transaction)) {
       return;
@@ -263,12 +271,25 @@ export function setupNativePageNavigation(
       const plan = preparePreservation(document.body, incomingBody);
       transaction.preservedRoots = plan.roots;
 
-      head.commit();
-      emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
-      for (const { current, incoming } of plan.pairs) {
-        incoming.replaceWith(current);
+      const minHeight = document.body.style.getPropertyValue("min-height");
+      const minHeightPriority = document.body.style.getPropertyPriority("min-height");
+      // Avoid clamping history positions to the shorter page before native scrolling runs.
+      document.body.style.setProperty("min-height", `${document.documentElement.scrollHeight}px`);
+      try {
+        head.commit();
+        emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
+        for (const { current, incoming } of plan.pairs) {
+          incoming.replaceWith(current);
+        }
+        document.body.replaceChildren(...Array.from(incomingBody.childNodes));
+        scroll();
+      } finally {
+        if (minHeight) {
+          document.body.style.setProperty("min-height", minHeight, minHeightPriority);
+        } else {
+          document.body.style.removeProperty("min-height");
+        }
       }
-      document.body.replaceChildren(...Array.from(incomingBody.childNodes));
       transaction.stage = "settling";
       emitPageEvent(document, APP_PAGE_EVENT.afterSwap, swapDetailFor(transaction));
       if (!prefersReducedMotion()) {
@@ -295,10 +316,12 @@ export function setupNativePageNavigation(
 
   const handleNavigate = (event: NavigateEvent) => {
     if (fullNavigationPending) {
+      restoreScrollRestoration();
       return;
     }
 
     if (!shouldInterceptNavigation(event, currentUrl)) {
+      restoreScrollRestoration();
       const destination = new URL(event.destination.url);
       if (
         event.canIntercept &&
@@ -330,6 +353,7 @@ export function setupNativePageNavigation(
       activeTransaction.stage !== "finished"
     ) {
       cancel(activeTransaction);
+      restoreScrollRestoration();
       return;
     }
     if (activeTransaction) {
@@ -353,6 +377,7 @@ export function setupNativePageNavigation(
     ]);
 
     try {
+      view.history.scrollRestoration = "manual";
       const canRedirectBeforeCommit =
         event.cancelable &&
         (event.navigationType === "push" || event.navigationType === "replace") &&
@@ -377,7 +402,9 @@ export function setupNativePageNavigation(
               }
             }
 
-            precommit.addHandler(() => swapTransaction(transaction, fetchedPage, signal));
+            precommit.addHandler(() =>
+              swapTransaction(transaction, fetchedPage, signal, () => event.scroll()),
+            );
           },
         });
       } else {
@@ -394,11 +421,12 @@ export function setupNativePageNavigation(
               return;
             }
 
-            await swapTransaction(transaction, fetchedPage, signal);
+            await swapTransaction(transaction, fetchedPage, signal, () => event.scroll());
           },
         });
       }
     } catch {
+      restoreScrollRestoration();
       transaction.controller.abort();
       return;
     }
@@ -419,6 +447,7 @@ export function setupNativePageNavigation(
       cancel(activeTransaction);
     }
     controller.abort();
+    restoreScrollRestoration();
     stopPageTransition();
   };
 }
