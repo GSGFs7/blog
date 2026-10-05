@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import { expect, test, type Page } from "@playwright/test";
 
 interface NavigationProbeEvent {
@@ -22,6 +25,7 @@ declare global {
 
 const lifecycleEvents = [
   "app:navigation-start",
+  "app:before-leave",
   "app:before-swap",
   "app:after-swap",
   "app:navigation-end",
@@ -69,6 +73,7 @@ async function expectCompletedLifecycle(page: Page, navigationType: NavigationTy
         name: "app:navigation-start",
         navigationType,
       }),
+      expect.objectContaining({ name: "app:before-leave" }),
       expect.objectContaining({ name: "app:before-swap" }),
       expect.objectContaining({ name: "app:after-swap" }),
       expect.objectContaining({
@@ -271,4 +276,181 @@ test("preserves a live Solid island across a native page swap", async ({ page })
   await expectCompletedLifecycle(page, "traverse");
   expect(await original!.evaluate((element) => element.isConnected)).toBe(false);
   await expect(counter.getByText("Count: 1024", { exact: true })).toBeVisible();
+});
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function navigateByLink(page: Page, href: string): Promise<void> {
+  await page.evaluate((url) => {
+    const link = document.createElement("a");
+    link.href = url;
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }, href);
+}
+
+async function expectIdle(page: Page): Promise<void> {
+  await expect(page.locator("body")).not.toHaveAttribute("aria-busy");
+  await expect(page.locator("body")).not.toHaveAttribute("data-page-transition");
+}
+
+test("waits for article CSS before swapping and restores it without duplicates", async ({
+  page,
+}) => {
+  const documentId = await openNativeTestPage(page, "/about");
+  const buildId = await page.locator('meta[name="app-build-id"]').getAttribute("content");
+  const viteUrl = await page.locator('script[src*="/@vite/client"]').getAttribute("src");
+  expect(buildId).toBeTruthy();
+  expect(viteUrl).toBeTruthy();
+  const { stdout: html } = await promisify(execFile)(
+    "uv",
+    ["run", "python", "-m", "web.e2e.fixtures.article", buildId!, new URL(viteUrl!).origin],
+    { maxBuffer: 2 * 1024 * 1024 },
+  );
+  await page.route("**/blog/e2e-navigation", (route) =>
+    route.fulfill({ contentType: "text/html", body: html }),
+  );
+
+  const cssRequested = deferred();
+  const releaseCss = deferred();
+  await page.route("**/katex/katex.min.css*", async (route) => {
+    cssRequested.resolve();
+    await releaseCss.promise;
+    await route.continue();
+  });
+
+  try {
+    await navigateByLink(page, "/blog/e2e-navigation");
+    await cssRequested.promise;
+    await expect(page.getByRole("heading", { name: "关于我", exact: true })).toBeVisible();
+    await expect(page.locator(".katex")).toHaveCount(0);
+    expect((await probe(page)).events.map((event) => event.name)).toEqual(["app:navigation-start"]);
+    releaseCss.resolve();
+
+    const expectArticle = async () => {
+      await expect(page).toHaveTitle(/^Navigation fixture -/);
+      await expect(page.locator("article.markdown-body .katex").first()).toHaveCSS(
+        "font-family",
+        /KaTeX_Main/,
+      );
+      await expect(page.locator("article.markdown-body pre")).toContainText("print('navigation')");
+      await expect(page.locator('link[rel="stylesheet"][href*="katex.min.css"]')).toHaveCount(1);
+      await expect(page.locator('link[rel="stylesheet"][href*="styles/markdown.css"]')).toHaveCount(
+        1,
+      );
+      expect((await probe(page)).documentId).toBe(documentId);
+      await expectIdle(page);
+    };
+    await expectCompletedLifecycle(page, "push");
+    await expectArticle();
+
+    await clearProbeEvents(page);
+    await page.goBack({ waitUntil: "commit" });
+    await expectCompletedLifecycle(page, "traverse");
+    await expect(page.getByRole("heading", { name: "关于我", exact: true })).toBeVisible();
+    await expect(page.locator('link[rel="stylesheet"][href*="katex.min.css"]')).toHaveCount(0);
+
+    await clearProbeEvents(page);
+    await page.goForward({ waitUntil: "commit" });
+    await expectCompletedLifecycle(page, "traverse");
+    await expectArticle();
+  } finally {
+    releaseCss.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
+test("cancels a slow navigation without committing its stale page", async ({ page }) => {
+  const documentId = await openNativeTestPage(page);
+  const aboutRequested = deferred();
+  const releaseAbout = deferred();
+  await page.route("**/about", async (route) => {
+    aboutRequested.resolve();
+    await releaseAbout.promise;
+    await route.continue();
+  });
+  const cancelledRequest = page.waitForEvent("requestfailed", {
+    predicate: (request) =>
+      new URL(request.url()).pathname === "/about" && request.resourceType() === "fetch",
+  });
+
+  try {
+    await navigateByLink(page, "/about");
+    await aboutRequested.promise;
+    await navigateByLink(page, "/privacy");
+    await cancelledRequest;
+    await expect
+      .poll(async () => (await probe(page)).events.at(-1))
+      .toMatchObject({
+        name: "app:navigation-end",
+        finalUrl: expect.stringMatching(/\/privacy$/),
+        outcome: "completed",
+      });
+    releaseAbout.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+
+    const state = await probe(page);
+    const firstId = state.events[0].navigationId;
+    expect(state.events.filter((event) => event.navigationId === firstId)).toEqual([
+      expect.objectContaining({
+        name: "app:navigation-start",
+        requestedUrl: expect.stringMatching(/\/about$/),
+      }),
+      expect.objectContaining({ name: "app:navigation-end", outcome: "cancelled" }),
+    ]);
+    expect(
+      state.events.filter((event) => event.navigationId !== firstId).map((event) => event.name),
+    ).toEqual([
+      "app:navigation-start",
+      "app:before-leave",
+      "app:before-swap",
+      "app:after-swap",
+      "app:navigation-end",
+    ]);
+    expect(state.documentId).toBe(documentId);
+    await expect(page).toHaveURL(/\/privacy$/);
+    await expect(page).toHaveTitle(/^Privacy -/);
+    await expect(page.locator('[data-solid-island="WIP"]')).toHaveCount(1);
+    await expect(page.getByRole("heading", { name: "关于我", exact: true })).toHaveCount(0);
+    await expectIdle(page);
+  } finally {
+    releaseAbout.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
+test("reloads once when the fetched page has a different build", async ({ page }) => {
+  const documentId = await openNativeTestPage(page);
+  const requestTypes: string[] = [];
+  await page.route("**/about", async (route) => {
+    const type = route.request().resourceType();
+    requestTypes.push(type);
+    if (type !== "fetch") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const html = await response.text();
+    const changed = html.replace(
+      /(<meta\b[^>]*name="app-build-id"[^>]*content=")[^"]*(")/,
+      "$1e2e-different-build$2",
+    );
+    expect(changed).not.toBe(html);
+    await route.fulfill({ response, body: changed });
+  });
+
+  await navigateByLink(page, "/about");
+  await expect(page.getByRole("heading", { name: "关于我", exact: true })).toBeVisible();
+  await expect.poll(async () => (await probe(page)).documentId).not.toBe(documentId);
+  await expect(page).toHaveURL(/\/about$/);
+  await expect(page).toHaveTitle(/^About -/);
+  expect(requestTypes).toEqual(["fetch", "document"]);
+  await expectIdle(page);
 });
