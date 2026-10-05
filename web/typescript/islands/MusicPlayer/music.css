@@ -132,7 +132,8 @@
   border-radius: 0.75rem;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .music-dock {
+  /* avoid repeat animation */
+  .music-dock[data-entering] {
     animation: music-dock-in 0.18s ease-out;
   }
   .music-dock[data-state="closed"] {

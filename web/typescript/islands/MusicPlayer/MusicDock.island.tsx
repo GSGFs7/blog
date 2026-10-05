@@ -74,6 +74,12 @@ export default function MusicDock() {
             class="music-dock"
             aria-label="music player"
             data-state={player.track() ? "open" : "closed"}
+            data-entering="true"
+            onAnimationEnd={(event) => {
+              if (event.target === event.currentTarget && event.animationName === "music-dock-in") {
+                event.currentTarget.removeAttribute("data-entering");
+              }
+            }}
             style={{ "background-color": state().track.background ?? "#29272e" }}
           >
             <div class="music-dock-control">

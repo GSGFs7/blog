@@ -47,6 +47,34 @@ test("the buffering icon keeps spinning while the audio stalls", () => {
   expect(animation.playState).toBe("running");
 });
 
+test("the dock only fades in when opened, not when its preserved root is reinserted", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  const { container } = render(() => <MusicDock />);
+  const track = { src: "https://example.com/song.mp3", duration: 300 };
+  player.play(track);
+  const dock = container.querySelector<HTMLElement>(".music-dock")!;
+  expect(getComputedStyle(dock).animationName).toBe("music-dock-in");
+  await vi.waitFor(() => expect(getComputedStyle(dock).animationName).toBe("none"));
+
+  const parent = container.parentElement!;
+  container.remove();
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  parent.append(container);
+  expect(container.querySelector(".music-dock")).toBe(dock);
+  expect(getComputedStyle(dock).animationName).toBe("none");
+  expect(dock.getAnimations()).toHaveLength(0);
+
+  player.clear();
+  expect(getComputedStyle(dock).animationName).toBe("music-dock-out");
+  await vi.waitFor(() => expect(container.querySelector(".music-dock")).toBeNull());
+  player.play(track);
+  expect(getComputedStyle(container.querySelector(".music-dock")!).animationName).toBe(
+    "music-dock-in",
+  );
+});
+
 test("the hover zoom only runs when reduced motion is not preferred", () => {
   const styleRules = [...document.styleSheets]
     .flatMap((sheet) => [...sheet.cssRules])
