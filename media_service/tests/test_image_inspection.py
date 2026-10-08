@@ -25,7 +25,7 @@ class ImageInspectionTest(SimpleTestCase):
         return content
 
     @staticmethod
-    def build_animated_gif() -> BytesIO:
+    def build_animated_gif(frame_count=2) -> BytesIO:
         content = BytesIO()
         first = PILImage.new("RGB", (8, 4), "red")
         second = PILImage.new("RGB", (8, 4), "blue")
@@ -35,8 +35,8 @@ class ImageInspectionTest(SimpleTestCase):
             content,
             format="GIF",
             save_all=True,
-            append_images=[second],
-            duration=[100, 200],
+            append_images=[second if i % 2 else first for i in range(1, frame_count)],
+            duration=100,
             loop=0,
         )
         content.seek(0)
@@ -87,6 +87,22 @@ class ImageInspectionTest(SimpleTestCase):
         content.seek(0)
 
         with self.assertRaises(UnidentifiedImageError):
+            Image._inspect_image(content)
+
+        self.assertEqual(content.tell(), 0)
+
+    def test_accepts_animation_at_frame_limit(self):
+        content = self.build_animated_gif(frame_count=500)
+
+        inspection = Image._inspect_image(content)
+
+        self.assertEqual(inspection.frame_count, 500)
+        self.assertEqual(content.tell(), 0)
+
+    def test_rejects_animation_over_frame_limit(self):
+        content = self.build_animated_gif(frame_count=501)
+
+        with self.assertRaisesMessage(ValidationError, "Image has too many frames"):
             Image._inspect_image(content)
 
         self.assertEqual(content.tell(), 0)

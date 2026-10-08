@@ -53,6 +53,15 @@ class ImageAdminForm(forms.ModelForm):
                 f"Not allowed format: {file.content_type}. "
                 f"Allowed format: {', '.join(IMAGE_ALLOWED_FORMAT)}"
             )
+
+        try:
+            Image._inspect_image(file)
+        except ValidationError:
+            raise
+        except Exception as exc:
+            raise ValidationError(
+                "Unrecognizable image file or file is corrupted"
+            ) from exc
         return file
 
     def save(self, commit=True):

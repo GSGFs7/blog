@@ -11,7 +11,7 @@ from django_otp import DEVICE_ID_SESSION_KEY
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from PIL import Image as PILImage
 
-from media_service.models import Image
+from media_service.models import Image, ImageResource
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -64,6 +64,41 @@ class ImageAdminTest(TestCase):
 
         image = Image.objects.get(original_name="admin-test.png")
         self.assertEqual(image.uploader, self.admin_user)
+
+    @override_settings(MAX_IMAGE_FRAMES=1)
+    def test_admin_upload_rejects_excess_frames_as_field_error(self):
+        content = BytesIO()
+        first = PILImage.new("RGB", (8, 4), "red")
+        second = PILImage.new("RGB", (8, 4), "blue")
+        first.save(
+            content,
+            format="GIF",
+            save_all=True,
+            append_images=[second],
+            duration=100,
+        )
+
+        with patch("media_service.admin.Image.create_from_file") as create:
+            response = self.client.post(
+                reverse("admin:media_service_image_add"),
+                {
+                    "file": SimpleUploadedFile(
+                        "animated.gif", content.getvalue(), content_type="image/gif"
+                    ),
+                    "original_name": "animated.gif",
+                    "_save": "Save",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context["adminform"].form,
+            "file",
+            "Image has too many frames",
+        )
+        create.assert_not_called()
+        self.assertFalse(Image.objects.exists())
+        self.assertFalse(ImageResource.objects.exists())
 
     def test_admin_upload_can_enable_responsive_variants(self):
         with (
