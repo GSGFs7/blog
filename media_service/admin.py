@@ -97,6 +97,11 @@ class ImageAdminForm(forms.ModelForm):
 
 class ImageAdmin(admin.ModelAdmin):
     form = ImageAdminForm
+
+    class Media:
+        # avoid CSP limit
+        js = ["media_service/admin/image.js"]
+
     actions = [
         "trigger_image_processing",
         "generate_responsive_variants",
@@ -327,9 +332,7 @@ class ImageAdmin(admin.ModelAdmin):
         return format_html(
             '<div class="copy-image-url-widget">'
             "<code>{}</code> "
-            '<button type="button" class="button" data-copy-image-url="{}" '
-            'onclick="navigator.clipboard.writeText(this.dataset.copyImageUrl)"'
-            ">"
+            '<button type="button" class="button" data-copy-image-url="{}">'
             "Copy URL"
             "</button>"
             "</div>",

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.templatetags.static import static
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django_otp import DEVICE_ID_SESSION_KEY
@@ -155,6 +156,34 @@ class ImageAdminTest(TestCase):
         image.resource.refresh_from_db()
         self.assertTrue(image.resource.responsive_variants_enabled)
         delay.assert_called_once_with(image.resource_id)
+
+    @override_settings(
+        STORAGES={
+            "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
+        }
+    )
+    def test_admin_image_url_copy_uses_external_script_under_csp(self):
+        with patch("media_service.signals.process_image.delay"):
+            image, *_ = Image.create_from_file(
+                self.generate_test_image(),
+                "copy-url.png",
+                uploader=self.admin_user,
+            )
+
+        response = self.client.get(
+            reverse("admin:media_service_image_change", args=[image.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            "script-src-attr 'none'", response.headers["Content-Security-Policy"]
+        )
+        self.assertContains(response, static("media_service/admin/image.js"))
+        self.assertContains(response, f'data-copy-image-url="{image.url}"')
+        self.assertNotContains(response, "onclick=")
 
     def test_admin_change_retries_missing_responsive_variants(self):
         self.client.post(
