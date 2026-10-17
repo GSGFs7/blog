@@ -35,7 +35,7 @@ spec:
               mountPath: /models
       containers:
         - name: blog-llama-cpp
-          image: ghcr.io/ggml-org/llama.cpp:server
+          image: ghcr.io/ggml-org/llama.cpp:server-b11706
           args:
             - "-m"
             - "/models/ggml-org--embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf"

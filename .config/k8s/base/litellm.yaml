@@ -37,7 +37,7 @@ spec:
             name: litellm-config
       containers:
         - name: blog-litellm
-          image: docker.litellm.ai/berriai/litellm:main-latest
+          image: docker.litellm.ai/berriai/litellm:v1.105.1
           args:
             - "--config"
             - "/app/config.yaml"

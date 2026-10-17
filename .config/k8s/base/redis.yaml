@@ -32,7 +32,7 @@ spec:
             claimName: blog-redis-pvc
       containers:
         - name: blog-redis
-          image: redis:8-alpine
+          image: redis:8.10.2-alpine
           command:
             - redis-server
             - --appendonly
