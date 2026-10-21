@@ -8,12 +8,16 @@ If unless necessary, these functions will not be implemented:
 reason: disgusting code
 """
 
+import asyncio
 import hmac
+import random
+import time
 from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import format_datetime, parsedate_to_datetime
 from hashlib import sha256
+from math import isfinite
 from operator import index
 from types import TracebackType
 from typing import (
@@ -165,11 +169,17 @@ class AsyncObjectBody:
         await self.response.aclose()
 
     async def aiter_bytes(self, chunk_size: int = 64 * 1024):
-        async for chunk in self.response.aiter_bytes(chunk_size):
-            yield chunk
+        try:
+            async for chunk in self.response.aiter_bytes(chunk_size):
+                yield chunk
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 object body could not be read") from exc
 
     async def read(self) -> bytes:
-        return await self.response.aread()
+        try:
+            return await self.response.aread()
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 object body could not be read") from exc
 
 
 class SyncObjectBody:
@@ -193,10 +203,16 @@ class SyncObjectBody:
         self.response.close()
 
     def iter_bytes(self, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
-        yield from self.response.iter_bytes(chunk_size)
+        try:
+            yield from self.response.iter_bytes(chunk_size)
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 object body could not be read") from exc
 
     def read(self) -> bytes:
-        return self.response.read()
+        try:
+            return self.response.read()
+        except httpx2.HTTPError as exc:
+            raise StorageUnavailable("R2 object body could not be read") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -537,11 +553,13 @@ class SyncR2Client(_BaseR2Client, SyncObjectStore):
         *,
         session_token: str | None = None,
         timeout: float = 30.0,
+        max_retries: int = 2,
         client: httpx2.Client | None = None,
         transport: httpx2.BaseTransport | None = None,
         multipart_threshold: int = 32 * 1024**2,
         multipart_part_size: int = 8 * 1024**2,
     ):
+        retry_policy = _RetryPolicy(max_retries=max_retries)
         self._configure(
             endpoint,
             access_key,
@@ -558,6 +576,7 @@ class SyncR2Client(_BaseR2Client, SyncObjectStore):
             bucket=self.bucket,
             signer=self.signer,
             client=self.client,
+            retry_policy=retry_policy,
         )
         self._upload_backend = _SyncR2UploadBackend(self._transport)
 
@@ -843,11 +862,13 @@ class AsyncR2Client(_BaseR2Client, AsyncObjectStore):
         *,
         session_token: str | None = None,
         timeout: float = 30.0,
+        max_retries: int = 2,
         client: httpx2.AsyncClient | None = None,
         transport: httpx2.AsyncBaseTransport | None = None,
         multipart_threshold: int = 32 * 1024**2,
         multipart_part_size: int = 8 * 1024**2,
     ):
+        retry_policy = _RetryPolicy(max_retries=max_retries)
         self._configure(
             endpoint,
             access_key,
@@ -864,6 +885,7 @@ class AsyncR2Client(_BaseR2Client, AsyncObjectStore):
             bucket=self.bucket,
             signer=self.signer,
             client=self.client,
+            retry_policy=retry_policy,
         )
         self._upload_backend = _AsyncR2UploadBackend(self._transport)
 
@@ -1222,15 +1244,12 @@ class _UploadSource:
         return not isinstance(self._body, bytes)
 
     async def read_all(self) -> bytes:
+        if isinstance(self._body, bytes):
+            return self._body
         chunks = bytearray()
         async for chunk in self.iter_body():
             chunks.extend(chunk)
         return bytes(chunks)
-
-    def single_body(self) -> bytes:
-        if not isinstance(self._body, bytes):
-            raise RuntimeError("async upload body requires multipart upload")
-        return self._body
 
     async def iter_body(self) -> AsyncIterable[bytes]:
         if isinstance(self._body, bytes):
@@ -1308,18 +1327,17 @@ class _UploadPolicy:
         strategy: UploadStrategy,
     ) -> bool:
         if strategy == "single":
-            if source.is_stream:
+            if source.is_stream and (
+                source.length is None or source.length > self.multipart_threshold
+            ):
                 raise ValueError(
-                    "single stream upload cannot provide atomic integrity verification"
+                    "single stream upload requires a known length "
+                    "within multipart_threshold"
                 )
             return False
         if strategy == "multipart":
             return True
-        return (
-            source.is_stream
-            or source.length is None
-            or source.length > self.multipart_threshold
-        )
+        return source.length is None or source.length > self.multipart_threshold
 
     def part_size(self, content_length: int | None) -> int:
         configured_size = self.multipart_part_size
@@ -1437,7 +1455,7 @@ class _UploadCoordinator:
 
         return await self.backend.put_single(
             self.key,
-            self.source.single_body(),
+            await self.source.read_all(),
             self.options,
         )
 
@@ -1502,10 +1520,13 @@ class _SyncUploadSource:
     def is_stream(self) -> bool:
         return not isinstance(self._body, bytes)
 
-    def single_body(self) -> bytes:
-        if not isinstance(self._body, bytes):
-            raise RuntimeError("stream upload body requires multipart upload")
-        return self._body
+    def read_all(self) -> bytes:
+        if isinstance(self._body, bytes):
+            return self._body
+        chunks = bytearray()
+        for chunk in self.iter_body():
+            chunks.extend(chunk)
+        return bytes(chunks)
 
     def iter_body(self) -> Iterator[bytes]:
         if isinstance(self._body, bytes):
@@ -1598,7 +1619,7 @@ class _SyncUploadCoordinator:
 
         return self.backend.put_single(
             self.key,
-            self.source.single_body(),
+            self.source.read_all(),
             self.options,
         )
 
@@ -1881,10 +1902,50 @@ class _AsyncR2MultipartSession:
 
 
 @dataclass(frozen=True, slots=True)
+class _RetryPolicy:
+    max_retries: int = 2
+
+    def __post_init__(self):
+        if isinstance(self.max_retries, bool) or not isinstance(self.max_retries, int):
+            raise TypeError("'max_retries' must be an integer")
+        if not 0 <= self.max_retries <= 10:
+            raise ValueError("'max_retries' must be between 0 and 10")
+
+    def delay(self, attempt: int, response: httpx2.Response | None = None) -> float:
+        if response is not None and (value := response.headers.get("retry-after")):
+            try:
+                seconds = float(value)
+                if isfinite(seconds) and seconds >= 0:
+                    return seconds
+            except ValueError:
+                pass
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+            except TypeError, ValueError, OverflowError:
+                pass
+        return random.uniform(0, min(30.0, 0.5 * 2**attempt))
+
+    def allows(self, method: str, headers: Mapping[str, str], content: object) -> bool:
+        return (
+            method in {"GET", "HEAD", "DELETE", "PUT"}
+            and (content is None or isinstance(content, bytes))
+            and not any(name.lower() == "x-amz-copy-source" for name in headers)
+        )
+
+    @staticmethod
+    def retry_response(response: httpx2.Response) -> bool:
+        return response.status_code in {408, 429, 500, 502, 503, 504}
+
+
+@dataclass(frozen=True, slots=True)
 class _BaseR2Transport:
     endpoint: str
     bucket: str
     signer: SigV4Signer
+    retry_policy: _RetryPolicy = field(default_factory=_RetryPolicy, kw_only=True)
 
     def object_url(self, key: str) -> str:
         return (
@@ -2000,17 +2061,29 @@ class _SyncR2Transport(_BaseR2Transport):
         stream: bool = False,
         error_message: str,
     ) -> httpx2.Response:
-        signed_headers = self.signer.sign(method, url, headers, payload_hash)
-        try:
-            if content is None:
-                request = self.client.build_request(method, url, headers=signed_headers)
-            else:
-                request = self.client.build_request(
-                    method, url, content=content, headers=signed_headers
-                )
-            return self.client.send(request, stream=stream)
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable(error_message) from exc
+        retries = (
+            self.retry_policy.max_retries
+            if self.retry_policy.allows(method, headers, content)
+            else 0
+        )
+        for attempt in range(retries + 1):
+            signed_headers = self.signer.sign(method, url, headers, payload_hash)
+            request = self.client.build_request(
+                method, url, headers=signed_headers, content=content
+            )
+            try:
+                response = self.client.send(request, stream=stream)
+            except httpx2.HTTPError as exc:
+                if attempt == retries or not isinstance(exc, httpx2.TransportError):
+                    raise StorageUnavailable(error_message) from exc
+                time.sleep(self.retry_policy.delay(attempt))
+                continue
+            if attempt == retries or not self.retry_policy.retry_response(response):
+                return response
+            delay = self.retry_policy.delay(attempt, response)
+            response.close()
+            time.sleep(delay)
+        raise AssertionError("unreachable")
 
     def raise_response_error(
         self,
@@ -2044,24 +2117,29 @@ class _AsyncR2Transport(_BaseR2Transport):
         stream: bool = False,
         error_message: str,
     ) -> httpx2.Response:
-        signed_headers = self.signer.sign(method, url, headers, payload_hash)
-        try:
-            if content is None:
-                request = self.client.build_request(
-                    method,
-                    url,
-                    headers=signed_headers,
-                )
-            else:
-                request = self.client.build_request(
-                    method,
-                    url,
-                    headers=signed_headers,
-                    content=content,
-                )
-            return await self.client.send(request, stream=stream)
-        except httpx2.HTTPError as exc:
-            raise StorageUnavailable(error_message) from exc
+        retries = (
+            self.retry_policy.max_retries
+            if self.retry_policy.allows(method, headers, content)
+            else 0
+        )
+        for attempt in range(retries + 1):
+            signed_headers = self.signer.sign(method, url, headers, payload_hash)
+            request = self.client.build_request(
+                method, url, headers=signed_headers, content=content
+            )
+            try:
+                response = await self.client.send(request, stream=stream)
+            except httpx2.HTTPError as exc:
+                if attempt == retries or not isinstance(exc, httpx2.TransportError):
+                    raise StorageUnavailable(error_message) from exc
+                await asyncio.sleep(self.retry_policy.delay(attempt))
+                continue
+            if attempt == retries or not self.retry_policy.retry_response(response):
+                return response
+            delay = self.retry_policy.delay(attempt, response)
+            await response.aclose()
+            await asyncio.sleep(delay)
+        raise AssertionError("unreachable")
 
     async def raise_response_error(
         self,

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from xml.etree import ElementTree
 
 import httpx2
@@ -1073,7 +1073,8 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             ["POST", "PUT", "POST"],
         )
 
-    async def test_put_multipart_aborts_after_part_failure(self):
+    @patch("core.r2.asyncio.sleep", new_callable=AsyncMock)
+    async def test_put_multipart_aborts_after_part_failure(self, sleep):
         methods = []
 
         async def handler(request):
@@ -1113,7 +1114,8 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             with self.assertRaises(StorageUnavailable):
                 await client.put("file.txt", b"data", strategy="multipart")
 
-        self.assertEqual(methods, ["POST", "PUT", "DELETE"])
+        self.assertEqual(methods, ["POST", "PUT", "PUT", "PUT", "DELETE"])
+        self.assertEqual(sleep.await_count, 2)
 
     async def test_put_multipart_handles_error_inside_success_response(self):
         methods = []
@@ -1162,7 +1164,7 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "InternalError")
         self.assertEqual(methods, ["POST", "PUT", "POST", "DELETE"])
 
-    async def test_put_known_length_async_body_uses_multipart(self):
+    async def test_put_known_length_async_body_uses_single_upload(self):
         async def upload_body():
             yield b"he"
             yield b"llo"
@@ -1172,35 +1174,14 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
 
         async def handler(request):
             requests.append(request)
-            if request.method == "POST" and "uploads" in request.url.params:
-                return httpx2.Response(
-                    200,
-                    content=(
-                        b"<InitiateMultipartUploadResult>"
-                        b"<UploadId>stream-upload</UploadId>"
-                        b"</InitiateMultipartUploadResult>"
-                    ),
-                    request=request,
-                )
-            if request.method == "PUT":
-                self.assertEqual(request.headers["content-length"], "5")
-                self.assertEqual(await request.aread(), b"hello")
-                return httpx2.Response(
-                    200,
-                    headers={"etag": '"stream-part"'},
-                    request=request,
-                )
-
+            self.assertEqual(request.method, "PUT")
+            self.assertFalse(request.url.query)
+            self.assertEqual(request.headers["content-length"], "5")
             self.assertEqual(request.headers["x-amz-checksum-crc64nvme"], checksum)
+            self.assertEqual(await request.aread(), b"hello")
             return httpx2.Response(
                 200,
-                content=(
-                    b"<CompleteMultipartUploadResult>"
-                    b"<ETag>&quot;stream&quot;</ETag>"
-                    b"<ChecksumCRC64NVME>" + checksum.encode() + b"</ChecksumCRC64NVME>"
-                    b"</CompleteMultipartUploadResult>"
-                ),
-                request=request,
+                headers={"etag": '"stream"', "x-amz-checksum-crc64nvme": checksum},
             )
 
         async with AsyncR2Client(
@@ -1210,18 +1191,11 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             "bucket",
             transport=httpx2.MockTransport(handler),
         ) as client:
-            result = await client.put(
-                "stream.txt",
-                upload_body(),
-                content_length=5,
-            )
+            result = await client.put("stream.txt", upload_body(), content_length=5)
 
         self.assertEqual(result.etag, '"stream"')
         self.assertEqual(result.checksum_crc64nvme, checksum)
-        self.assertEqual(
-            [request.method for request in requests],
-            ["POST", "PUT", "POST"],
-        )
+        self.assertEqual(len(requests), 1)
 
     async def test_put_validates_strategy_and_content_length(self):
         async with AsyncR2Client(
@@ -1238,11 +1212,10 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
             async def upload_body():
                 yield b"data"
 
-            with self.assertRaisesRegex(ValueError, "integrity verification"):
+            with self.assertRaisesRegex(ValueError, "known length"):
                 await client.put(
                     "file.txt",
                     upload_body(),
-                    content_length=4,
                     strategy="single",
                 )
 
@@ -1711,6 +1684,7 @@ class SyncR2ClientTest(SimpleTestCase):
                     iter(chunks),
                     content_length=len(data),
                     if_none_match="*",
+                    strategy="multipart",
                 )
                 self.assertEqual(result.etag, "complete")
                 self.assertEqual(
@@ -1737,7 +1711,12 @@ class SyncR2ClientTest(SimpleTestCase):
             with self.subTest(length=length):
                 requests.clear()
                 with self.assertRaises(ValueError):
-                    client.put("file.txt", iter([b"data"]), content_length=length)
+                    client.put(
+                        "file.txt",
+                        iter([b"data"]),
+                        content_length=length,
+                        strategy="multipart",
+                    )
                 self.assertEqual(
                     [request.method for request in requests], ["POST", "DELETE"]
                 )
