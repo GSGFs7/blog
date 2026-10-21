@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import asyncio
 import os
 import sys
@@ -8,7 +10,7 @@ from blake3 import blake3
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.r2 import AsyncR2Client, ObjectNotFound, PreconditionFailed
+from core.r2 import AsyncR2Client, ObjectNotFound, PreconditionFailed, SyncR2Client
 
 ROOT = Path(__file__).parent.parent
 
@@ -71,7 +73,48 @@ async def mp():
         await s.put(key, AStream(), strategy="multipart")
 
 
+def sf():
+    with SyncR2Client(
+        endpoint=os.getenv("STATIC_ASSET_ENDPOINT_URL", ""),
+        access_key=os.getenv("STATIC_ASSET_ACCESS_KEY_ID", ""),
+        secret_key=os.getenv("STATIC_ASSET_SECRET_ACCESS_KEY", ""),
+        bucket=os.getenv("STATIC_ASSET_BUCKET", ""),
+    ) as s:
+        fd = open(ROOT / "manage.py", "rb")
+        raw = fd.read()
+        fd.close()
+
+        key = "test/manage.py"
+        h = blake3(raw).hexdigest()
+
+        s.put(key, raw)
+
+        with s.get(key) as body:
+            assert blake3(body.read()).hexdigest() == h
+
+        assert (s.stat(key)).size == len(raw)
+
+        print((s.list(prefix="test")))
+
+        try:
+            s.put(key, raw, if_none_match="*")
+        except PreconditionFailed:
+            pass
+        else:
+            raise Exception("failed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+        s.delete(key)
+
+        try:
+            s.get(key)
+        except ObjectNotFound:
+            pass
+        else:
+            raise Exception("failed!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+
 if __name__ == "__main__":
     dotenv.load_dotenv()
     asyncio.run(f())
     asyncio.run(mp())
+    sf()

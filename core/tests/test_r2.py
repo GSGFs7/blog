@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from xml.etree import ElementTree
 
 import httpx2
@@ -22,7 +22,9 @@ from core.r2 import (
     RateLimited,
     SigV4Signer,
     StorageUnavailable,
+    SyncR2Client,
     _PutOptions,
+    _SyncUploadSource,
     _UploadCoordinator,
     _UploadedPart,
     _UploadPolicy,
@@ -33,8 +35,8 @@ from core.r2 import (
 
 
 class PublicApiTest(SimpleTestCase):
-    def test_sync_object_body_is_not_exported(self):
-        self.assertNotIn("SyncObjectBody", r2.__all__)
+    def test_sync_object_body_is_exported(self):
+        self.assertIn("SyncObjectBody", r2.__all__)
 
 
 class CRC64NVMeTest(SimpleTestCase):
@@ -1620,3 +1622,207 @@ class AsyncR2ClientTest(IsolatedAsyncioTestCase):
         assert crc64nvme(b"") == 0
         assert crc64nvme(b"123456789") == 0xAE8B14860A799888
         assert crc64nvme_base64(crc64nvme(b"123456789")) == "rosUhgp5mIg="
+
+
+class SyncUploadSourceTest(SimpleTestCase):
+    def test_rechunks_stream(self):
+        source = _SyncUploadSource(iter([b"ab", b"", b"cdefg", b"h"]), 8)
+        self.assertEqual(list(source.iter_parts(4)), [(1, b"abcd"), (2, b"efgh")])
+
+    def test_rejects_invalid_stream_data(self):
+        for chunks, length, error in (
+            ([b"data"], 5, ValueError),
+            ([b"too long"], 4, ValueError),
+            (["not bytes"], None, TypeError),
+        ):
+            with self.subTest(chunks=chunks, length=length):
+                with self.assertRaises(error):
+                    list(_SyncUploadSource(iter(chunks), length).iter_parts(4))
+
+
+class SyncR2ClientTest(SimpleTestCase):
+    def make_client(self, handler):
+        client = SyncR2Client(
+            "https://example.r2.cloudflarestorage.com",
+            "access",
+            "secret",
+            "bucket",
+            transport=httpx2.MockTransport(handler),
+        )
+        self.addCleanup(client.close)
+        return client
+
+    def test_single_upload(self):
+        def handler(request):
+            self.assertEqual(request.method, "PUT")
+            self.assertEqual(request.content, b"data")
+            self.assertEqual(request.headers["content-type"], "text/plain")
+            self.assertEqual(request.headers["x-amz-meta-name"], "value")
+            self.assertEqual(
+                request.headers["x-amz-checksum-crc64nvme"],
+                crc64nvme_base64(b"data"),
+            )
+            return httpx2.Response(200, headers={"etag": '"single"'})
+
+        result = self.make_client(handler).put(
+            "file.txt",
+            b"data",
+            content_type="text/plain",
+            metadata={"name": "value"},
+        )
+        self.assertEqual(result.etag, '"single"')
+
+    def test_multipart_stream_and_empty_upload(self):
+        for chunks in ([b"da", b"ta"], []):
+            with self.subTest(chunks=chunks):
+                requests = []
+                data = b"".join(chunks)
+
+                def handler(request):
+                    requests.append(request)
+                    if "uploads" in request.url.params:
+                        return httpx2.Response(
+                            200,
+                            content=(
+                                b"<InitiateMultipartUploadResult><UploadId>test</UploadId>"
+                                b"</InitiateMultipartUploadResult>"
+                            ),
+                        )
+                    if request.method == "PUT":
+                        self.assertEqual(request.content, data)
+                        return httpx2.Response(200, headers={"etag": '"part"'})
+                    self.assertEqual(request.headers["if-none-match"], "*")
+                    self.assertEqual(
+                        request.headers["x-amz-checksum-crc64nvme"],
+                        crc64nvme_base64(data),
+                    )
+                    root = ElementTree.fromstring(request.content)
+                    self.assertEqual(root.findtext("Part/ETag"), '"part"')
+                    return httpx2.Response(
+                        200,
+                        content=(
+                            b"<CompleteMultipartUploadResult><ETag>complete</ETag>"
+                            b"</CompleteMultipartUploadResult>"
+                        ),
+                    )
+
+                result = self.make_client(handler).put(
+                    "file.txt",
+                    iter(chunks),
+                    content_length=len(data),
+                    if_none_match="*",
+                )
+                self.assertEqual(result.etag, "complete")
+                self.assertEqual(
+                    [request.method for request in requests], ["POST", "PUT", "POST"]
+                )
+
+    def test_aborts_after_length_mismatch(self):
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            if request.method == "DELETE":
+                return httpx2.Response(204)
+            return httpx2.Response(
+                200,
+                content=(
+                    b"<InitiateMultipartUploadResult><UploadId>test</UploadId>"
+                    b"</InitiateMultipartUploadResult>"
+                ),
+            )
+
+        client = self.make_client(handler)
+        for length in (3, 5):
+            with self.subTest(length=length):
+                requests.clear()
+                with self.assertRaises(ValueError):
+                    client.put("file.txt", iter([b"data"]), content_length=length)
+                self.assertEqual(
+                    [request.method for request in requests], ["POST", "DELETE"]
+                )
+
+    def test_preserves_completion_error_when_abort_fails(self):
+        error = StorageUnavailable("completion failed")
+        session = Mock()
+        session.upload_part.return_value = r2._UploadedPart(1, '"part"')
+        session.complete.side_effect = error
+        session.abort.side_effect = StorageUnavailable("abort failed")
+        backend = Mock()
+        backend.begin_multipart.return_value = session
+        upload = r2._SyncUploadCoordinator.create(
+            backend,
+            r2._UploadPolicy(8, 5 * 1024**2),
+            "file.txt",
+            b"data",
+            None,
+            r2._PutOptions(),
+            "multipart",
+        )
+        with self.assertRaises(StorageUnavailable) as raised:
+            upload.run()
+        self.assertIs(raised.exception, error)
+        self.assertIn("multipart abort failed: abort failed", error.__notes__)
+        session.abort.assert_called_once_with()
+
+    def test_get_closes_stream_on_early_exit(self):
+        class Stream(httpx2.SyncByteStream):
+            closed = False
+
+            def __iter__(self):
+                yield b"first"
+                yield b"second"
+
+            def close(self):
+                self.closed = True
+
+        stream = Stream()
+        client = self.make_client(lambda request: httpx2.Response(200, stream=stream))
+        with client.get("file.txt") as body:
+            chunks = body.iter_bytes(5)
+            self.assertEqual(next(chunks), b"first")
+            self.assertFalse(stream.closed)
+        self.assertTrue(stream.closed)
+
+    def test_maps_get_errors(self):
+        for status, error in (
+            (404, ObjectNotFound),
+            (304, ObjectNotModified),
+            (403, AuthenticationFailed),
+        ):
+            with self.subTest(status=status):
+                response = httpx2.Response(status)
+                client = self.make_client(lambda request: response)
+                with self.assertRaises(error):
+                    client.get("file.txt")
+                self.assertTrue(response.is_closed)
+
+    def test_closes_owned_client(self):
+        client = self.make_client(lambda request: httpx2.Response(200))
+        with client:
+            self.assertFalse(client.client.is_closed)
+        self.assertTrue(client.client.is_closed)
+
+    def test_leaves_external_client_open(self):
+        with httpx2.Client(
+            transport=httpx2.MockTransport(lambda request: httpx2.Response(200))
+        ) as http_client:
+            with SyncR2Client(
+                "https://example.com", "access", "secret", "bucket", client=http_client
+            ):
+                pass
+            self.assertFalse(http_client.is_closed)
+
+    def test_rejects_invalid_endpoints(self):
+        for endpoint in (
+            "http://example.com",
+            "https://user:password@example.com",
+            "https://example.com/base",
+            "https://example.com?region=auto",
+            "https://example.com#fragment",
+            "https://example.com:invalid",
+            " https://example.com",
+        ):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(ValueError):
+                    SyncR2Client(endpoint, "access", "secret", "bucket")
