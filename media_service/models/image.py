@@ -658,6 +658,17 @@ class Image(BaseModel):
                 "mime_type": res_meta.mime_type,
             },
         )
+
+        # if the img has been deleted but resource record exist, re-upload it
+        if not created and not img_res.file.storage.exists(img_res.file.name):
+            cleaned_io.seek(0)
+            stored_name = img_res.file.storage.save(
+                img_res.file.name, File(cleaned_io, name=filename)
+            )
+            if stored_name != img_res.file.name:
+                img_res.file.name = stored_name
+                img_res.save(update_fields=["file"])
+
         img = cls.objects.create(
             resource=img_res,
             original_name=filename,
