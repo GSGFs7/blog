@@ -32,7 +32,7 @@
     "input": "<div class=\"directive terminal\" shell=\"python\"></div>",
     "terminal": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;&gt;&gt;&gt; &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>",
     "solid": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;&gt;&gt;&gt; &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>",
-    "sanitized": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;>>> &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>"
+    "sanitized": "<div class=\"terminal\" data-shell=\"python\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;&gt;&gt;&gt; &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div></div>"
   },
   {
     "name": "non_terminal",

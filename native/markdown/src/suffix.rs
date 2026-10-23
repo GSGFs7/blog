@@ -27,6 +27,7 @@ pub(crate) fn rewrite(
     let html = terminal::rewrite(&html)?;
     let html = solid_island::rewrite(&html)?;
     let html = sanitizer::sanitize(&html);
+    let html = image_optimizer::inject_placeholders(&html, images)?;
     match music_placeholder {
         Some(placeholder) => solid_island::inject_music_placeholder(&html, placeholder),
         None => Ok(html),
@@ -36,6 +37,76 @@ pub(crate) fn rewrite(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_validated_image_placeholders_after_sanitizing_user_html() {
+        let checksum = "a".repeat(64);
+        let images = HashMap::from([(
+            checksum.clone(),
+            ImageMetadata {
+                src: "/media/image.jpg?v=1&size=2".to_owned(),
+                avif_src: None,
+                webp_src: None,
+                width: None,
+                height: None,
+                placeholder: Some("data:image/webp;base64,eA==".to_owned()),
+            },
+        )]);
+        let html = format!(
+            r#"<img src="{checksum}" class="custom" onerror="bad()" style="width:10px;position:fixed"><img src="https://evil.example/{checksum}.jpg" class="image-placeholder" style="background-image:url(data:image/webp;base64,AAAA)"><a href="data:text/html,boom">link</a>"#
+        );
+
+        let rewritten = rewrite(&html, &images, &[], None).unwrap();
+
+        assert!(rewritten.contains("src=\"/media/image.jpg?v=1&amp;size=2\""));
+        assert!(rewritten.contains("class=\"custom image-placeholder\""));
+        assert!(rewritten.contains(
+            "width:10px;background-image:url(data:image/webp;base64,eA==);background-size:cover"
+        ));
+        assert_eq!(rewritten.matches("data:image/").count(), 1);
+        for forbidden in ["bad()", "position:", "data:text/html", "AAAA"] {
+            assert!(!rewritten.contains(forbidden), "{rewritten}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_placeholder_metadata() {
+        let checksum = "a".repeat(64);
+        for placeholder in [
+            "data:text/html;base64,eA==",
+            "data:image/svg+xml;base64,eA==",
+            "https://evil.example/image.png",
+            "data:image/webp;base64,eA==);position:fixed",
+            "data:image/webp;base64,eA==\" onerror=\"bad()",
+            "data:image/webp;base64,eA==\n",
+            "data:image/webp;base64,",
+            "data:image/webp;base64,eA===",
+        ] {
+            let images = HashMap::from([(
+                checksum.clone(),
+                ImageMetadata {
+                    src: "/media/image.jpg".to_owned(),
+                    avif_src: None,
+                    webp_src: None,
+                    width: None,
+                    height: None,
+                    placeholder: Some(placeholder.to_owned()),
+                },
+            )]);
+            let rewritten = rewrite(
+                &format!(r#"<img src="{checksum}" style="width:10px">"#),
+                &images,
+                &[],
+                None,
+            )
+            .unwrap();
+
+            assert!(rewritten.contains("src=\"/media/image.jpg\""));
+            assert!(rewritten.contains("style=\"width:10px\""));
+            assert!(!rewritten.contains("image-placeholder"), "{placeholder}");
+            assert!(!rewritten.contains("background-image"), "{placeholder}");
+        }
+    }
 
     #[test]
     fn inserts_trusted_music_placeholder_after_sanitizing_user_html() {

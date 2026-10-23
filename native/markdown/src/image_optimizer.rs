@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use html_escape::decode_html_entities;
 use lol_html::errors::RewritingError;
 use lol_html::html_content::{ContentType, Element};
 use lol_html::{HandlerResult, RewriteStrSettings, element, rewrite_str};
@@ -11,6 +12,62 @@ use crate::types::ImageMetadata;
 static CHECKSUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-f0-9]{64}$").unwrap());
 static CHECKSUM_FILENAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([a-f0-9]{64})\.[A-Za-z0-9]+$").unwrap());
+static SAFE_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\Adata:image/(?:avif|gif|jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}\z")
+        .unwrap()
+});
+
+pub(crate) fn inject_placeholders(
+    html: &str,
+    images: &HashMap<String, ImageMetadata>,
+) -> Result<String, RewritingError> {
+    let placeholders: HashMap<_, _> = images
+        .values()
+        .filter_map(|image| {
+            let placeholder = image.placeholder.as_deref()?;
+            SAFE_PLACEHOLDER
+                .is_match(placeholder)
+                .then_some((image.src.as_str(), placeholder))
+        })
+        .collect();
+    if placeholders.is_empty() {
+        return Ok(html.to_owned());
+    }
+    rewrite_str(
+        html,
+        RewriteStrSettings::new().append_element_content_handler(element!(
+            "img[src]",
+            |element: &mut Element<'_, '_>| {
+                let src = element.get_attribute("src").unwrap();
+                let src = decode_html_entities(&src);
+                let Some(placeholder) = placeholders.get(src.as_ref()) else {
+                    return Ok(());
+                };
+
+                let style = element.get_attribute("style").unwrap_or_default();
+                let style = decode_html_entities(&style);
+                let separator = if style.is_empty() { "" } else { ";" };
+                let style = format!(
+                    "{style}{separator}background-image:url({placeholder});background-size:cover"
+                );
+                element.set_attribute("style", &crate::rewriter::escape_html(&style))?;
+
+                let class = element.get_attribute("class").unwrap_or_default();
+                let class = decode_html_entities(&class);
+                if !class
+                    .split_whitespace()
+                    .any(|name| name == "image-placeholder")
+                {
+                    element.set_attribute(
+                        "class",
+                        &crate::rewriter::escape_html(format!("{class} image-placeholder").trim()),
+                    )?;
+                }
+                Ok(())
+            }
+        )),
+    )
+}
 
 pub(crate) fn rewrite(
     html: &str,
@@ -69,22 +126,6 @@ fn rewrite_image(
         && element.get_attribute("height").is_none()
     {
         element.set_attribute("height", &height.to_string())?;
-    }
-    if let Some(placeholder) = image.placeholder.as_deref() {
-        let style = format!(
-            "{} background-image: url({placeholder}); background-size: cover;",
-            element.get_attribute("style").unwrap_or_default()
-        )
-        .trim()
-        .to_owned();
-        element.set_attribute("style", &style)?;
-        let class = format!(
-            "{} image-placeholder",
-            element.get_attribute("class").unwrap_or_default()
-        )
-        .trim()
-        .to_owned();
-        element.set_attribute("class", &class)?;
     }
 
     let mut sources = String::new();
@@ -157,8 +198,11 @@ mod tests {
         )));
         assert_eq!(rewritten.matches("width=\"640\"").count(), 3);
         assert_eq!(rewritten.matches("height=\"480\"").count(), 3);
-        assert_eq!(rewritten.matches("image-placeholder").count(), 3);
-        assert!(sanitize(&rewritten).contains("data:image/webp;base64,eA=="));
+        let cleaned = sanitize(&rewritten);
+        assert!(!cleaned.contains("data:image/webp;base64,eA=="));
+        let finished = inject_placeholders(&cleaned, &images).unwrap();
+        assert_eq!(finished.matches("image-placeholder").count(), 3);
+        assert_eq!(finished.matches("data:image/webp;base64,eA==").count(), 3);
     }
 
     #[test]

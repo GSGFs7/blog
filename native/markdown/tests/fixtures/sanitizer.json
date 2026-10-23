@@ -27,7 +27,7 @@
   {
     "name": "safe_image_style",
     "input": "<img src=\"safe.png\" style=\"background-image:url(data:image/webp;base64,eA==);background-size:cover;width:1px\">",
-    "expected": "<img src=\"safe.png\" style=\"background-image:url(data:image/webp;base64,eA==);background-size:cover;width:1px\">"
+    "expected": "<img src=\"safe.png\" style=\"background-size:cover;width:1px\">"
   },
   {
     "name": "checkbox",

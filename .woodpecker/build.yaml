@@ -1,5 +1,6 @@
 depends_on:
   - test
+  - audit
 
 # specify an agent run the pipline which has this label
 labels:

@@ -1,0 +1,5 @@
+overrides:
+  monaco-editor@0.57.0>dompurify: 3.4.17
+
+patchedDependencies:
+  monaco-editor@0.57.0: patches/monaco-editor@0.57.0.patch
