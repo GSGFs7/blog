@@ -40,7 +40,7 @@
 //!     "[^named]: first line\n",
 //!     "    second line",
 //! );
-//! let html = md.parse(input).render();
+//! let html = md.render(input);
 //!
 //! assert!(html.contains(r##"href="#fn1""##));
 //! assert!(html.contains(r##"href="#fn2""##));
@@ -49,23 +49,31 @@
 //! ```
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
+use crate::MarkdownIt;
+use crate::common::extset::RootExtSet;
 use crate::common::utils::normalize_reference;
+use crate::document::{Document, NodeId, NodeRef};
 use crate::parser::block::{BlockRule, BlockState};
-use crate::parser::core::CoreRule;
+use crate::parser::core::{CoreRule, CoreState};
 use crate::parser::inline::{InlineRule, InlineState};
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{
+    EmptyRenderer,
+    NodeRenderer,
+    PlainTextBlockRenderer,
+    RenderContext,
+    Writer,
+    write_html_close,
+    write_html_open,
+    write_html_self_close,
+    write_html_text,
+};
 
 // [^1]: somthing
 #[derive(Debug)]
 struct FootnoteDefinition {
     normalized: String,
-}
-
-impl NodeValue for FootnoteDefinition {
-    fn render(&self, _node: &Node, _fmt: &mut dyn Renderer) {
-        // it empty
-    }
 }
 
 // something[^1]
@@ -75,68 +83,14 @@ struct FootnoteReference {
     sub_id: usize,
 }
 
-impl NodeValue for FootnoteReference {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let mut attrs = node.attrs.clone();
-        attrs.push(("class".into(), "footnote-ref".into()));
-
-        fmt.open("sup", &attrs);
-        fmt.open(
-            "a",
-            &[
-                (
-                    "href".into(),
-                    "#".to_string() + footnote_id(self.number).as_str(),
-                ),
-                ("id".into(), footnote_ref_id(self.number, self.sub_id)),
-            ],
-        );
-        fmt.text(&format!("[{}]", self.number));
-        fmt.close("a");
-        fmt.close("sup");
-    }
-}
-
 // rendered footnote definition at the bottom of HTML
 #[derive(Debug)]
 struct FootnoteSection;
-
-impl NodeValue for FootnoteSection {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.cr();
-        fmt.self_close("hr", &[("class".into(), "footnotes-sep".into())]);
-        fmt.cr();
-        fmt.open("section", &[("class".into(), "footnotes".into())]);
-        fmt.cr();
-        fmt.open("ol", &[("class".into(), "footnotes-list".into())]);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("ol");
-        fmt.cr();
-        fmt.close("section");
-        fmt.cr();
-    }
-}
 
 // rendered footnote reference
 #[derive(Debug)]
 struct FootnoteItem {
     number: usize,
-}
-
-impl NodeValue for FootnoteItem {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let attrs = [
-            ("id".into(), footnote_id(self.number)),
-            ("class".into(), "footnote-item".into()),
-        ];
-
-        fmt.open("li", &attrs);
-        fmt.contents(&node.children);
-        fmt.close("li");
-        fmt.cr();
-    }
 }
 
 #[derive(Debug)]
@@ -145,193 +99,38 @@ struct FootnoteBackref {
     sub_id: usize,
 }
 
-impl NodeValue for FootnoteBackref {
-    fn render(&self, _node: &Node, fmt: &mut dyn Renderer) {
-        fmt.text(" ");
-        fmt.open(
-            "a",
-            &[
-                (
-                    "href".into(),
-                    format!("#{}", footnote_ref_id(self.number, self.sub_id)),
-                ),
-                ("class".into(), "footnote-backref".into()),
-            ],
-        );
-        // a arrow
-        fmt.text_raw("&#8617;");
-        fmt.close("a");
-    }
-}
-
 // --- scanner ---
 
 const FOOTNOTE_INDENT: i32 = 4;
 
 struct FootnoteDefinitionScanner;
 
-impl BlockRule for FootnoteDefinitionScanner {
-    const NAMES: &'static [&'static str] = &["footnote_definition"];
-
-    fn check(state: &mut BlockState) -> Option<()> {
-        scan_footnote_definition(state).map(|_| ())
-    }
-
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
-        let (_label, normalized, content_source_offset) = scan_footnote_definition(state)?;
-
-        let env = state.root_ext.get_or_insert_default::<FootnoteEnv>();
-        env.defined.insert(normalized.clone());
-
-        let start_line = state.line;
-        let end_line = find_footnote_definition_end(state, start_line);
-        let old_node = std::mem::replace(
-            &mut state.node,
-            Node::new(FootnoteDefinition { normalized }),
-        );
-        let old_line_offset = state.line_offsets[start_line].clone();
-        let old_blk_indent = state.blk_indent;
-        let old_line_max = state.line_max;
-
-        state.blk_indent += FOOTNOTE_INDENT as usize;
-        state.line_offsets[start_line].first_nonspace = content_source_offset;
-        state.line_offsets[start_line].indent_nonspace = state.blk_indent as i32;
-        state.line = start_line;
-        state.line_max = end_line;
-
-        state.md.block.tokenize_nested(state);
-        let next_line = state.line;
-
-        state.line = start_line;
-        state.line_max = old_line_max;
-        state.blk_indent = old_blk_indent;
-        state.line_offsets[start_line] = old_line_offset;
-
-        let node = std::mem::replace(&mut state.node, old_node);
-        Some((node, next_line - start_line))
-    }
-}
-
-struct FootnoteReferenceScanner;
-
-impl InlineRule for FootnoteReferenceScanner {
-    const MARKER: char = '[';
-    const NAMES: &'static [&'static str] = &["footnote_reference"];
-
-    fn check(state: &mut InlineState) -> Option<usize> {
-        scan_footnote_reference(state).map(|(_, _, len)| len)
-    }
-
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        let (_label, normalized, len) = scan_footnote_reference(state)?;
-
-        let env = state.root_ext.get_mut::<FootnoteEnv>()?;
-
-        let number = match env.numbers.get(&normalized).copied() {
-            Some(number) => number,
-            None => {
-                let number = env.order.len() + 1;
-                env.order.push(normalized.clone());
-                env.numbers.insert(normalized.clone(), number);
-                number
-            }
-        };
-
-        let count = env.ref_counts.entry(normalized.clone()).or_insert(0);
-        *count += 1;
-
-        let node = Node::new(FootnoteReference {
-            number,
-            sub_id: *count,
-        });
-
-        Some((node, len))
-    }
-}
+pub(crate) struct FootnoteReferenceScanner;
 
 // ^[inline note]
-struct FootnoteInlineScanner;
+pub(crate) struct FootnoteInlineScanner;
 
-impl InlineRule for FootnoteInlineScanner {
-    const MARKER: char = '^';
-    const NAMES: &'static [&'static str] = &["footnote_inline"];
-
-    fn check(state: &mut InlineState) -> Option<usize> {
-        scan_inline_footnote(state).map(|(_, _, len)| len)
-    }
-
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        let (content_start, content_end, len) = scan_inline_footnote(state)?;
-
-        let env = state.root_ext.get_or_insert_default::<FootnoteEnv>();
-        let number = env.order.len() + 1;
-        let normalized = format!("\0inline:{}", number);
-
-        env.defined.insert(normalized.clone());
-        env.order.push(normalized.clone());
-        env.numbers.insert(normalized.clone(), number);
-        env.ref_counts.insert(normalized.clone(), 1);
-
-        let mut definition = Node::new(FootnoteDefinition { normalized });
-        definition.children.push(parse_inline_footnote_content(
-            state,
-            content_start,
-            content_end,
-        ));
-
-        let mut reference = Node::new(FootnoteReference { number, sub_id: 1 });
-        reference.children.push(definition);
-
-        Some((reference, len))
-    }
-}
-
+#[derive(Default)]
 struct FootnoteFinalizeRule;
 
 impl CoreRule for FootnoteFinalizeRule {
     const NAMES: &'static [&'static str] = &["footnote_tail"];
 
-    fn run(root: &mut Node, _md: &MarkdownIt) {
-        let Some(env) = root
-            .cast::<crate::parser::core::Root>()
-            .unwrap()
-            .ext
-            .get::<FootnoteEnv>()
-        else {
-            // if not found, skip
-            return;
-        };
+    fn run(&self, state: &mut CoreState<'_>) {
+        state.with_root_ext(|document, ext| finalize_footnotes(document, ext));
+    }
+}
 
-        let order = env.order.clone();
-        let numbers = env.numbers.clone();
-        let ref_counts = env.ref_counts.clone();
+/// Ensures [`SharedFootnoteEnv`] exists even for inline-only documents, where
+/// the block rule never creates it.
+#[derive(Default)]
+struct FootnotePreparation;
 
-        let mut definitions = HashMap::<String, Vec<Node>>::new();
-        collect_footnote_definitions(&mut root.children, &mut definitions);
-        // not any defs
-        if order.is_empty() {
-            return;
-        }
-
-        let mut section = Node::new(FootnoteSection);
-        for normalized in order {
-            let Some(children) = definitions.remove(&normalized) else {
-                continue;
-            };
-            let Some(number) = numbers.get(&normalized).copied() else {
-                continue;
-            };
-            let refs = ref_counts.get(&normalized).copied().unwrap_or(1);
-
-            let mut item = Node::new(FootnoteItem { number });
-            item.children = children;
-            add_backrefs(&mut item, number, refs);
-            section.children.push(item);
-        }
-
-        if !section.children.is_empty() {
-            root.children.push(section);
-        }
+impl CoreRule for FootnotePreparation {
+    fn run(&self, state: &mut CoreState<'_>) {
+        state
+            .root_ext_mut()
+            .get_or_insert_default::<SharedFootnoteEnv>();
     }
 }
 
@@ -345,16 +144,182 @@ struct FootnoteEnv {
     /// O(1) index for order
     numbers: HashMap<String, usize>,
     ref_counts: HashMap<String, usize>,
+    scans: FootnoteScans,
 }
 
-// --- helper method ---
+/// Shared scan state. Never locked across child parsing; owns the source
+/// identity because inline buffers may be freed and reused.
+#[derive(Debug, Clone, Default)]
+struct FootnoteScans(Arc<Mutex<FootnoteScanState>>);
 
-fn scan_footnote_definition(state: &mut BlockState) -> Option<(String, String, usize)> {
-    if state.line_indent(state.line) >= state.md.max_indent {
-        return None;
+#[derive(Debug, Default)]
+struct FootnoteScanState {
+    source: String,
+    ends: HashMap<(usize, usize, u32, i32, u32), Option<usize>>,
+    scan_depth: u32,
+    content_depth: u32,
+    steps: usize,
+    #[cfg(test)]
+    misses: usize,
+}
+
+struct FootnoteDepthGuard {
+    scans: FootnoteScans,
+    content: bool,
+}
+
+struct FootnoteScanGuard {
+    depth: FootnoteDepthGuard,
+    key: (usize, usize, u32, i32, u32),
+}
+
+impl FootnoteScanGuard {
+    fn finish(self, end: Option<usize>) -> Option<usize> {
+        self.depth
+            .scans
+            .0
+            .lock()
+            .unwrap()
+            .ends
+            .insert(self.key, end);
+        end
+    }
+}
+
+impl Drop for FootnoteDepthGuard {
+    fn drop(&mut self) {
+        let mut state = self.scans.0.lock().unwrap();
+        if self.content {
+            state.content_depth -= 1;
+        } else {
+            state.scan_depth -= 1;
+        }
+    }
+}
+
+impl FootnoteScans {
+    // Bounds recursion even when callers raise `max_nesting`.
+    const MAX_DEPTH: u32 = 64;
+    const STEPS_PER_BYTE: usize = 32;
+
+    fn enter_content(&self, max_nesting: u32) -> Option<FootnoteDepthGuard> {
+        let mut state = self.0.lock().unwrap();
+        if state.content_depth >= max_nesting.min(Self::MAX_DEPTH) {
+            return None;
+        }
+        state.content_depth += 1;
+        Some(FootnoteDepthGuard {
+            scans: self.clone(),
+            content: true,
+        })
     }
 
-    let line = state.get_line(state.line);
+    fn begin(
+        &self,
+        source: &str,
+        window: (usize, usize, u32, i32),
+        max_nesting: u32,
+    ) -> Result<Option<usize>, FootnoteScanGuard> {
+        let key;
+        {
+            let mut state = self.0.lock().unwrap();
+            if state.source != source {
+                state.source = source.to_owned();
+                state.ends.clear();
+                state.steps = 0;
+                #[cfg(test)]
+                {
+                    state.misses = 0;
+                }
+            }
+            let available = max_nesting
+                .min(Self::MAX_DEPTH)
+                .saturating_sub(state.scan_depth + state.content_depth);
+            key = (window.0, window.1, window.2, window.3, available);
+            if let Some(end) = state.ends.get(&key) {
+                return Ok(*end);
+            }
+            // Rejected checks count too: other rules may retry after the limit.
+            if state.steps >= source.len().saturating_mul(Self::STEPS_PER_BYTE) {
+                return Ok(None);
+            }
+            state.steps += 1;
+            if available == 0 {
+                return Ok(None);
+            }
+            state.scan_depth += 1;
+            #[cfg(test)]
+            {
+                state.misses += 1;
+            }
+        }
+        Err(FootnoteScanGuard {
+            depth: FootnoteDepthGuard {
+                scans: self.clone(),
+                content: false,
+            },
+            key,
+        })
+    }
+
+    fn step(&self) -> Option<()> {
+        let mut state = self.0.lock().unwrap();
+        if state.steps >= state.source.len().saturating_mul(Self::STEPS_PER_BYTE) {
+            return None;
+        }
+        state.steps += 1;
+        Some(())
+    }
+
+    fn exhausted(&self) -> bool {
+        let state = self.0.lock().unwrap();
+        !state.source.is_empty()
+            && state.steps >= state.source.len().saturating_mul(Self::STEPS_PER_BYTE)
+    }
+
+    fn clear_cache(&self) {
+        let mut state = self.0.lock().unwrap();
+        state.source = String::new();
+        state.ends = HashMap::new();
+    }
+}
+
+/// Cross-block footnote state for the direct parser. Inline rules only get a
+/// shared `&RootExtSet`, so numbering state sits behind a mutex; the lock is
+/// never held while parsing children.
+#[derive(Debug, Default)]
+struct SharedFootnoteEnv(Mutex<FootnoteEnv>);
+
+fn allocate_reference(env: &mut FootnoteEnv, normalized: &str) -> (usize, usize) {
+    let number = match env.numbers.get(normalized).copied() {
+        Some(number) => number,
+        None => {
+            let number = env.order.len() + 1;
+            env.order.push(normalized.to_owned());
+            env.numbers.insert(normalized.to_owned(), number);
+            number
+        }
+    };
+
+    let count = env.ref_counts.entry(normalized.to_owned()).or_insert(0);
+    *count += 1;
+    (number, *count)
+}
+
+fn allocate_inline(env: &mut FootnoteEnv) -> (String, usize) {
+    let number = env.order.len() + 1;
+    let normalized = format!("\0inline:{}", number);
+    env.defined.insert(normalized.clone());
+    env.order.push(normalized.clone());
+    env.numbers.insert(normalized.clone(), number);
+    env.ref_counts.insert(normalized.clone(), 1);
+    // A new definition can change reference probing, so start a fresh scan
+    // budget; repeated paragraphs then don't inherit earlier work.
+    env.scans.clear_cache();
+    (normalized, number)
+}
+
+fn scan_definition_line(line: &str) -> Option<(String, String, usize)> {
     // "[^x]: something"
     // -^^
     if !line.starts_with("[^") {
@@ -391,22 +356,25 @@ fn scan_footnote_definition(state: &mut BlockState) -> Option<(String, String, u
         content_start += 1;
     }
 
-    let content_source_offset = state.line_offsets[state.line].first_nonspace + content_start;
-
-    Some((label, normalized, content_source_offset))
+    Some((label, normalized, content_start))
 }
 
-fn find_footnote_definition_end(state: &BlockState, start_line: usize) -> usize {
+fn definition_end(
+    start_line: usize,
+    line_max: usize,
+    is_empty: impl Fn(usize) -> bool,
+    line_indent: impl Fn(usize) -> i32,
+) -> usize {
     let mut line = start_line + 1;
     let mut end_line = start_line + 1;
 
-    while line < state.line_max {
-        if state.is_empty(line) {
+    while line < line_max {
+        if is_empty(line) {
             line += 1;
             continue;
         }
 
-        if state.line_indent(line) < FOOTNOTE_INDENT {
+        if line_indent(line) < FOOTNOTE_INDENT {
             break;
         }
 
@@ -417,146 +385,41 @@ fn find_footnote_definition_end(state: &BlockState, start_line: usize) -> usize 
     end_line
 }
 
-fn scan_footnote_reference(state: &mut InlineState) -> Option<(String, String, usize)> {
-    let rest = &state.src[state.pos..state.pos_max];
+fn parse_reference_label(rest: &str, defined: &HashSet<String>) -> Option<(String, String, usize)> {
     // something[^x]
     // ---------^^
     if !rest.starts_with("[^") {
         return None;
     }
 
-    let label_start = state.pos + 2;
-    let mut label_end = None;
     // something[^x]
     // -----------^  (find this)
-    for (offset, ch) in state.src[label_start..state.pos_max].char_indices() {
-        match ch {
-            // found the end
-            ']' => {
-                label_end = Some(label_start + offset);
-                break;
-            }
-            // something[^x
-            // ]
-            //
-            // the above method not allowed
-            '\n' => return None,
-            _ => {}
-        }
+    let end = rest[2..].find(['\n', ']'])? + 2;
+    // something[^x
+    // ]
+    //
+    // the above method not allowed
+    if rest.as_bytes().get(end) != Some(&b']') {
+        return None;
     }
-
-    let label_end = label_end?;
     // something[^x]
     // -----------^  (empty)
-    if label_end == label_start {
+    if end == 2 {
         return None;
     }
 
-    let label = state.src[label_start..label_end].to_owned();
+    let label = rest[2..end].to_owned();
     let normalized = normalize_reference(&label);
     // something[^x]
     // -----------^  (empty)
     if normalized.is_empty() {
         return None;
     }
-
-    let env = state.root_ext.get::<FootnoteEnv>()?;
-    if !env.defined.contains(&normalized) {
+    if !defined.contains(&normalized) {
         return None;
     }
 
-    Some((label, normalized, label_end + 1 - state.pos))
-}
-
-fn scan_inline_footnote(state: &mut InlineState) -> Option<(usize, usize, usize)> {
-    let rest = &state.src[state.pos..state.pos_max];
-    // something^[note]
-    // ---------^^
-    if !rest.starts_with("^[") {
-        return None;
-    }
-
-    let start = state.pos;
-    let content_start = start + 2;
-    let old_pos = state.pos;
-    // square brackets nest level
-    let mut level = 1;
-    let mut content_end = None;
-
-    state.pos = content_start;
-
-    // find ']'
-    while let Some(ch) = state.src[state.pos..state.pos_max].chars().next() {
-        if ch == ']' {
-            level -= 1;
-            if level == 0 {
-                // all closed
-                content_end = Some(state.pos);
-                break;
-            }
-        }
-
-        let prev_pos = state.pos;
-        // skip entire token, such as "[text](url)"
-        state.md.inline.skip_token(state);
-        // if it's a normal '['
-        if ch == '[' && prev_pos == state.pos - 1 {
-            level += 1;
-        }
-    }
-
-    state.pos = old_pos;
-
-    let content_end = content_end?;
-    if content_end == content_start {
-        return None;
-    }
-
-    Some((content_start, content_end, content_end + 1 - start))
-}
-
-fn parse_inline_footnote_content(
-    state: &mut InlineState,
-    content_start: usize,
-    content_end: usize,
-) -> Node {
-    let mut paragraph = Node::new(crate::plugins::cmark::block::paragraph::Paragraph);
-    paragraph.srcmap = state.get_map(content_start, content_end);
-
-    let old_node = std::mem::replace(&mut state.node, paragraph);
-    let old_pos = state.pos;
-    let old_pos_max = state.pos_max;
-
-    state.pos = content_start;
-    state.pos_max = content_end;
-    state.md.inline.tokenize(state);
-
-    state.pos = old_pos;
-    state.pos_max = old_pos_max;
-
-    std::mem::replace(&mut state.node, old_node)
-}
-
-fn collect_footnote_definitions(
-    nodes: &mut Vec<Node>,
-    definitions: &mut HashMap<String, Vec<Node>>,
-) {
-    let mut idx = 0;
-    while idx < nodes.len() {
-        if let Some(definition) = nodes[idx].cast::<FootnoteDefinition>() {
-            // if find defs
-            let normalized = definition.normalized.clone();
-            let mut node = nodes.remove(idx);
-            collect_footnote_definitions(&mut node.children, definitions);
-            definitions
-                .entry(normalized)
-                .or_insert_with(|| std::mem::take(&mut node.children));
-        } else {
-            collect_footnote_definitions(&mut nodes[idx].children, definitions);
-            // find all children nodes
-            idx += 1;
-        }
-    }
+    Some((label, normalized, end + 1))
 }
 
 fn footnote_id(number: usize) -> String {
@@ -571,28 +434,479 @@ fn footnote_ref_id(number: usize, sub_id: usize) -> String {
     }
 }
 
-fn add_backrefs(item: &mut Node, number: usize, refs: usize) {
-    let last_child_is_paragraph = item
-        .children
-        .last()
-        .is_some_and(|node| node.is::<crate::plugins::cmark::block::paragraph::Paragraph>());
+// --- direct parser implementation ---
 
-    if last_child_is_paragraph {
-        let container = &mut item.children.last_mut().unwrap().children;
-        for sub_id in 1..=refs {
-            container.push(Node::new(FootnoteBackref { number, sub_id }));
+fn scan_definition(state: &BlockState<'_>) -> Option<(String, String, usize)> {
+    if state.line_indent(state.line) >= state.md.max_indent {
+        return None;
+    }
+    let (label, normalized, content_start) = scan_definition_line(state.get_line(state.line))?;
+    Some((
+        label,
+        normalized,
+        state.line_offsets[state.line].first_nonspace + content_start,
+    ))
+}
+
+impl BlockRule for FootnoteDefinitionScanner {
+    const MARKERS: &'static [char] = &['['];
+    const NAMES: &'static [&'static str] = &["footnote_definition"];
+    fn check(state: &mut BlockState<'_>) -> Option<()> {
+        // Runs during paragraph-interruption tests, so it must stay pure.
+        scan_definition(state).map(|_| ())
+    }
+
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let (_label, normalized, content_source_offset) = scan_definition(state)?;
+
+        state
+            .root_ext
+            .get_or_insert_default::<SharedFootnoteEnv>()
+            .0
+            .lock()
+            .unwrap()
+            .defined
+            .insert(normalized.clone());
+
+        let start_line = state.line;
+        let end_line = definition_end(
+            start_line,
+            state.line_max,
+            |line| state.is_empty(line),
+            |line| state.line_indent(line),
+        );
+
+        let old_node = std::mem::replace(
+            &mut state.node,
+            state
+                .document
+                .create_node(FootnoteDefinition { normalized }),
+        );
+        let old_line_offset = state.line_offsets[start_line].clone();
+        let old_blk_indent = state.blk_indent;
+        let old_line_max = state.line_max;
+
+        state.blk_indent += FOOTNOTE_INDENT as usize;
+        state.line_offsets[start_line].first_nonspace = content_source_offset;
+        state.line_offsets[start_line].content_start = content_source_offset;
+        state.line_offsets[start_line].indent_nonspace = state.blk_indent as i32;
+        state.line = start_line;
+        state.line_max = end_line;
+
+        state.tokenize_nested();
+        let next_line = state.line;
+
+        state.line = start_line;
+        state.line_max = old_line_max;
+        state.blk_indent = old_blk_indent;
+        state.line_offsets[start_line] = old_line_offset;
+
+        let node = std::mem::replace(&mut state.node, old_node);
+        Some((Some(node), next_line - start_line))
+    }
+}
+
+impl InlineRule for FootnoteReferenceScanner {
+    const MARKER: char = '[';
+    const NAMES: &'static [&'static str] = &["footnote_reference"];
+
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let env = state.root_ext?.get::<SharedFootnoteEnv>()?;
+        let mut env = env.0.lock().unwrap();
+        let (_, normalized, len) = parse_reference_label(state.remaining(), &env.defined)?;
+        let (number, sub_id) = allocate_reference(&mut env, &normalized);
+        Some((
+            Some(
+                state
+                    .document
+                    .create_node(FootnoteReference { number, sub_id }),
+            ),
+            len,
+        ))
+    }
+
+    fn check(context: &mut InlineState<'_>) -> Option<usize> {
+        let env = context.root_ext?.get::<SharedFootnoteEnv>()?;
+        let env = env.0.lock().unwrap();
+        parse_reference_label(context.remaining(), &env.defined).map(|(_, _, len)| len)
+    }
+}
+
+/// Find the matching `]` for an inline footnote, returning its offset from
+/// the content start.
+fn scan_inline_footnote_end(mut context: InlineState<'_>) -> Option<usize> {
+    let scans = context
+        .root_ext?
+        .get::<SharedFootnoteEnv>()?
+        .0
+        .lock()
+        .unwrap()
+        .scans
+        .clone();
+    let (source, start, end) = (&context.src, context.pos, context.pos_max);
+    match scans.begin(
+        source,
+        (start, end, context.depth, context.link_level),
+        context.markdown_it().max_nesting,
+    ) {
+        Ok(end) => end,
+        Err(guard) => guard.finish(scan_footnote_end(&mut context, &scans)),
+    }
+}
+
+fn scan_footnote_end(context: &mut InlineState<'_>, scans: &FootnoteScans) -> Option<usize> {
+    let initial_len = context.remaining().len();
+    // square brackets nest level
+    let mut level = 1usize;
+    // find ']'
+    while let Some(ch) = context.remaining().chars().next() {
+        scans.step()?;
+        let before = context.remaining().len();
+        if ch == ']' {
+            level -= 1;
+            if level == 0 {
+                // all closed
+                return Some(initial_len - before);
+            }
         }
+
+        // skip entire token, such as "[text](url)"
+        context.skip_token()?;
+
+        let consumed = before - context.remaining().len();
+        // A bare `[` opens a nested bracket; tokenized brackets are opaque.
+        if ch == '[' && consumed == 1 {
+            level += 1;
+        }
+    }
+    None
+}
+
+impl InlineRule for FootnoteInlineScanner {
+    const MARKER: char = '^';
+    const NAMES: &'static [&'static str] = &["footnote_inline"];
+
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
+        // something^[note]
+        // ---------^^
+        if !state.remaining().starts_with("^[") {
+            return None;
+        }
+        let scanned = scan_inline_footnote_end(state.child_state(
+            2..state.remaining().len(),
+            state.depth,
+            state.link_level,
+        )?);
+        let env = state.root_ext?.get::<SharedFootnoteEnv>()?;
+        let scans = env.0.lock().unwrap().scans.clone();
+        if scans.exhausted() {
+            return Some((
+                Some(state.document.create_node(crate::document::Text {
+                    content: state.remaining().to_owned(),
+                })),
+                state.remaining().len(),
+            ));
+        }
+        let end_offset = scanned?;
+        if end_offset == 0 {
+            return None;
+        }
+        let content_start = 2;
+        let content_end = content_start + end_offset;
+        let len = content_end + 1;
+
+        // Allocate before parsing so nested footnotes get later numbers.
+        let _content = scans.enter_content(state.markdown_it().max_nesting)?;
+        let (normalized, number) = {
+            let mut env = env.0.lock().unwrap();
+            allocate_inline(&mut env)
+        };
+
+        let children = state.parse_subrange_at_current_depth(content_start..content_end)?;
+        let paragraph = state
+            .document
+            .create_node(crate::plugins::cmark::block::paragraph::Paragraph);
+        #[cfg(feature = "sourcemap")]
+        {
+            let srcmap = state.get_map(state.pos + content_start, state.pos + content_end);
+            state.document.node_mut(paragraph).set_srcmap(srcmap);
+        }
+        state.document.attach_children(paragraph, children);
+
+        let definition = state
+            .document
+            .create_node(FootnoteDefinition { normalized });
+        state.document.push_child(definition, paragraph);
+
+        let reference = state
+            .document
+            .create_node(FootnoteReference { number, sub_id: 1 });
+        state.document.push_child(reference, definition);
+        Some((Some(reference), len))
+    }
+
+    fn check(context: &mut InlineState<'_>) -> Option<usize> {
+        if !context.remaining().starts_with("^[") {
+            return None;
+        }
+        let scanned = scan_inline_footnote_end(context.child_state(
+            2..context.remaining().len(),
+            context.depth,
+            context.link_level,
+        )?);
+        let exhausted = context
+            .root_ext
+            .and_then(|root| root.get::<SharedFootnoteEnv>())
+            .is_some_and(|env| env.0.lock().unwrap().scans.exhausted());
+        if exhausted {
+            return Some(context.remaining().len());
+        }
+        match scanned {
+            Some(end_offset) if end_offset > 0 => Some(end_offset + 3),
+            _ => None,
+        }
+    }
+}
+
+/// Collect definitions in postorder so nested inline footnotes remain discoverable.
+fn collect_footnote_definitions(document: &mut Document) -> HashMap<String, Vec<NodeId>> {
+    let mut definitions = HashMap::new();
+    let mut pending = vec![(document.root(), false)];
+    while let Some((id, visited)) = pending.pop() {
+        if !visited {
+            pending.push((id, true));
+            pending.extend(
+                document
+                    .children(id)
+                    .iter()
+                    .rev()
+                    .map(|&child| (child, false)),
+            );
+            continue;
+        }
+
+        collect_definitions_in(document, id, &mut definitions);
+    }
+
+    definitions
+}
+
+fn collect_definitions_in(
+    document: &mut Document,
+    id: NodeId,
+    definitions: &mut HashMap<String, Vec<NodeId>>,
+) {
+    document.rewrite_children(id, |document, children| {
+        let mut retained = 0;
+        for index in 0..children.len() {
+            let child = children[index];
+            let Some(definition) = document.node(child).cast::<FootnoteDefinition>() else {
+                children[retained] = child;
+                retained += 1;
+                continue;
+            };
+
+            let normalized = definition.normalized.clone();
+            let content = document.take_children(child);
+            if let std::collections::hash_map::Entry::Vacant(entry) = definitions.entry(normalized)
+            {
+                entry.insert(content);
+            } else {
+                for node in content {
+                    document.discard_node(node);
+                }
+            }
+            document.discard_node(child);
+        }
+        children.truncate(retained);
+    });
+}
+
+fn add_backrefs(document: &mut Document, item: NodeId, number: usize, refs: usize) {
+    let container = document
+        .children(item)
+        .last()
+        .copied()
+        .filter(|&id| {
+            document
+                .node(id)
+                .is::<crate::plugins::cmark::block::paragraph::Paragraph>()
+        })
+        .unwrap_or(item);
+    for sub_id in 1..=refs {
+        let reference = document.create_node(FootnoteBackref { number, sub_id });
+        document.push_child(container, reference);
+    }
+}
+
+/// Move referenced definitions using stable arena IDs, and delete unused content.
+fn finalize_footnotes(document: &mut Document, root_ext: &RootExtSet) {
+    let Some(env) = root_ext.get::<SharedFootnoteEnv>() else {
+        return;
+    };
+
+    let env = env.0.lock().unwrap();
+    env.scans.clear_cache();
+
+    let mut definitions = collect_footnote_definitions(document);
+    if env.order.is_empty() || definitions.is_empty() {
+        for children in definitions.into_values() {
+            for child in children {
+                document.discard_node(child);
+            }
+        }
+        return;
+    }
+
+    let section = document.create_node(FootnoteSection);
+    for normalized in &env.order {
+        let Some(children) = definitions.remove(normalized) else {
+            continue;
+        };
+
+        let Some(number) = env.numbers.get(normalized).copied() else {
+            for child in children {
+                document.discard_node(child);
+            }
+            continue;
+        };
+
+        let refs = env.ref_counts.get(normalized).copied().unwrap_or(1);
+        let item = document.create_node(FootnoteItem { number });
+        document.attach_children(item, children);
+        add_backrefs(document, item, number, refs);
+        document.push_child(section, item);
+    }
+
+    for children in definitions.into_values() {
+        for child in children {
+            document.discard_node(child);
+        }
+    }
+
+    if document.children(section).is_empty() {
+        document.discard_node(section);
     } else {
-        for sub_id in 1..=refs {
-            item.children
-                .push(Node::new(FootnoteBackref { number, sub_id }));
-        }
+        document.push_child(document.root(), section);
+    }
+}
+
+// --- renderers ---
+
+struct FootnoteReferenceRenderer;
+
+impl NodeRenderer<FootnoteReference> for FootnoteReferenceRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        value: &FootnoteReference,
+        _context: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        let mut attrs = node.attrs().to_vec();
+        attrs.push(("class".into(), "footnote-ref".into()));
+
+        write_html_open(output, "sup", &attrs);
+        write_html_open(
+            output,
+            "a",
+            &[
+                ("href".into(), format!("#{}", footnote_id(value.number))),
+                ("id".into(), footnote_ref_id(value.number, value.sub_id)),
+            ],
+        );
+        write_html_text(output, &format!("[{}]", value.number));
+        write_html_close(output, "a");
+        write_html_close(output, "sup");
+    }
+}
+
+struct FootnoteSectionRenderer;
+
+impl NodeRenderer<FootnoteSection> for FootnoteSectionRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _value: &FootnoteSection,
+        context: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        context.cr(output);
+        write_html_self_close(
+            output,
+            "hr",
+            &[("class".into(), "footnotes-sep".into())],
+            context.options().xhtml_out,
+        );
+        context.cr(output);
+        write_html_open(output, "section", &[("class".into(), "footnotes".into())]);
+        context.cr(output);
+        write_html_open(output, "ol", &[("class".into(), "footnotes-list".into())]);
+        context.cr(output);
+        context.render_children(node.id(), output);
+        context.cr(output);
+        write_html_close(output, "ol");
+        context.cr(output);
+        write_html_close(output, "section");
+        context.cr(output);
+    }
+}
+
+struct FootnoteItemRenderer;
+
+impl NodeRenderer<FootnoteItem> for FootnoteItemRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        value: &FootnoteItem,
+        context: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        let attrs = [
+            ("id".into(), footnote_id(value.number)),
+            ("class".into(), "footnote-item".into()),
+        ];
+
+        write_html_open(output, "li", &attrs);
+        context.render_children(node.id(), output);
+        write_html_close(output, "li");
+        context.cr(output);
+    }
+}
+
+struct FootnoteBackrefRenderer;
+
+impl NodeRenderer<FootnoteBackref> for FootnoteBackrefRenderer {
+    fn render(
+        &self,
+        _node: NodeRef<'_>,
+        value: &FootnoteBackref,
+        _context: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        write_html_text(output, " ");
+        write_html_open(
+            output,
+            "a",
+            &[
+                (
+                    "href".into(),
+                    format!("#{}", footnote_ref_id(value.number, value.sub_id)),
+                ),
+                ("class".into(), "footnote-backref".into()),
+            ],
+        );
+        // ↩
+        output.write_str("&#8617;");
+        write_html_close(output, "a");
     }
 }
 
 // --- pub method ---
 
 pub fn add(md: &mut MarkdownIt) {
+    md.add_rule::<FootnotePreparation>()
+        .before::<crate::parser::block::BlockParserRule>();
     md.block
         .add_rule::<FootnoteDefinitionScanner>()
         .before::<crate::plugins::cmark::block::reference::ReferenceScanner>();
@@ -605,20 +919,115 @@ pub fn add(md: &mut MarkdownIt) {
         // let footnote rule try it first
         .before_named("link");
     md.add_rule::<FootnoteFinalizeRule>()
-        .after::<crate::parser::inline::builtin::InlineParserRule>()
+        .after::<crate::parser::inline::InlineParserRule>()
         .before_named("sourcepos");
+    md.add_renderer::<FootnoteDefinition, _>("html", EmptyRenderer);
+    md.add_renderer::<FootnoteDefinition, _>("text", EmptyRenderer);
+    md.add_renderer::<FootnoteReference, _>("html", FootnoteReferenceRenderer);
+    md.add_renderer::<FootnoteReference, _>("text", EmptyRenderer);
+    md.add_renderer::<FootnoteSection, _>("html", FootnoteSectionRenderer);
+    md.add_renderer::<FootnoteSection, _>("text", PlainTextBlockRenderer);
+    md.add_renderer::<FootnoteItem, _>("html", FootnoteItemRenderer);
+    md.add_renderer::<FootnoteItem, _>("text", PlainTextBlockRenderer);
+    md.add_renderer::<FootnoteBackref, _>("html", FootnoteBackrefRenderer);
+    md.add_renderer::<FootnoteBackref, _>("text", EmptyRenderer);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{FootnoteScans, SharedFootnoteEnv};
     use crate as markdown_it;
+    use crate::MarkdownIt;
+
+    #[test]
+    fn footnote_scan_cache_keeps_success_and_failure_and_context() {
+        let scans = FootnoteScans::default();
+        let source = "^[note]";
+        let window = (2, source.len(), 0, 0);
+        let guard = scans.begin(source, window, 100).err().unwrap();
+        assert_eq!(guard.finish(Some(4)), Some(4));
+        assert_eq!(scans.begin(source, window, 100).ok(), Some(Some(4)));
+        let different_window = (2, source.len() - 1, 0, 0);
+        scans
+            .begin(source, different_window, 100)
+            .err()
+            .unwrap()
+            .finish(None);
+        assert_eq!(scans.begin(source, different_window, 100).ok(), Some(None));
+        assert_eq!(scans.0.lock().unwrap().misses, 2);
+        for changed in [(2, source.len(), 1, 0), (2, source.len(), 0, 1)] {
+            scans
+                .begin(source, changed, 100)
+                .err()
+                .unwrap()
+                .finish(None);
+        }
+        assert!(scans.begin("^[xxxx]", window, 100).is_err());
+    }
+
+    #[test]
+    fn malformed_footnote_scans_have_bounded_work() {
+        for limit in [2, 100] {
+            let mut md = MarkdownIt::new();
+            markdown_it::plugins::extra::footnote::add(&mut md);
+            md.max_nesting = limit;
+            for n in [32, 128, 512] {
+                let source = format!("{}x", "^[".repeat(n));
+                let direct = md.parse(&source);
+                assert_eq!(md.render_html(&direct), format!("<p>{source}</p>\n"));
+                let root = direct.node(direct.root());
+                let env = root
+                    .cast::<crate::document::Root>()
+                    .unwrap()
+                    .ext
+                    .get::<SharedFootnoteEnv>()
+                    .unwrap()
+                    .0
+                    .lock()
+                    .unwrap();
+                {
+                    let state = env.scans.0.lock().unwrap();
+                    assert!(state.steps <= source.len() * FootnoteScans::STEPS_PER_BYTE);
+                    assert!(state.misses <= state.steps + FootnoteScans::MAX_DEPTH as usize);
+                    assert_eq!((state.scan_depth, state.content_depth), (0, 0));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn deep_closed_footnotes_respect_the_content_depth_limit() {
+        let scans = FootnoteScans::default();
+        let first = scans.enter_content(2).unwrap();
+        let second = scans.enter_content(2).unwrap();
+        assert!(scans.enter_content(2).is_none());
+        drop(second);
+        assert!(scans.enter_content(2).is_some());
+        drop(first);
+        for limit in [2, 100, 10_000] {
+            let mut md = MarkdownIt::new();
+            markdown_it::plugins::extra::footnote::add(&mut md);
+            md.max_nesting = limit;
+            let source = format!("{}x{}", "^[".repeat(256), "]".repeat(256));
+            let direct = md.parse(&source);
+            assert!(md.render_html(&direct).contains('x'));
+        }
+    }
+
+    #[test]
+    fn identical_paragraphs_do_not_share_an_exhausted_scan_budget() {
+        let source = "text^[note]\n\n".repeat(100);
+        let html = render(&source);
+        assert_eq!(html.matches("class=\"footnote-ref\"").count(), 100);
+        assert!(html.contains("id=\"fn100\""));
+    }
 
     fn render(input: &str) -> String {
         let mut md = markdown_it::MarkdownIt::empty();
         markdown_it::plugins::cmark::add(&mut md);
         markdown_it::plugins::extra::footnote::add(&mut md);
 
-        md.parse(input).render()
+        md.render(input)
     }
 
     #[test]

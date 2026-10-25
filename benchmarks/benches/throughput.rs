@@ -85,9 +85,7 @@ pub fn benchmark(c: &mut Criterion) {
         // timing. The engines are checked independently because harmless HTML
         // formatting differences make byte-for-byte cross-engine comparison
         // misleading.
-        assert_stable_output(corpus.name, MARKDOWN_IT_RS, || {
-            current.parse(source).render()
-        });
+        assert_stable_output(corpus.name, MARKDOWN_IT_RS, || current.render(source));
         if compare_engines {
             assert_stable_output(corpus.name, MARKDOWN_IT_V6, || {
                 legacy.parse(source).render()
@@ -143,7 +141,7 @@ pub fn benchmark(c: &mut Criterion) {
         let mut render = c.benchmark_group(format!("render/{}", corpus.name));
         render.throughput(Throughput::Bytes(corpus.len() as u64));
         render.bench_function(MARKDOWN_IT_RS, |b| {
-            b.iter(|| black_box(current_ast.render()))
+            b.iter(|| black_box(current.render_html(&current_ast)))
         });
         if let (Some(legacy_ast), Some(comrak_ast)) = (legacy_ast.as_ref(), comrak_ast) {
             render.bench_function(MARKDOWN_IT_V6, |b| {
@@ -172,7 +170,7 @@ pub fn benchmark(c: &mut Criterion) {
         let mut end_to_end = c.benchmark_group(format!("parse-render/{}", corpus.name));
         end_to_end.throughput(Throughput::Bytes(corpus.len() as u64));
         end_to_end.bench_function(MARKDOWN_IT_RS, |b| {
-            b.iter(|| black_box(current.parse(black_box(source)).render()))
+            b.iter(|| black_box(current.render(black_box(source))))
         });
         if compare_engines {
             end_to_end.bench_function(MARKDOWN_IT_V6, |b| {

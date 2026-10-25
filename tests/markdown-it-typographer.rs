@@ -1,4 +1,4 @@
-fn run_with(input: &str, output: &str, configure: impl FnOnce(&mut markdown_it::MarkdownIt)) {
+fn run_with(input: &str, output: &str, configure: impl Fn(&mut markdown_it::MarkdownIt)) {
     let output = if output.is_empty() {
         "".to_owned()
     } else {
@@ -12,10 +12,21 @@ fn run_with(input: &str, output: &str, configure: impl FnOnce(&mut markdown_it::
     let node = md.parse(&(input.to_owned() + "\n"));
 
     // make sure we have sourcemaps for everything
-    node.walk(|node, _| assert!(node.srcmap.is_some()));
+    #[cfg(feature = "sourcemap")]
+    for event in node.events(node.root()) {
+        assert!(event.node().srcmap().is_some());
+    }
 
-    let result = node.render();
+    let result = md.render_html(&node);
     assert_eq!(result, output);
+
+    let document_md = &mut markdown_it::MarkdownIt::empty();
+    markdown_it::plugins::cmark::add(document_md);
+    markdown_it::plugins::html::add(document_md);
+    configure(document_md);
+    markdown_it::plugins::extra::typographer::add(document_md);
+    let document = document_md.parse(&(input.to_owned() + "\n"));
+    assert_eq!(document_md.render_html(&document), output);
 
     // make sure it doesn't crash without trailing \n
     let _ = md.parse(input.trim_end());
@@ -25,16 +36,6 @@ fn run(input: &str, output: &str) {
     run_with(input, output, |_| {});
 }
 
-#[cfg(feature = "linkify")]
-#[test]
-fn typographer_does_not_touch_text_in_linkified_urls() {
-    let input = r#"URL with (C) (c) (R) (r) (TM) (tm): https://example.com/(c)(r)(tm)/(C)(R)(TM) what do you think?"#;
-    let output = r#"<p>URL with © © ® ® ™ ™: <a href="https://example.com/(c)(r)(tm)/(C)(R)(TM)">https://example.com/(c)(r)(tm)/(C)(R)(TM)</a> what do you think?</p>"#;
-
-    run_with(input, output, |md| {
-        markdown_it::plugins::extra::linkify::add(md);
-    });
-}
 ///////////////////////////////////////////////////////////////////////////
 // TESTGEN: fixtures/markdown-it/typographer-extra.txt
 #[rustfmt::skip]

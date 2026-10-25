@@ -4,53 +4,60 @@
 //! markdown_it::plugins::cmark::add(md);
 //! markdown_it::plugins::sourcepos::add(md);
 //!
-//! let html = md.parse("# hello").render();
+//! let html = md.render("# hello");
 //! assert_eq!(html.trim(), r#"<h1 data-sourcepos="1:1-1:7">hello</h1>"#);
 //! ```
-use crate::common::sourcemap::SourceWithLineStarts;
-use crate::parser::block::builtin::BlockParserRule;
-use crate::parser::core::{CoreRule, Root};
-use crate::parser::inline::builtin::InlineParserRule;
-use crate::{MarkdownIt, Node};
+use crate::MarkdownIt;
+use crate::common::sourcemap::{SourcePos, SourceWithLineStarts};
+use crate::document::edit::EditBatch;
+use crate::document::{Document, StructuralEvent};
+use crate::parser::core::{CoreRule, CoreState};
 
 pub fn add(md: &mut MarkdownIt) {
-    md.add_rule::<SyntaxPosRule>()
-        .after::<BlockParserRule>()
-        .after::<InlineParserRule>();
+    md.add_rule::<SourcePosRule>()
+        .after_named("inline")
+        .after_named("footnote_tail");
 }
 
-#[doc(hidden)]
-pub struct SyntaxPosRule;
-impl CoreRule for SyntaxPosRule {
+const SOURCEPOS_ATTRIBUTE: &str = "data-sourcepos";
+
+fn sourcepos_value(map: SourcePos, mapping: &SourceWithLineStarts) -> String {
+    let ((startline, startcol), (endline, endcol)) = map.get_positions(mapping);
+    format!("{startline}:{startcol}-{endline}:{endcol}")
+}
+
+/// Adds source positions to nodes.
+#[derive(Debug, Default)]
+pub struct SourcePosRule;
+
+impl CoreRule for SourcePosRule {
     const NAMES: &'static [&'static str] = &["sourcepos", "source_pos"];
 
-    fn run(root: &mut Node, _: &MarkdownIt) {
-        let source = root.cast::<Root>().unwrap().content.as_str();
-        let mapping = SourceWithLineStarts::new(source);
-
-        root.walk_mut(|node, _| {
-            if let Some(map) = node.srcmap {
-                let ((startline, startcol), (endline, endcol)) = map.get_positions(&mapping);
-                node.attrs.push((
-                    "data-sourcepos".into(),
-                    format!("{}:{}-{}:{}", startline, startcol, endline, endcol),
-                ));
-            }
-        });
+    fn run(&self, state: &mut CoreState<'_>) {
+        let document = &mut *state.document;
+        let edits = edits(document);
+        edits.commit(document);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn header_test() {
-        // same as doctest, keep in sync!
-        // used for code coverage and quicker rust-analyzer hints
-        let md = &mut crate::MarkdownIt::empty();
-        crate::plugins::cmark::add(md);
-        crate::plugins::sourcepos::add(md);
+/// Build source-position attribute edits for a finished document.
+pub fn edits(document: &Document) -> EditBatch {
+    let mapping = SourceWithLineStarts::new(document.source());
+    let mut edits = EditBatch::new();
 
-        let html = md.parse("# hello").render();
-        assert_eq!(html.trim(), r#"<h1 data-sourcepos="1:1-1:7">hello</h1>"#);
+    for event in document.events(document.root()) {
+        let node = match event {
+            StructuralEvent::Enter(node) | StructuralEvent::Leaf(node) => node,
+            StructuralEvent::Exit(_) => continue,
+        };
+        if let Some(map) = node.srcmap() {
+            edits.set_attribute(
+                node.id(),
+                SOURCEPOS_ATTRIBUTE,
+                sourcepos_value(map, &mapping),
+            );
+        }
     }
+
+    edits
 }

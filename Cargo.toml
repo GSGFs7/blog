@@ -4,9 +4,7 @@ version = "0.7.0"
 authors = ["Alex Kocharin <alex@kocharin.ru>", "GSGFs7"]
 description = "Rust port of popular markdown-it.js library. Forked from markdown-it-rust/markdown-it"
 documentation = "https://docs.rs/markdown-it-rs"
-homepage = "https://github.com/GSGFs7/markdown-it-rs"
 repository = "https://github.com/GSGFs7/markdown-it-rs"
-readme = "README.md"
 keywords = ["markdown", "commonmark"]
 license = "MIT"
 categories = ["text-processing", "parsing"]
@@ -46,6 +44,7 @@ opt-level = "s"
 
 [features]
 default = ["linkify"]
+sourcemap = []
 cli = ["dep:clap"]
 katex = ["dep:katex-rs"]
 syntect = ["dep:syntect", "dep:two-face"]
@@ -73,3 +72,7 @@ two-face = {version = "0.5.2", optional = true, default-features = false, featur
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

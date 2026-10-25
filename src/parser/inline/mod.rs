@@ -1,95 +1,127 @@
-//! Inline rule chain
-
-#[doc(hidden)]
-pub mod builtin;
+//! Inline syntax rules and check sessions.
+mod document;
+pub mod helpers;
+mod parser;
 mod rule;
 mod state;
+mod text_scanner;
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-pub use self::builtin::inline_parser::InlineRoot;
-pub use self::builtin::skip_text::{Text, TextSpecial};
+pub(crate) use document::parse_document;
+
+pub use self::parser::InlineParserRule;
 pub use self::rule::*;
-pub use self::state::*;
+pub(crate) use self::state::InlinePostprocessRanges;
+pub use self::state::InlineState;
+pub use self::text_scanner::TextScanner;
+use self::text_scanner::TextScannerImpl;
 use crate::common::RuleMark;
 use crate::common::ruler::Ruler;
-use crate::parser::extset::{InlineRootExtSet, RootExtSet};
-use crate::parser::inline::builtin::skip_text::TextScannerImpl;
-use crate::parser::main::MarkdownIt;
-use crate::parser::node::{Node, NodeEmpty};
 
-type RuleFns = (
-    fn(&mut InlineState) -> Option<usize>,
-    fn(&mut InlineState) -> Option<(Node, usize)>,
-);
-
-/// dispatcher
-///
-/// avoid scan entire plugin list when encountered any chars.
-#[derive(Debug)]
-struct InlineDispatch {
-    ascii: Box<[Option<Vec<RuleFns>>; 128]>,
-    unicode: HashMap<char, Vec<RuleFns>>,
-    wildcard: Vec<RuleFns>,
+/// Register the core rule and text scanner that drive inline parsing.
+pub fn add(md: &mut crate::MarkdownIt) {
+    text_scanner::add(md);
+    parser::add(md);
 }
 
-impl InlineDispatch {
-    fn compile<'a>(
-        rules: impl Iterator<Item = (char, &'a RuleFns)>,
-        markers: impl Iterator<Item = char>,
-    ) -> Self {
-        let ordered: Vec<(char, RuleFns)> = rules.map(|(marker, rule)| (marker, *rule)).collect();
-        let wildcard: Vec<RuleFns> = ordered
-            .iter()
-            .filter(|(marker, _)| *marker == '\0')
-            .map(|(_, rule)| *rule)
-            .collect();
-        let mut ascii = Box::new(std::array::from_fn(|_| None));
-        let mut unicode = HashMap::new();
+pub(crate) type InlineCheckFn = fn(&mut InlineState<'_>) -> Option<usize>;
+// TODO: some nested some??
+pub(crate) type InlineRunFn =
+    fn(&mut crate::InlineState<'_>) -> Option<(Option<crate::NodeId>, usize)>;
 
-        for marker in markers {
-            let candidates = ordered
-                .iter()
-                .filter(|(rule_marker, _)| *rule_marker == '\0' || *rule_marker == marker)
-                .map(|(_, rule)| *rule)
-                .collect();
-            if marker.is_ascii() {
-                ascii[marker as usize] = Some(candidates);
-            } else {
-                unicode.insert(marker, candidates);
-            }
-        }
+// functions that cause heap allocation
+type DynamicCheckFn = dyn Fn(&mut InlineState<'_>) -> Option<usize> + Send + Sync;
+type DynamicRunFn =
+    dyn Fn(&mut InlineState<'_>) -> Option<(Option<crate::NodeId>, usize)> + Send + Sync;
 
-        Self {
-            ascii,
-            unicode,
-            wildcard,
-        }
-    }
+#[derive(Clone)]
+pub(crate) enum InlineCheckRunner {
+    Static(InlineCheckFn),
+    Dynamic(Arc<DynamicCheckFn>),
+}
 
+impl InlineCheckRunner {
     #[inline]
-    fn get(&self, marker: char) -> &[RuleFns] {
-        if marker.is_ascii() {
-            self.ascii[marker as usize]
-                .as_deref()
-                .unwrap_or(&self.wildcard)
-        } else {
-            self.unicode
-                .get(&marker)
-                .map(Vec::as_slice)
-                .unwrap_or(&self.wildcard)
+    pub(crate) fn call(&self, state: &mut InlineState<'_>) -> Option<usize> {
+        match self {
+            Self::Static(check) => check(state),
+            Self::Dynamic(check) => check(state),
         }
     }
 }
 
-#[derive(Debug, Default)]
+impl std::fmt::Debug for InlineCheckRunner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Static(_) => "Static",
+            Self::Dynamic(_) => "Dynamic",
+        })
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum InlineRunRunner {
+    Static(InlineRunFn),
+    Dynamic(Arc<DynamicRunFn>),
+}
+
+impl std::fmt::Debug for InlineRunRunner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Static(_) => "Static",
+            Self::Dynamic(_) => "Dynamic",
+        })
+    }
+}
+
+struct DynamicRuleTag;
+
+#[derive(Debug, Clone)]
+pub(crate) struct InlineRuleFns {
+    pub(crate) run: InlineRunRunner,
+    pub(crate) check: InlineCheckRunner,
+    pub(crate) marker: char,
+    pub(crate) type_id: std::any::TypeId,
+}
+
+impl InlineRuleFns {
+    /// Whether this rule can be considered for the given current character.
+    #[inline]
+    pub(crate) fn matches_marker(&self, ch: char) -> bool {
+        self.marker == '\0' || self.marker == ch
+    }
+}
+
+fn inline_rule_fns<T: InlineRule>() -> InlineRuleFns {
+    InlineRuleFns {
+        run: InlineRunRunner::Static(T::run),
+        check: InlineCheckRunner::Static(T::check),
+        marker: T::MARKER,
+        type_id: std::any::TypeId::of::<T>(),
+    }
+}
+
+#[derive(Clone)]
+#[doc(hidden)]
+pub struct RuleEntry {
+    fns: InlineRuleFns,
+}
+
+#[derive(Debug)]
+pub(crate) struct RuleSet {
+    pub(crate) runs: Vec<InlineRuleFns>,
+    pub(crate) checks: Vec<InlineRuleFns>,
+}
+
 /// Inline-level tokenizer.
+#[derive(Debug, Default)]
 pub struct InlineParser {
-    ruler: Ruler<RuleMark, RuleFns>,
+    ruler: Ruler<RuleMark, RuleEntry>,
     text_charmap: HashMap<char, Vec<RuleMark>>,
     text_impl: OnceLock<TextScannerImpl>,
-    dispatch: OnceLock<InlineDispatch>,
+    rules: OnceLock<RuleSet>,
 }
 
 impl InlineParser {
@@ -97,140 +129,46 @@ impl InlineParser {
         Self::default()
     }
 
-    #[inline]
-    fn rules_for(&self, marker: char) -> &[RuleFns] {
-        self.dispatch
-            .get_or_init(|| {
-                InlineDispatch::compile(
-                    self.ruler
-                        .iter_with_marks()
-                        .map(|(mark, rule)| (self.marker_for(mark), rule)),
-                    self.text_charmap.keys().copied(),
-                )
-            })
-            .get(marker)
-    }
-
-    fn marker_for(&self, mark: &RuleMark) -> char {
-        self.text_charmap
-            .iter()
-            .find_map(|(marker, marks)| marks.contains(mark).then_some(*marker))
-            .unwrap_or('\0')
-    }
-
-    /// Skip single token by running all rules in validation mode;
-    /// returns `true` if any rule reported success
-    ///
-    pub fn skip_token(&self, state: &mut InlineState) {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            let mut ok = None;
-
-            if state.level < state.md.max_nesting {
-                let marker = state.src[state.pos..state.pos_max].chars().next().unwrap();
-                for rule in self.rules_for(marker) {
-                    ok = (rule.0)(state);
-                    if ok.is_some() {
-                        break;
-                    }
-                }
-            } else {
-                // Too much nesting, just skip until the end of the paragraph.
-                //
-                // NOTE: this will cause links to behave incorrectly in the following case,
-                //       when an amount of `[` is exactly equal to `maxNesting + 1`:
-                //
-                //       [[[[[[[[[[[[[[[[[[[[[foo]()
-                //
-                // TODO: remove this workaround when CM standard will allow nested links
-                //       (we can replace it by preventing links from being parsed in
-                //       validation mode)
-                //
-                state.pos = state.pos_max;
+    pub(crate) fn rules(&self) -> &RuleSet {
+        self.rules.get_or_init(|| {
+            let entries: Vec<_> = self.ruler.iter().map(|entry| entry.fns.clone()).collect();
+            RuleSet {
+                runs: entries.clone(),
+                checks: entries,
             }
-
-            if let Some(len) = ok {
-                state.pos += len;
-            } else {
-                let ch = state.src[state.pos..state.pos_max].chars().next().unwrap();
-                state.pos += ch.len_utf8();
-            }
-        });
+        })
     }
 
-    /// Generate tokens for input range
-    ///
-    pub fn tokenize(&self, state: &mut InlineState) {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            let end = state.pos_max;
-
-            while state.pos < end {
-                // Try all possible rules.
-                // On success, rule should:
-                //
-                // - update `state.pos`
-                // - update `state.tokens`
-                // - return true
-                let mut ok = None;
-
-                if state.level < state.md.max_nesting {
-                    let marker = state.src[state.pos..state.pos_max].chars().next().unwrap();
-                    for rule in self.rules_for(marker) {
-                        ok = (rule.1)(state);
-                        if ok.is_some() {
-                            break;
-                        }
-                    }
-                }
-
-                if let Some((mut node, len)) = ok {
-                    state.pos += len;
-                    if !node.is::<NodeEmpty>() {
-                        node.srcmap = state.get_map(state.pos - len, state.pos);
-                        state.node.children.push(node);
-                        if state.pos >= end {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-
-                let ch = state.src[state.pos..state.pos_max].chars().next().unwrap();
-                let len = ch.len_utf8();
-                state.trailing_text_push(state.pos, state.pos + len);
-                state.pos += len;
-            }
-        });
+    pub(crate) fn has_only_text_rule(&self) -> bool {
+        self.ruler.len() == 1 && self.has_rule::<TextScanner>()
     }
 
-    /// Process input string and push inline tokens into `out_tokens`
-    ///
-    pub fn parse(
-        &self,
-        src: String,
-        srcmap: Vec<(usize, usize)>,
-        node: Node,
-        md: &MarkdownIt,
-        root_ext: &mut RootExtSet,
-        inline_ext: &mut InlineRootExtSet,
-    ) -> Node {
-        let mut state = InlineState::new(src, srcmap, md, root_ext, inline_ext, node);
-        self.tokenize(&mut state);
-        state.node
-    }
-
-    pub fn add_rule<T: InlineRule>(&mut self) -> RuleBuilder<'_, RuleFns> {
-        self.dispatch = OnceLock::new();
-        if T::MARKER != '\0' {
+    fn add_rule_entry<T: InlineRule>(
+        &mut self,
+    ) -> &mut crate::common::ruler::RuleItem<RuleMark, RuleEntry> {
+        self.rules.take();
+        if std::any::TypeId::of::<T>() != std::any::TypeId::of::<TextScanner>() {
             self.text_impl = OnceLock::new();
-            let charvec = self.text_charmap.entry(T::MARKER).or_default();
-            charvec.push(RuleMark::of::<T>());
+            self.text_charmap
+                .entry(T::MARKER)
+                .or_default()
+                .push(RuleMark::of::<T>());
         }
-
-        let item = self.ruler.add(RuleMark::of::<T>(), (T::check, T::run));
+        let item = self.ruler.add(
+            RuleMark::of::<T>(),
+            RuleEntry {
+                fns: inline_rule_fns::<T>(),
+            },
+        );
         for name in T::NAMES {
             item.alias(RuleMark::named(*name));
         }
-        RuleBuilder::new(item)
+        item
+    }
+
+    /// Register an inline syntax rule.
+    pub fn add_rule<T: InlineRule>(&mut self) -> RuleBuilder<'_, RuleEntry> {
+        RuleBuilder::new(self.add_rule_entry::<T>())
     }
 
     pub fn has_rule<T: InlineRule>(&self) -> bool {
@@ -238,97 +176,53 @@ impl InlineParser {
     }
 
     pub fn remove_rule<T: InlineRule>(&mut self) {
-        self.dispatch = OnceLock::new();
-        if T::MARKER != '\0' {
+        self.rules.take();
+        if std::any::TypeId::of::<T>() != std::any::TypeId::of::<TextScanner>() {
             self.text_impl = OnceLock::new();
-            let mut charvec = self.text_charmap.remove(&T::MARKER).unwrap_or_default();
-            charvec.retain(|x| *x != RuleMark::of::<T>());
-            if !charvec.is_empty() {
-                self.text_charmap.insert(T::MARKER, charvec);
+            let mut marks = self.text_charmap.remove(&T::MARKER).unwrap_or_default();
+            marks.retain(|mark| *mark != RuleMark::of::<T>());
+            if !marks.is_empty() {
+                self.text_charmap.insert(T::MARKER, marks);
             }
         }
-
         self.ruler.remove(RuleMark::of::<T>());
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    /// Register a runtime inline rule produced by the high-level plugin API.
+    pub(crate) fn add_dynamic_rule(
+        &mut self,
+        mark: RuleMark,
+        marker: char,
+        run: Arc<DynamicRunFn>,
+        check: Arc<DynamicCheckFn>,
+    ) -> RuleBuilder<'_, RuleEntry> {
+        self.rules.take();
+        self.text_impl = OnceLock::new();
 
-    struct AtRule;
-    struct HashRule;
-    struct SnowRule;
-    struct WildcardRule;
+        self.text_charmap
+            .entry(marker)
+            .or_default()
+            .push(mark.clone());
 
-    macro_rules! empty_rule {
-        ($rule:ty, $marker:expr) => {
-            impl InlineRule for $rule {
-                const MARKER: char = $marker;
-
-                fn run(_: &mut InlineState) -> Option<(Node, usize)> {
-                    None
-                }
-            }
-        };
+        let item = self.ruler.add(
+            mark,
+            RuleEntry {
+                fns: InlineRuleFns {
+                    run: InlineRunRunner::Dynamic(run),
+                    check: InlineCheckRunner::Dynamic(check),
+                    marker,
+                    type_id: std::any::TypeId::of::<DynamicRuleTag>(),
+                },
+            },
+        );
+        RuleBuilder::new(item)
     }
 
-    empty_rule!(AtRule, '@');
-    empty_rule!(HashRule, '#');
-    empty_rule!(SnowRule, '雪');
-    empty_rule!(WildcardRule, '\0');
-
-    fn check_id<T: InlineRule>() -> usize {
-        T::check as fn(&mut InlineState) -> Option<usize> as usize
-    }
-
-    fn check_ids(rules: &[RuleFns]) -> Vec<usize> {
-        rules.iter().map(|rule| rule.0 as usize).collect()
-    }
-
-    #[test]
-    fn dispatch_filters_rules_without_changing_order() {
-        let mut parser = InlineParser::new();
-        parser.add_rule::<HashRule>();
-        parser.add_rule::<AtRule>().alias_named("at");
-        parser.add_rule::<WildcardRule>().after::<AtRule>();
-
-        assert_eq!(
-            check_ids(parser.rules_for('@')),
-            vec![check_id::<AtRule>(), check_id::<WildcardRule>()]
-        );
-        assert_eq!(
-            check_ids(parser.rules_for('#')),
-            vec![check_id::<HashRule>(), check_id::<WildcardRule>()]
-        );
-        assert_eq!(
-            check_ids(parser.rules_for('!')),
-            vec![check_id::<WildcardRule>()]
-        );
-    }
-
-    #[test]
-    fn dispatch_supports_unicode_and_invalidates_on_changes() {
-        let mut parser = InlineParser::new();
-        parser.add_rule::<AtRule>();
-        parser.add_rule::<WildcardRule>().after_all();
-
-        // Compile the first dispatch table before mutating the ruler.
-        assert_eq!(
-            check_ids(parser.rules_for('雪')),
-            vec![check_id::<WildcardRule>()]
-        );
-
-        parser.add_rule::<SnowRule>().before::<WildcardRule>();
-        assert_eq!(
-            check_ids(parser.rules_for('雪')),
-            vec![check_id::<SnowRule>(), check_id::<WildcardRule>()]
-        );
-
-        parser.remove_rule::<AtRule>();
-        assert_eq!(
-            check_ids(parser.rules_for('@')),
-            vec![check_id::<WildcardRule>()]
-        );
+    // Keep short text scans inside the calling rule's hot path.
+    #[inline]
+    pub(crate) fn text_length(&self, source: &str, pos: usize, pos_max: usize) -> usize {
+        self.text_impl
+            .get_or_init(|| TextScannerImpl::compile(self.text_charmap.keys().copied().collect()))
+            .find(&source[pos..pos_max])
     }
 }

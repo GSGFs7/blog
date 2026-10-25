@@ -4,7 +4,6 @@
 //!  - highlight (==xxx==)
 //!  - tables
 //!  - task lists (`- [ ] todo`, `- [x] done`)
-//!  - alerts (`> [!NOTE]`, `> [!WARNING]`, ...)
 //!  - linkify (convert <http://example.com> to a link)
 //!  - beautify links (cut "http://" from links and shorten paths)
 //!  - smartquotes and typographer
@@ -17,14 +16,13 @@
 //! markdown_it::plugins::cmark::add(md);
 //! markdown_it::plugins::extra::add(md);
 //!
-//! let html = md.parse("hello ~~world~~").render();
+//! let html = md.render("hello ~~world~~");
 //! assert_eq!(html.trim(), r#"<p>hello <s>world</s></p>"#);
 //!
-//! let html = md.parse(r#"Markdown done "The Right Way(TM)""#).render();
+//! let html = md.render(r#"Markdown done "The Right Way(TM)""#);
 //! assert_eq!(html.trim(), r#"<p>Markdown done “The Right Way™”</p>"#);
 //! ```
 
-pub mod alert;
 pub mod beautify_links;
 pub mod footnote;
 pub mod front_matter;
@@ -43,6 +41,7 @@ pub mod typographer;
 
 use crate::MarkdownIt;
 
+// TODO: remove this
 pub fn add(md: &mut MarkdownIt) {
     strikethrough::add(md);
     mark::add(md);
@@ -58,5 +57,4 @@ pub fn add(md: &mut MarkdownIt) {
     #[cfg(feature = "katex")]
     math::add(md);
     footnote::add(md);
-    alert::add(md);
 }

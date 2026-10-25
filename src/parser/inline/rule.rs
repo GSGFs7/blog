@@ -1,21 +1,49 @@
-use crate::parser::core::rule_builder;
-use crate::parser::node::Node;
+use crate::document::NodeId;
+use crate::parser::inline::InlineState;
 
-/// Each member of inline rule chain must implement this trait
+/// An inline-level syntax rule.
+///
+/// Implement this trait to add a new inline construct (emphasis, code span,
+/// link, ...) to an [`InlineParser`](crate::parser::inline::InlineParser).
+/// Register it with
+/// [`InlineParser::add_rule`](crate::parser::inline::InlineParser::add_rule),
+/// then use the returned [`RuleBuilder`] to position it relative to the built-in rules.
+/// Document-level transformations belong in a [`CoreRule`](crate::parser::core::CoreRule)
+/// ordered after [`InlineParserRule`](crate::parser::inline::InlineParserRule).
+///
+/// Implement [`run`](InlineRule::run) to match the construct and add nodes to
+/// the document. Override [`check`](InlineRule::check) only if the default does
+/// not fit.
 pub trait InlineRule: 'static {
-    /// First character that can activate this rule.
+    /// Character that may begin this construct.
     ///
-    /// Use `'\0'` for a wildcard rule that must be considered at every input
-    /// position. A non-wildcard rule is only called when the current character
-    /// matches this marker.
+    /// Use `'\0'` to be considered at every input position. Otherwise the rule
+    /// is only considered when the current character matches.
     const MARKER: char;
+    /// Extra names identifying this rule, so it can be referenced by name when
+    /// ordering rules, e.g. `after_named("emphasis")`.
     const NAMES: &'static [&'static str] = &[];
 
-    fn check(state: &mut super::InlineState) -> Option<usize> {
-        Self::run(state).map(|(_node, len)| len)
+    /// Probes the current position while scanning text, returning the number of
+    /// bytes this construct consumes when it starts here.
+    ///
+    /// The default reuses [`run`](InlineRule::run) and discards its node, which
+    /// is fine for simple matches; override it when `run` has side effects or
+    /// when matching conditions differ.
+    fn check(state: &mut InlineState<'_>) -> Option<usize> {
+        let (node, len) = Self::run(state)?;
+        if let Some(node) = node {
+            state.document.discard_node(node);
+        }
+        Some(len)
     }
 
-    fn run(state: &mut super::InlineState) -> Option<(Node, usize)>;
+    /// Tries to match this construct at the current position.
+    ///
+    /// Returns the node to insert (if any) and the number of UTF-8 bytes
+    /// consumed. Return `Some((None, n))` to consume `n` bytes without adding a
+    /// node, or `None` if the construct does not match.
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)>;
 }
 
-rule_builder!(InlineRule);
+crate::parser::rule::rule_builder!(InlineRule);

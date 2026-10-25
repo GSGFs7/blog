@@ -4,7 +4,9 @@
 //! input. Markdown parsing, URL normalization, validation, and rendering stay
 //! in the `markdown-it-rs` crate.
 
-use linkify_upstream::{LinkFinder, LinkKind as UpstreamLinkKind};
+mod scanner;
+mod unicode;
+mod unicode_data;
 
 /// The kind of an automatically detected link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,8 +36,20 @@ impl Link {
         self.kind
     }
 
+    /// Return the matched text when `input` is the string this link came from.
+    pub fn get_str(self, input: &str) -> Option<&str> {
+        input.get(self.start..self.end)
+    }
+
+    /// Return the matched text.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `input` is not the original string passed to [`Linkify`],
+    /// or when it otherwise does not contain this link's byte range.
     pub fn as_str(self, input: &str) -> &str {
-        &input[self.start..self.end]
+        self.get_str(input)
+            .expect("input must be the original string used to create the link")
     }
 }
 
@@ -53,135 +67,18 @@ impl Linkify {
         self.links_with_fuzzy(input, false)
     }
 
+    /// Match a supported explicit schema or protocol-relative URL at byte zero.
+    ///
+    /// Unlike [`Self::links`], this does not search later positions or recognize
+    /// bare email addresses and domains. The returned range is into `input`.
+    pub fn match_at_start(&self, input: &str) -> Option<Link> {
+        scanner::match_at_start(input)
+    }
+
     /// Return links, optionally recognizing URLs without an explicit scheme.
     pub fn links_with_fuzzy(&self, input: &str, fuzzy_links: bool) -> Vec<Link> {
-        let mut finder = LinkFinder::new();
-        finder.url_must_have_scheme(!fuzzy_links);
-
-        let mut links = finder
-            .links(input)
-            .filter_map(|link| {
-                let kind = match *link.kind() {
-                    UpstreamLinkKind::Url => LinkKind::Url,
-                    UpstreamLinkKind::Email => LinkKind::Email,
-                    _ => unreachable!("linkify returned an unknown link kind"),
-                };
-                let raw = &input[link.start()..link.end()];
-                if kind == LinkKind::Url
-                    && raw.contains("://")
-                    && !has_supported_explicit_scheme(raw)
-                {
-                    return None;
-                }
-
-                let mut start = link.start();
-                if kind == LinkKind::Email
-                    && start >= "mailto:".len()
-                    && input[start - "mailto:".len()..start].eq_ignore_ascii_case("mailto:")
-                {
-                    start -= "mailto:".len();
-                }
-                Some(Link {
-                    start,
-                    end: link.end(),
-                    kind,
-                })
-            })
-            .collect::<Vec<_>>();
-
-        self.extend_explicit_urls_with_backticks(input, &finder, &mut links);
-        self.add_protocol_relative_urls(input, &mut links);
-
-        links.sort_by_key(|link| (link.start, std::cmp::Reverse(link.end)));
-        links.dedup_by(|a, b| a.start == b.start && a.end == b.end && a.kind == b.kind);
-        links
+        scanner::scan(input, fuzzy_links)
     }
-
-    fn extend_explicit_urls_with_backticks(
-        &self,
-        input: &str,
-        finder: &LinkFinder,
-        links: &mut Vec<Link>,
-    ) {
-        if !input.contains('`') {
-            return;
-        }
-
-        // compatible markdownit.js's `linkify-it`.
-        //
-        // "https://example.com/foo`bar`baz" -> "https://example.com/foo~bar~baz"
-        // scan the replaced URL length & encode origin content.
-        let scan_input = input.replace('`', "~");
-        for link in finder.links(&scan_input) {
-            if *link.kind() != UpstreamLinkKind::Url {
-                continue;
-            }
-
-            let original = &input[link.start()..link.end()];
-            if !original.contains('`') || !has_supported_explicit_scheme(original) {
-                continue;
-            }
-
-            if let Some(existing) = links
-                .iter_mut()
-                .find(|existing| existing.start == link.start() && existing.kind == LinkKind::Url)
-            {
-                existing.end = existing.end.max(link.end());
-            } else {
-                links.push(Link {
-                    start: link.start(),
-                    end: link.end(),
-                    kind: LinkKind::Url,
-                });
-            }
-        }
-    }
-
-    fn add_protocol_relative_urls(&self, input: &str, links: &mut Vec<Link>) {
-        let mut fuzzy_finder = LinkFinder::new();
-        fuzzy_finder.url_must_have_scheme(false);
-
-        // rust `linkify` deliberately doesn't recognize protocol-relative URLs.
-        // but markdwonit.js's `linkify-it` will identify it.
-        for (start, _) in input.match_indices("//") {
-            // https://example.com
-            //      ^--- processed
-            // \//example.com
-            // ^--- disable auto linkify
-            if input[..start].ends_with([':', '\\']) {
-                continue;
-            }
-
-            // //example.com/ ciallo
-            //   ^^^^^^^^^^^^^^^^^^^--- check if this is a link
-            // (it should identify "example.com/")
-            let rest = &input[start + 2..];
-            let Some(link) = fuzzy_finder.links(rest).next() else {
-                continue;
-            };
-            if link.start() != 0 || *link.kind() != UpstreamLinkKind::Url {
-                continue;
-            }
-
-            links.push(Link {
-                start,
-                end: start + 2 + link.end(),
-                kind: LinkKind::Url,
-            });
-        }
-    }
-}
-
-fn has_supported_explicit_scheme(input: &str) -> bool {
-    let Some((scheme, _)) = input.split_once("://") else {
-        return false;
-    };
-
-    // `linkify-it` only support the 3 explicit schemes
-    matches!(
-        scheme.to_ascii_lowercase().as_str(),
-        "http" | "https" | "ftp"
-    )
 }
 
 #[cfg(test)]
@@ -197,6 +94,52 @@ mod tests {
     }
 
     #[test]
+    fn matches_only_schemas_at_the_start() {
+        let detector = Linkify::new();
+        for (input, expected, kind) in [
+            ("https://foo.[a", "https://foo", LinkKind::Url),
+            (
+                "HTTPS://例子.测试/a😀 text",
+                "HTTPS://例子.测试/a😀",
+                LinkKind::Url,
+            ),
+            ("ftp://foo/path", "ftp://foo/path", LinkKind::Url),
+            ("//example.org text", "//example.org", LinkKind::Url),
+            ("mailto:a@b.co text", "mailto:a@b.co", LinkKind::Email),
+        ] {
+            let found = detector.match_at_start(input).unwrap();
+            assert_eq!(found.start(), 0);
+            assert_eq!(found.as_str(input), expected);
+            assert_eq!(found.kind(), kind);
+        }
+        for input in [
+            "",
+            "a@b.co",
+            "example.org",
+            "//https://foo",
+            "http:/bad https://foo",
+            "unknown://foo https://foo",
+        ] {
+            assert_eq!(detector.match_at_start(input), None, "{input:?}");
+        }
+        // Global detection still honors its consumed schema boundaries.
+        assert!(detector.links("<//https://foo.[a").is_empty());
+    }
+
+    #[test]
+    fn start_matches_respect_utf16_validator_limits() {
+        let detector = Linkify::new();
+        for tail in ["a", "中", "😀"] {
+            let input = format!("https://foo/{}", tail.repeat(10001));
+            let expected = detector.links(&input)[0];
+            let found = detector.match_at_start(&input).unwrap();
+            assert_eq!(found, expected, "tail={tail:?}");
+            assert!(found.end() < input.len());
+            assert!(input.is_char_boundary(found.end()));
+        }
+    }
+
+    #[test]
     fn finds_urls_and_emails() {
         assert_eq!(
             matches("example.org test@example.com"),
@@ -204,6 +147,32 @@ mod tests {
                 ("example.org", LinkKind::Url),
                 ("test@example.com", LinkKind::Email),
             ]
+        );
+    }
+
+    #[test]
+    fn accepts_digits_in_email_tlds() {
+        for input in [
+            "foo+special@Bar.b9",
+            "a@bar.9b",
+            "a@bar.12",
+            "mailto:foo@Bar.b9",
+        ] {
+            assert_eq!(matches(input), vec![(input, LinkKind::Email)], "{input:?}");
+        }
+        assert_eq!(
+            matches("前文 foo@Bar.b9. next@example.com"),
+            vec![
+                ("foo@Bar.b9", LinkKind::Email),
+                ("next@example.com", LinkKind::Email)
+            ]
+        );
+        for input in ["a@bar.b9-", "a@bar.b9_x"] {
+            assert!(matches(input).is_empty(), "{input:?}");
+        }
+        assert_eq!(
+            matches("https://example.com/a@Bar.b9"),
+            vec![("https://example.com/a@Bar.b9", LinkKind::Url)]
         );
     }
 
@@ -216,6 +185,31 @@ mod tests {
     }
 
     #[test]
+    fn safely_gets_link_text() {
+        let input = "https://example.com";
+        let link = Linkify::new().links(input)[0];
+
+        assert_eq!(link.get_str(input), Some(input));
+        assert_eq!(link.get_str("短"), None);
+    }
+
+    #[test]
+    fn handles_unicode_before_email() {
+        for input in [
+            "组     test@example.com",
+            "é      test@example.com",
+            "💥    test@example.com",
+            "中文    test@example.com",
+        ] {
+            assert_eq!(
+                matches(input),
+                vec![("test@example.com", LinkKind::Email)],
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
     fn accepts_backticks_in_explicit_url() {
         assert_eq!(
             matches("https://example.com/foo`bar`baz"),
@@ -224,11 +218,88 @@ mod tests {
     }
 
     #[test]
+    fn accepts_pipes_in_url_paths() {
+        for input in [
+            "https://example.com/a|b",
+            "https://example.com/a|",
+            "https://example.com/a`b|c`d",
+            "https://例子.测试/a_(b)?x=1|é~&y=2é",
+            "//example.com/a|b",
+        ] {
+            assert_eq!(matches(input), vec![(input, LinkKind::Url)], "{input:?}");
+        }
+        assert_eq!(
+            matches("https://example.com/a|b[c"),
+            vec![("https://example.com/a|b", LinkKind::Url)]
+        );
+        assert_eq!(
+            matches("https://example.com/a|b. next@example.com"),
+            vec![
+                ("https://example.com/a|b", LinkKind::Url),
+                ("next@example.com", LinkKind::Email),
+            ]
+        );
+    }
+
+    #[test]
+    fn finds_unicode_tlds_with_original_byte_ranges() {
+        let input = "前文 https://例子.测试/a_(b)?x=1&y=2 后文 https://example.com";
+        assert_eq!(
+            matches(input),
+            vec![
+                ("https://例子.测试/a_(b)?x=1&y=2", LinkKind::Url),
+                ("https://example.com", LinkKind::Url),
+            ]
+        );
+        for input in [
+            "http://例子.测试",
+            "HTTPS://例子.测试:8080/路径",
+            "ftp://例子.测试/file",
+            "https://例子.测试/foo`bar`baz",
+        ] {
+            assert_eq!(matches(input), vec![(input, LinkKind::Url)], "{input:?}");
+        }
+        assert!(matches("custom://例子.测试").is_empty());
+        assert!(matches("https://例子.测试-").is_empty());
+        assert!(matches("(https://例子.测试-)").is_empty());
+    }
+
+    #[test]
     fn finds_protocol_relative_url() {
         assert_eq!(
             matches("//example.com/path"),
             vec![("//example.com/path", LinkKind::Url)]
         );
+    }
+
+    #[test]
+    fn protocol_relative_urls_do_not_overlap() {
+        assert_eq!(
+            matches("//example.com//other.org"),
+            vec![("//example.com//other.org", LinkKind::Url)]
+        );
+    }
+
+    #[test]
+    fn protocol_relative_urls_require_a_linkify_it_boundary() {
+        for input in [
+            "x//example.com",
+            "http:////example.com",
+            "///example.com",
+            "////example.com",
+            "组//example.com",
+            "💥//example.com",
+        ] {
+            assert!(matches(input).is_empty(), "{input:?}");
+        }
+
+        for input in [" //example.com", "。//example.com", "(//example.com)"] {
+            assert_eq!(
+                matches(input),
+                vec![("//example.com", LinkKind::Url)],
+                "{input:?}"
+            );
+        }
     }
 
     #[test]
@@ -248,5 +319,54 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["http://example.org"]
         );
+    }
+
+    #[test]
+    fn length_limit_preserves_complete_scalars_and_later_matches() {
+        let input = format!("https://ab.com/{} next@example.com", "😀".repeat(6000));
+        let links = Linkify::new().links(&input);
+        assert_eq!(links.len(), 2);
+        assert_eq!(
+            links[0].as_str(&input),
+            format!("https://ab.com/{}", "😀".repeat(4995))
+        );
+        assert_eq!(links[1].as_str(&input), "next@example.com");
+        for link in links {
+            assert!(input.is_char_boundary(link.start()));
+            assert!(input.is_char_boundary(link.end()));
+        }
+    }
+
+    #[test]
+    fn large_non_link_inputs_and_deep_scopes_are_bounded() {
+        assert!(
+            Linkify::new()
+                .links_with_fuzzy(&"a".repeat(100_000), true)
+                .is_empty()
+        );
+        let input = format!(
+            "https://a.com/{}x{}",
+            "(".repeat(10_000),
+            ")".repeat(10_000)
+        );
+        assert_eq!(
+            Linkify::new().links(&input)[0].as_str(&input),
+            "https://a.com/"
+        );
+    }
+
+    #[test]
+    fn includes_mailto_after_unicode() {
+        for input in [
+            "组 mailto:test@example.com",
+            "é MAILTO:test@example.com",
+            "💥 MaIlTo:test@example.com",
+        ] {
+            assert_eq!(
+                matches(input),
+                vec![(input.split_once(' ').unwrap().1, LinkKind::Email)],
+                "{input:?}"
+            );
+        }
     }
 }

@@ -1,0 +1,122 @@
+name: JS compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 21 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: differential-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linkify:
+    name: Linkify crate compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: crates/markdown-it-rs-linkify/tests/differential/pnpm-lock.yaml
+      - name: Install pinned JS oracle dependencies
+        run: pnpm --dir crates/markdown-it-rs-linkify/tests/differential install --frozen-lockfile --ignore-scripts
+      - name: Test linkify crate and live oracle snapshots
+        run: cargo test -p markdown-it-rs-linkify --locked -- --include-ignored
+      - name: Test linkify oracle and comparison policy
+        run: pnpm --dir crates/markdown-it-rs-linkify/tests/differential test:tool
+      - name: Compare native detection grammar and seeded mutations
+        run: |
+          structured_seed=$(node -p 'require("node:crypto").randomInt(0, 4294967296)')
+          mutation_seed=$(node -p 'require("node:crypto").randomInt(0, 4294967296)')
+          echo "structured_seed=$structured_seed mutation_seed=$mutation_seed"
+
+          node crates/markdown-it-rs-linkify/tests/differential/linkify-run.mjs --structured --seed "$structured_seed" --iterations 10000
+          node crates/markdown-it-rs-linkify/tests/differential/linkify-run.mjs --no-build --seed "$mutation_seed" --iterations 10000
+      - name: Upload detection failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkify-detection-failures
+          path: crates/markdown-it-rs-linkify/tests/differential/failures/*.json
+          if-no-files-found: ignore
+
+  differential:
+    name: Differential (config ${{ matrix.config }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [0, 1, 2, 3, 4, 5]
+    env:
+      CARGO_NET_RETRY: "3"
+      CONFIG: ${{ matrix.config }}
+      EVENT_NAME: ${{ github.event_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: tests/differential/pnpm-lock.yaml
+
+      - name: Install pinned JS dependencies
+        run: pnpm --dir tests/differential install --frozen-lockfile --ignore-scripts
+
+      - name: Test input generators
+        id: tool
+        run: pnpm --dir tests/differential test:tool
+
+      - name: Build Rust adapter
+        id: build
+        run: cargo build -p markdown-it-rs --example differential --locked
+
+      - name: Compare fixture inputs
+        run: >-
+          node tests/differential/run.mjs --no-build --fixtures
+          --config "$CONFIG" --iterations 0
+
+      - name: Compare seeded mixed inputs
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.tool.outcome == 'success' }}
+        run: |
+          seed=$(node -p 'require("node:crypto").randomInt(0, 4294967296)')
+          iterations=1000
+          if [[ "$EVENT_NAME" == schedule ]]; then
+            iterations=10000
+          fi
+          echo "config=$CONFIG seed=$seed iterations=$iterations"
+          node tests/differential/run.mjs --no-build --fixtures --random-only \
+            --strategy mixed --config "$CONFIG" --seed "$seed" --iterations "$iterations"
+
+      - name: Upload replayable failures
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-failures-config-${{ matrix.config }}
+          path: tests/differential/failures/*.json
+          if-no-files-found: ignore
+          retention-days: 14

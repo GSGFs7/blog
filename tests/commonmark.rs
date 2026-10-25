@@ -1,21 +1,38 @@
 fn run(input: &str, output: &str) {
+    // markdown-it omits whitespace inside empty blockquotes.
+    let output = output.replace("<blockquote>\n</blockquote>", "<blockquote></blockquote>");
     let output = if output.is_empty() {
         "".to_owned()
     } else {
         output.to_owned() + "\n"
     };
     let md = &mut markdown_it::MarkdownIt::with_preset(markdown_it::Preset::CommonMark);
-    let node = md.parse(&(input.to_owned() + "\n"));
+    let source = input.to_owned() + "\n";
+    let node = md.parse(&source);
 
     // make sure we have sourcemaps for everything
-    node.walk(|node, _| assert!(node.srcmap.is_some()));
+    #[cfg(feature = "sourcemap")]
+    for event in node.events(node.root()) {
+        assert!(event.node().srcmap().is_some());
+    }
 
-    let result = node.render();
+    let result = md.render_html(&node);
     assert_eq!(result, output);
+
+    let document = md.parse(&source);
+    assert_eq!(md.render_html(&document), result);
+    md.render_as(&document, "text");
+
+    let direct = md.parse(&source);
+    assert_eq!(md.render_html(&direct), result);
+    assert_eq!(
+        md.render_as(&direct, "text"),
+        md.render_as(&document, "text"),
+    );
 
     // The CJK-friendly amendment must not change any original CommonMark case.
     markdown_it::plugins::cjk_friendly::add(md);
-    assert_eq!(md.render(&(input.to_owned() + "\n")), result);
+    assert_eq!(md.render(&source), result);
 
     // make sure it doesn't crash without trailing \n
     let _ = md.parse(input.trim_end());
@@ -2433,6 +2450,7 @@ fn src_line_3502() {
 #[test]
 fn src_line_3524() {
     let input = r#"aaa
+
 
 bbb"#;
     let output = r#"<p>aaa</p>

@@ -1,27 +1,26 @@
 // Replaces `(\/)` with `🦀`.
 
-use markdown_it::parser::inline::{InlineRule, InlineState};
-use markdown_it::{MarkdownIt, Node, NodeValue, Renderer};
+use markdown_it::parser::inline::InlineRule;
+use markdown_it::{InlineState, MarkdownIt, NodeId, NodeRef, NodeRenderer, RenderContext, Writer};
 
 const CRAB_CLAW: &str = r#"(\/)"#;
 
 #[derive(Debug)]
-// This is a structure that represents your custom Node in AST.
+// This is a structure that represents your custom node payload in the document.
 pub struct InlineFerris;
 
 // This defines how your custom node should be rendered.
-impl NodeValue for InlineFerris {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        // `node.attrs` are custom attributes added by other plugins
-        // (for example, source mapping information)
-        let mut attrs = node.attrs.clone();
+struct InlineFerrisRenderer;
 
-        // add a custom class attribute
-        attrs.push(("class".into(), "ferris-inline".into()));
-
-        fmt.open("span", &attrs);
-        fmt.text("🦀");
-        fmt.close("span");
+impl NodeRenderer<InlineFerris> for InlineFerrisRenderer {
+    fn render(
+        &self,
+        _: NodeRef<'_>,
+        _: &InlineFerris,
+        _: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        output.write_str("<span class=\"ferris-inline\">🦀</span>");
     }
 }
 
@@ -36,25 +35,28 @@ impl InlineRule for FerrisInlineScanner {
     // This is a custom function that will be invoked on every character
     // in an inline context.
     //
-    // It should look for `state.src` exactly at position `state.pos`
-    // and report if your custom structure appears there.
+    // It should inspect `state.remaining()` and report if your custom structure
+    // appears at the current position.
     //
     // If custom structure is found, it:
-    //  - creates a new `Node` in AST
+    //  - creates a new `NodeDraft`
     //  - returns length of it
     //
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        let input = &state.src[state.pos..state.pos_max]; // look for stuff at state.pos
-        if !input.starts_with(CRAB_CLAW) {
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
+        if !state.remaining().starts_with(CRAB_CLAW) {
             return None;
-        } // return None if it's not found
+        }
 
         // return new node and length of this structure
-        Some((Node::new(InlineFerris), CRAB_CLAW.len()))
+        Some((
+            Some(state.document.create_node(InlineFerris)),
+            CRAB_CLAW.len(),
+        ))
     }
 }
 
 pub fn add(md: &mut MarkdownIt) {
     // insert this rule into inline subparser
     md.inline.add_rule::<FerrisInlineScanner>();
+    md.add_renderer::<InlineFerris, _>("html", InlineFerrisRenderer);
 }

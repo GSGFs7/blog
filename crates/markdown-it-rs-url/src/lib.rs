@@ -1,4 +1,6 @@
-mod authority;
+//! Malformed URLs intentionally follow markdown-it/mdurl behavior.
+//! Review `markdown-it compatibility` comments when refactoring the URL parser.
+
 mod display;
 mod elide;
 mod host;

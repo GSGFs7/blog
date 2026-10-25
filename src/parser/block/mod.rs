@@ -1,28 +1,32 @@
 //! Block rule chain
-
-#[doc(hidden)]
-pub mod builtin;
+mod document;
+mod lines;
+mod parser;
 mod rule;
 mod state;
+pub(crate) use document::parse_document;
+pub use lines::*;
+pub use parser::BlockParserRule;
+pub use rule::*;
+pub use state::BlockState;
 
-pub use self::rule::*;
-pub use self::state::*;
 use crate::common::RuleMark;
 use crate::common::ruler::Ruler;
-use crate::parser::extset::RootExtSet;
-use crate::parser::inline::InlineRoot;
-use crate::parser::node::NodeEmpty;
-use crate::{MarkdownIt, Node};
+use crate::{MarkdownIt, NodeId};
 
-type RuleFns = (
-    fn(&mut BlockState) -> Option<()>,
-    fn(&mut BlockState) -> Option<(Node, usize)>,
+/// Register the core rule that drives block parsing.
+pub fn add(md: &mut MarkdownIt) {
+    parser::add(md);
+}
+
+pub(crate) type BlockRuleFns = (
+    fn(&mut BlockState<'_>) -> Option<()>,
+    fn(&mut BlockState<'_>) -> Option<(Option<NodeId>, usize)>,
 );
 
 #[derive(Debug, Default)]
-/// Block-level tokenizer.
 pub struct BlockParser {
-    ruler: Ruler<RuleMark, RuleFns>,
+    ruler: Ruler<RuleMark, BlockRuleFns>,
 }
 
 impl BlockParser {
@@ -30,103 +34,11 @@ impl BlockParser {
         Self::default()
     }
 
-    /// Generate tokens for input range
-    ///
-    fn tokenize(&self, state: &mut BlockState) {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            let mut has_empty_lines = false;
-
-            while state.line < state.line_max {
-                state.line = state.skip_empty_lines(state.line);
-                if state.line >= state.line_max {
-                    break;
-                }
-
-                // Termination condition for nested calls.
-                // Nested calls currently used for blockquotes & lists
-                if state.line_indent(state.line) < 0 {
-                    break;
-                }
-
-                // If nesting level exceeded - skip tail to the end. That's not ordinary
-                // situation and we should not care about content.
-                if state.level >= state.md.max_nesting {
-                    state.line = state.line_max;
-                    break;
-                }
-
-                // Try all possible rules.
-                // On success, rule should:
-                //
-                // - update `state.line`
-                // - update `state.tokens`
-                // - return true
-                let mut ok = None;
-
-                for rule in self.ruler.iter() {
-                    ok = rule.1(state);
-                    if ok.is_some() {
-                        break;
-                    }
-                }
-
-                if let Some((mut node, len)) = ok {
-                    state.line += len;
-                    if !node.is::<NodeEmpty>() {
-                        node.srcmap = state.get_map(state.line - len, state.line - 1);
-                        state.node.children.push(node);
-                    }
-                } else {
-                    // this can only happen if user disables paragraph rule
-                    // push text as is, this behavior can change in the future;
-                    // users should always have some kind of default block rule
-                    let mut content = state.get_line(state.line).to_owned();
-                    content.push('\n');
-                    let node = Node::new(InlineRoot::new(
-                        content,
-                        vec![(0, state.line_offsets[state.line].first_nonspace)],
-                    ));
-                    state.node.children.push(node);
-                    state.line += 1;
-                }
-
-                // set state.tight if we had an empty line before current tag
-                // i.e. latest empty line should not count
-                state.tight = !has_empty_lines;
-
-                // paragraph might "eat" one newline after it in nested lists
-                if state.is_empty(state.line - 1) {
-                    has_empty_lines = true;
-                }
-
-                if state.line < state.line_max && state.is_empty(state.line) {
-                    has_empty_lines = true;
-                    state.line += 1;
-                }
-            }
-        });
+    pub(crate) fn rules(&self) -> &[BlockRuleFns] {
+        self.ruler.as_slice()
     }
 
-    /// Tokenize the contents of a nested block container.
-    ///
-    /// Block rules that recursively invoke the block parser must use this
-    /// method so [`MarkdownIt::max_nesting`] can stop excessively deep input.
-    pub fn tokenize_nested(&self, state: &mut BlockState) {
-        let old_level = state.level;
-        state.level = state.level.saturating_add(1);
-        self.tokenize(state);
-        state.level = old_level;
-    }
-
-    /// Process input string and push block tokens into `out_tokens`
-    ///
-    pub fn parse(&self, src: &str, node: Node, md: &MarkdownIt, root_ext: &mut RootExtSet) -> Node {
-        let mut state = BlockState::new(src, md, root_ext, node);
-        self.tokenize(&mut state);
-        state.node
-    }
-
-    pub fn add_rule<T: BlockRule>(&mut self) -> RuleBuilder<'_, RuleFns> {
+    pub fn add_rule<T: BlockRule>(&mut self) -> RuleBuilder<'_, BlockRuleFns> {
         let item = self.ruler.add(RuleMark::of::<T>(), (T::check, T::run));
         for name in T::NAMES {
             item.alias(RuleMark::named(*name));

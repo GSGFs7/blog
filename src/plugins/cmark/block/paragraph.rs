@@ -3,44 +3,32 @@
 //! This is the default rule if nothing else matches.
 //!
 //! <https://spec.commonmark.org/0.30/#paragraph>
+use crate::MarkdownIt;
+use crate::document::NodeId;
 use crate::parser::block::{BlockRule, BlockState};
-use crate::parser::inline::InlineRoot;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{HtmlBlockElementRenderer, PlainTextBlockRenderer};
 
 pub fn add(md: &mut MarkdownIt) {
     md.block.add_rule::<ParagraphScanner>().after_all();
+    md.renderers
+        .add::<Paragraph, _>("html", HtmlBlockElementRenderer("p"));
+    md.add_renderer::<Paragraph, _>("text", PlainTextBlockRenderer);
 }
 
-#[derive(Debug)]
-pub struct Paragraph;
-
-impl NodeValue for Paragraph {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.cr();
-        fmt.open("p", &node.attrs);
-        fmt.contents(&node.children);
-        fmt.close("p");
-        fmt.cr();
-    }
-}
-
-#[doc(hidden)]
-pub struct ParagraphScanner;
 impl BlockRule for ParagraphScanner {
     const NAMES: &'static [&'static str] = &["paragraph"];
 
-    fn check(_: &mut BlockState) -> Option<()> {
+    fn check(_: &mut BlockState<'_>) -> Option<()> {
         None // can't interrupt anything
     }
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
         let start_line = state.line;
         let mut next_line = start_line;
 
-        // jump line-by-line until empty one or EOF
-        'outer: loop {
+        // jump line-by-line until an empty one or EOF
+        loop {
             next_line += 1;
-
             if next_line >= state.line_max || state.is_empty(next_line) {
                 break;
             }
@@ -57,20 +45,40 @@ impl BlockRule for ParagraphScanner {
             }
 
             // Some tags can terminate paragraph without empty line.
-            let old_state_line = state.line;
+            let old_line = state.line;
             state.line = next_line;
-            if state.test_rules_at_line() {
-                state.line = old_state_line;
-                break 'outer;
+            let interrupted = test_paragraph_rules_at_line(state);
+            state.line = old_line;
+            if interrupted {
+                break;
             }
-            state.line = old_state_line;
         }
 
         let (content, mapping) = state.get_lines(start_line, next_line, state.blk_indent, false);
-
-        let mut node = Node::new(Paragraph);
-        node.children
-            .push(Node::new(InlineRoot::new(content, mapping)));
-        Some((node, next_line - start_line))
+        let paragraph = state.document.create_node(Paragraph);
+        let pending = state.pending_inline(content, mapping);
+        state.document.push_child(paragraph, pending);
+        Some((Some(paragraph), next_line - start_line))
     }
+}
+
+#[derive(Debug)]
+pub struct Paragraph;
+
+#[doc(hidden)]
+pub struct ParagraphScanner;
+
+/// Temporary plugin context: list interruption restrictions apply only to paragraphs.
+#[derive(Debug)]
+pub(super) struct ParagraphInterrupt;
+
+pub(super) fn test_paragraph_rules_at_line(state: &mut BlockState<'_>) -> bool {
+    let old_context = state.root_ext.insert(ParagraphInterrupt);
+    let interrupted = state.test_rules_at_line();
+    if let Some(old_context) = old_context {
+        state.root_ext.insert(old_context);
+    } else {
+        state.root_ext.remove::<ParagraphInterrupt>();
+    }
+    interrupted
 }

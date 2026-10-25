@@ -1,12 +1,21 @@
 //! GFM tables
 //!
 //! <https://github.github.com/gfm/#tables-extension->
-use crate::common::sourcemap::SourcePos;
+use crate::MarkdownIt;
+use crate::document::{NodeId, NodeRef};
 use crate::parser::block::{BlockRule, BlockState};
-use crate::parser::inline::InlineRoot;
+use crate::plugins::cmark::block::blockquote::{BlockquoteInterrupt, BlockquoteScanner};
+use crate::plugins::cmark::block::fence::FenceScanner;
 use crate::plugins::cmark::block::heading::HeadingScanner;
 use crate::plugins::cmark::block::list::ListScanner;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{
+    NodeRenderer,
+    PlainTextBlockRenderer,
+    RenderContext,
+    TransparentRenderer,
+    write_html_close,
+    write_html_open,
+};
 
 // Limit the number of empty cells synthesized for short table rows. Without
 // this cap, a table with N header columns and N one-cell body rows produces
@@ -21,24 +30,29 @@ pub struct Table {
     pub alignments: Vec<ColumnAlignment>,
 }
 
-impl NodeValue for Table {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let old_context = fmt.ext().remove::<TableRenderContext>();
-        fmt.ext().insert(TableRenderContext {
+struct TableRenderer;
+
+impl NodeRenderer<Table> for TableRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        value: &Table,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        let old_context = context.ext().remove::<TableRenderContext>();
+        context.ext().insert(TableRenderContext {
             head: false,
-            alignments: self.alignments.clone(),
+            alignments: value.alignments.clone(),
             index: 0,
         });
 
-        fmt.cr();
-        fmt.open("table", &node.attrs);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("table");
-        fmt.cr();
+        render_block_container(node, context, output, "table");
 
-        old_context.map(|ctx| fmt.ext().insert(ctx));
+        context.ext().remove::<TableRenderContext>();
+        if let Some(old_context) = old_context {
+            context.ext().insert(old_context);
+        }
     }
 }
 
@@ -52,88 +66,157 @@ pub struct TableRenderContext {
 #[derive(Debug)]
 pub struct TableHead;
 
-impl NodeValue for TableHead {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let ctx = fmt.ext().get_or_insert_default::<TableRenderContext>();
-        ctx.head = true;
+struct TableHeadRenderer;
 
-        fmt.cr();
-        fmt.open("thead", &node.attrs);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("thead");
-        fmt.cr();
-
-        let ctx = fmt.ext().get_or_insert_default::<TableRenderContext>();
-        ctx.head = false;
+impl NodeRenderer<TableHead> for TableHeadRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &TableHead,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        context
+            .ext()
+            .get_or_insert_default::<TableRenderContext>()
+            .head = true;
+        render_block_container(node, context, output, "thead");
+        context
+            .ext()
+            .get_or_insert_default::<TableRenderContext>()
+            .head = false;
     }
 }
 
 #[derive(Debug)]
 pub struct TableBody;
 
-impl NodeValue for TableBody {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.cr();
-        fmt.open("tbody", &node.attrs);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("tbody");
-        fmt.cr();
+struct TableBodyRenderer;
+
+impl NodeRenderer<TableBody> for TableBodyRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &TableBody,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        render_block_container(node, context, output, "tbody");
     }
 }
 
 #[derive(Debug)]
 pub struct TableRow;
 
-impl NodeValue for TableRow {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let ctx = fmt.ext().get_or_insert_default::<TableRenderContext>();
-        ctx.index = 0;
+struct TableRowRenderer;
 
-        fmt.cr();
-        fmt.open("tr", &node.attrs);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("tr");
-        fmt.cr();
+impl NodeRenderer<TableRow> for TableRowRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &TableRow,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        context
+            .ext()
+            .get_or_insert_default::<TableRenderContext>()
+            .index = 0;
+        render_block_container(node, context, output, "tr");
+    }
+}
+
+struct TableRowTextRenderer;
+
+impl NodeRenderer<TableRow> for TableRowTextRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &TableRow,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        context.cr(output);
+        for (index, &cell) in node.children().iter().enumerate() {
+            if index != 0 {
+                output.write_char('\t');
+            }
+            context.render_node(cell, output);
+        }
+        context.cr(output);
     }
 }
 
 #[derive(Debug)]
 pub struct TableCell;
 
-impl NodeValue for TableCell {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let ctx = fmt.ext().get_or_insert_default::<TableRenderContext>();
-        let tag = if ctx.head { "th" } else { "td" };
+struct TableCellRenderer;
 
-        let mut attrs = node.attrs.clone();
+impl NodeRenderer<TableCell> for TableCellRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &TableCell,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        let table_context = context.ext().get_or_insert_default::<TableRenderContext>();
+        let tag = if table_context.head { "th" } else { "td" };
+        let alignment = table_context
+            .alignments
+            .get(table_context.index)
+            .copied()
+            .unwrap_or_default();
+        table_context.index += 1;
 
-        match ctx.alignments.get(ctx.index).copied().unwrap_or_default() {
+        let mut attrs = node.attrs().to_vec();
+        match alignment {
             ColumnAlignment::None => (),
             ColumnAlignment::Left => attrs.push(("style".into(), "text-align:left".to_owned())),
             ColumnAlignment::Right => attrs.push(("style".into(), "text-align:right".to_owned())),
             ColumnAlignment::Center => attrs.push(("style".into(), "text-align:center".to_owned())),
         }
 
-        ctx.index += 1;
-
-        fmt.open(tag, &attrs);
-        fmt.contents(&node.children);
-        fmt.close(tag);
-        fmt.cr();
+        write_html_open(output, tag, &attrs);
+        context.render_children(node.id(), output);
+        write_html_close(output, tag);
+        context.cr(output);
     }
+}
+
+fn render_block_container(
+    node: NodeRef<'_>,
+    context: &mut RenderContext<'_>,
+    output: &mut crate::Writer,
+    tag: &str,
+) {
+    context.cr(output);
+    write_html_open(output, tag, node.attrs());
+    context.cr(output);
+    context.render_children(node.id(), output);
+    context.cr(output);
+    write_html_close(output, tag);
+    context.cr(output);
 }
 
 pub fn add(md: &mut MarkdownIt) {
     md.block
         .add_rule::<TableScanner>()
+        // A table header may look like a code fence, so match tables first.
+        .before::<FenceScanner>()
+        .before::<BlockquoteScanner>()
         .before::<ListScanner>()
         .before::<HeadingScanner>();
+    md.add_renderer::<Table, _>("html", TableRenderer);
+    md.add_renderer::<TableHead, _>("html", TableHeadRenderer);
+    md.add_renderer::<TableBody, _>("html", TableBodyRenderer);
+    md.add_renderer::<TableRow, _>("html", TableRowRenderer);
+    md.add_renderer::<TableCell, _>("html", TableCellRenderer);
+    md.add_renderer::<Table, _>("text", PlainTextBlockRenderer);
+    md.add_renderer::<TableHead, _>("text", TransparentRenderer);
+    md.add_renderer::<TableBody, _>("text", TransparentRenderer);
+    md.add_renderer::<TableRow, _>("text", TableRowTextRenderer);
+    md.add_renderer::<TableCell, _>("text", TransparentRenderer);
 }
 
 #[doc(hidden)]
@@ -142,6 +225,7 @@ pub struct TableScanner;
 #[derive(Debug)]
 struct RowContent {
     str: String,
+    #[cfg(feature = "sourcemap")]
     srcmap: Vec<(usize, usize)>,
 }
 
@@ -158,6 +242,8 @@ impl TableScanner {
     fn scan_row(line: &str) -> Vec<RowContent> {
         let mut result = Vec::new();
         let mut str = String::new();
+        let mut segment_start = 0;
+        #[cfg(feature = "sourcemap")]
         let mut srcmap = vec![(0, 0)];
         let mut is_escaped = false;
         let mut is_leading = true;
@@ -165,20 +251,32 @@ impl TableScanner {
         for (pos, ch) in line.char_indices() {
             match ch {
                 ' ' | '\t' if is_leading => {
-                    srcmap[0].1 += 1;
+                    segment_start += 1;
+                    #[cfg(feature = "sourcemap")]
+                    {
+                        srcmap[0].1 += 1;
+                    }
                 }
                 '|' => {
                     is_leading = false;
                     if is_escaped {
-                        str.push_str(&line[srcmap.last().unwrap().1..pos - 1]);
+                        str.push_str(&line[segment_start..pos - 1]);
+                        segment_start = pos;
+                        #[cfg(feature = "sourcemap")]
                         srcmap.push((str.len(), pos));
+                        is_escaped = false;
                     } else {
-                        str.push_str(&line[srcmap.last().unwrap().1..pos]);
+                        str.push_str(&line[segment_start..pos]);
                         result.push(RowContent {
                             str: std::mem::take(&mut str),
+                            #[cfg(feature = "sourcemap")]
                             srcmap: std::mem::take(&mut srcmap),
                         });
-                        srcmap = vec![(0, pos + 1)];
+                        segment_start = pos + 1;
+                        #[cfg(feature = "sourcemap")]
+                        {
+                            srcmap = vec![(0, pos + 1)];
+                        }
                         is_escaped = false;
                         is_leading = true;
                     }
@@ -194,8 +292,12 @@ impl TableScanner {
             }
         }
 
-        str.push_str(&line[srcmap.last().unwrap().1..]);
-        result.push(RowContent { str, srcmap });
+        str.push_str(&line[segment_start..]);
+        result.push(RowContent {
+            str,
+            #[cfg(feature = "sourcemap")]
+            srcmap,
+        });
 
         // trim trailing spaces
         for content in result.iter_mut() {
@@ -205,14 +307,14 @@ impl TableScanner {
         }
 
         // remove last cell if empty
-        if let Some(RowContent { str, srcmap: _ }) = result.last() {
+        if let Some(RowContent { str, .. }) = result.last() {
             if str.is_empty() {
                 result.pop();
             }
         }
 
         // remove first cell if empty
-        if let Some(RowContent { str, srcmap: _ }) = result.first() {
+        if let Some(RowContent { str, .. }) = result.first() {
             if str.is_empty() {
                 result.remove(0);
             }
@@ -224,27 +326,25 @@ impl TableScanner {
     fn scan_alignment_row(line: &str) -> Option<Vec<ColumnAlignment>> {
         // quick check second line, only allow :-| and spaces
         // (this is for performance only)
-        let mut has_delimiter = false;
         for ch in line.chars() {
             match ch {
-                '|' | ':' => has_delimiter = true,
-                '-' | ' ' | '\t' => (),
+                '|' | ':' | '-' | ' ' | '\t' => (),
                 _ => return None,
             }
         }
-        if !has_delimiter {
+        if line.len() < 2 {
             return None;
         }
 
         // if first character is '-', then second character must not be a space
         // (due to parsing ambiguity with list)
-        if line.starts_with("- ") {
+        if line.starts_with("- ") || line.starts_with("-\t") {
             return None;
         }
 
         let mut result = Vec::new();
 
-        for RowContent { str, srcmap: _ } in Self::scan_row(line) {
+        for RowContent { str, .. } in Self::scan_row(line) {
             let mut alignment: u8 = 0;
             let mut cell = str.as_str();
 
@@ -275,27 +375,37 @@ impl TableScanner {
         Some(result)
     }
 
-    fn scan_header(state: &BlockState) -> Option<(Vec<RowContent>, Vec<ColumnAlignment>)> {
+    fn scan_header<'a>(
+        line: usize,
+        line_max: usize,
+        max_indent: i32,
+        get_line: impl Fn(usize) -> (&'a str, i32),
+    ) -> Option<(Vec<RowContent>, Vec<ColumnAlignment>)> {
         // should have at least two lines
-        if state.line + 2 > state.line_max {
+        if line + 2 > line_max {
             return None;
         }
 
-        if state.line_indent(state.line) >= state.md.max_indent {
+        if get_line(line).1 >= max_indent {
             return None;
         }
 
-        let next_line = state.line + 1;
-        if state.line_indent(next_line) < 0 {
+        let next_line = line + 1;
+        if get_line(next_line).1 < 0 {
             return None;
         }
 
-        if state.line_indent(next_line) >= state.md.max_indent {
+        if get_line(next_line).1 >= max_indent {
             return None;
         }
 
-        let alignments = Self::scan_alignment_row(state.get_line(next_line))?;
-        let header_row = Self::scan_row(state.get_line(state.line));
+        let header = get_line(line).0;
+        if !header.contains('|') {
+            return None;
+        }
+
+        let alignments = Self::scan_alignment_row(get_line(next_line).0)?;
+        let header_row = Self::scan_row(header);
 
         // header row must match the delimiter row in the number of cells
         if header_row.len() != alignments.len() {
@@ -313,53 +423,82 @@ impl TableScanner {
 
 impl BlockRule for TableScanner {
     const NAMES: &'static [&'static str] = &["table", "tables"];
-
-    fn check(state: &mut BlockState) -> Option<()> {
-        if state.node.is::<TableBody>() {
+    fn check(state: &mut BlockState<'_>) -> Option<()> {
+        if state.document.node(state.node).is::<TableBody>()
+            || state.root_ext.get::<BlockquoteInterrupt>().is_some()
+        {
             return None;
         }
 
-        Self::scan_header(state).map(|_| ())
+        Self::scan_header(state.line, state.line_max, state.md.max_indent, |line| {
+            (state.get_line(line), state.line_indent(line))
+        })
+        .map(|_| ())
     }
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
-        let (header_row, alignments) = Self::scan_header(state)?;
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let (header_row, alignments) =
+            Self::scan_header(state.line, state.line_max, state.md.max_indent, |line| {
+                (state.get_line(line), state.line_indent(line))
+            })?;
         let table_cell_count = header_row.len();
-        let mut table_node = Node::new(Table { alignments });
+        let table_node = state.document.create_node(Table { alignments });
 
-        let mut thead_node = Node::new(TableHead);
-        thead_node.srcmap = state.get_map(state.line, state.line + 1);
+        let thead_node = state.document.create_node(TableHead);
+        #[cfg(feature = "sourcemap")]
+        {
+            let srcmap = state.get_map(state.line, state.line + 1);
+            state.document.node_mut(thead_node).set_srcmap(srcmap);
+        }
 
-        let mut row_node = Node::new(TableRow);
-        row_node.srcmap = state.get_map(state.line, state.line);
+        let row_node = state.document.create_node(TableRow);
+        #[cfg(feature = "sourcemap")]
+        {
+            let srcmap = state.get_map(state.line, state.line);
+            state.document.node_mut(row_node).set_srcmap(srcmap);
+        }
 
-        fn add_cell(row_node: &mut Node, cell: String, srcmap: Vec<(usize, usize)>) {
-            let mut cell_node = Node::new(TableCell);
-            let (start, _) = row_node.srcmap.unwrap().get_byte_offsets();
-            cell_node.srcmap = Some(SourcePos::new(
-                start + srcmap.first().unwrap().1,
-                start + srcmap.last().unwrap().1 + cell.len() - srcmap.last().unwrap().0,
+        fn add_cell(state: &mut BlockState<'_>, row_node: NodeId, content: RowContent) {
+            let RowContent {
+                str: cell,
+                #[cfg(feature = "sourcemap")]
+                srcmap,
+            } = content;
+            let cell_node = state.document.create_node(TableCell);
+
+            #[cfg(feature = "sourcemap")]
+            let start = state.line_offsets[state.line].first_nonspace;
+            #[cfg(feature = "sourcemap")]
+            state.document.node_mut(cell_node).set_srcmap(Some(
+                crate::common::sourcemap::SourcePos::new(
+                    start + srcmap.first().unwrap().1,
+                    start + srcmap.last().unwrap().1 + cell.len() - srcmap.last().unwrap().0,
+                ),
             ));
+
             if !cell.is_empty() {
+                #[cfg(feature = "sourcemap")]
                 let mapping = srcmap
                     .into_iter()
-                    .map(|(dstpos, srcpos)| (dstpos, srcpos + start))
+                    .map(|(dst, src)| (dst, src + start))
                     .collect();
-                cell_node
-                    .children
-                    .push(Node::new(InlineRoot::new(cell, mapping)));
+                #[cfg(not(feature = "sourcemap"))]
+                let mapping = crate::parser::InlineMapping;
+
+                let pending = state.pending_inline(cell, mapping);
+                state.document.push_child(cell_node, pending);
             }
-            row_node.children.push(cell_node);
+            state.document.push_child(row_node, cell_node);
         }
 
-        for RowContent { str: cell, srcmap } in header_row {
-            add_cell(&mut row_node, cell, srcmap);
+        for content in header_row {
+            add_cell(state, row_node, content);
         }
 
-        thead_node.children.push(row_node);
-        table_node.children.push(thead_node);
+        state.document.push_child(thead_node, row_node);
+        state.document.push_child(table_node, thead_node);
 
-        let tbody_node = Node::new(TableBody);
+        let tbody_node = state.document.create_node(TableBody);
         let old_node = std::mem::replace(&mut state.node, tbody_node);
 
         //
@@ -393,6 +532,8 @@ impl BlockRule for TableScanner {
             }
 
             let line = state.get_line(state.line);
+            #[cfg(feature = "sourcemap")]
+            let line_len = line.len();
 
             let mut body_row = Self::scan_row(line);
             let missing_cells = table_cell_count.saturating_sub(body_row.len());
@@ -405,39 +546,96 @@ impl BlockRule for TableScanner {
             }
             autocompleted_cells = total_autocompleted_cells;
 
-            let mut row_node = Node::new(TableRow);
-            row_node.srcmap = state.get_map(state.line, state.line);
-            let mut end_of_line = RowContent {
-                str: String::new(),
-                srcmap: vec![(0, line.len())],
-            };
+            let row_node = state.document.create_node(TableRow);
 
-            for index in 0..table_cell_count {
-                let RowContent { str: cell, srcmap } =
-                    body_row.get_mut(index).unwrap_or(&mut end_of_line);
-                add_cell(&mut row_node, cell.clone(), srcmap.clone());
+            #[cfg(feature = "sourcemap")]
+            {
+                let srcmap = state.get_map(state.line, state.line);
+                state.document.node_mut(row_node).set_srcmap(srcmap);
             }
 
-            state.node.children.push(row_node);
+            let mut end_of_line = RowContent {
+                str: String::new(),
+                #[cfg(feature = "sourcemap")]
+                srcmap: vec![(0, line_len)],
+            };
+            for index in 0..table_cell_count {
+                let content = body_row.get_mut(index).unwrap_or(&mut end_of_line);
+                add_cell(
+                    state,
+                    row_node,
+                    RowContent {
+                        str: content.str.clone(),
+                        #[cfg(feature = "sourcemap")]
+                        srcmap: content.srcmap.clone(),
+                    },
+                );
+            }
+
+            state.document.push_child(state.node, row_node);
             state.line += 1;
         }
 
-        let mut tbody_node = std::mem::replace(&mut state.node, old_node);
+        let tbody_node = std::mem::replace(&mut state.node, old_node);
+        if !state.document.node(tbody_node).children().is_empty() {
+            #[cfg(feature = "sourcemap")]
+            {
+                let srcmap = state.get_map(start_line + 2, state.line - 1);
+                state.document.node_mut(tbody_node).set_srcmap(srcmap);
+            }
 
-        if !tbody_node.children.is_empty() {
-            tbody_node.srcmap = state.get_map(start_line + 2, state.line - 1);
-            table_node.children.push(tbody_node);
+            state.document.push_child(table_node, tbody_node);
+        } else {
+            state.document.discard_node(tbody_node);
         }
 
         let line_count = state.line - start_line;
         state.line = start_line;
-        Some((table_node, line_count))
+        Some((Some(table_node), line_count))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{MAX_AUTOCOMPLETED_CELLS, TableScanner};
+
+    #[test]
+    fn tables_take_precedence_over_blockquote_markers_in_headers() {
+        for tables_first in [false, true] {
+            let mut md = crate::MarkdownIt::empty();
+            if tables_first {
+                super::add(&mut md);
+            }
+            crate::plugins::cmark::add(&mut md);
+            if !tables_first {
+                super::add(&mut md);
+            }
+            for (source, expected) in [
+                (
+                    ">|\n:-",
+                    "<table>\n<thead>\n<tr>\n<th style=\"text-align:left\">&gt;</th>\n</tr>\n</thead>\n</table>\n",
+                ),
+                (
+                    "> a |\n---|\n",
+                    "<table>\n<thead>\n<tr>\n<th>&gt; a</th>\n</tr>\n</thead>\n</table>\n",
+                ),
+                (
+                    "> a |\n> ---|\n",
+                    "<blockquote>\n<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n</table>\n</blockquote>\n",
+                ),
+                (
+                    "> ordinary quote",
+                    "<blockquote>\n<p>ordinary quote</p>\n</blockquote>\n",
+                ),
+            ] {
+                assert_eq!(
+                    md.render(source),
+                    expected,
+                    "{source:?}, tables_first={tables_first}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn should_split_cells() {
@@ -491,6 +689,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sourcemap")]
     fn should_trim_cell_content_srcmaps() {
         let row = TableScanner::scan_row("| foo | \tbar\t |");
         assert_eq!(row[0].str, "foo");
@@ -500,6 +699,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sourcemap")]
     fn should_process_backslash_escapes_srcmaps() {
         let row = TableScanner::scan_row(r#"|  foo\\|bar\\\|baz\  |"#);
         assert_eq!(row[0].str, r#"foo\|bar\\|baz\"#);
@@ -507,16 +707,20 @@ mod tests {
     }
 
     #[test]
-    fn require_pipe_or_colon_in_align_row() {
+    fn require_pipe_in_header_row() {
         let md = &mut crate::MarkdownIt::empty();
         crate::plugins::extra::tables::add(md);
-        let html = md.parse("foo\n---\nbar").render();
+        let html = md.render("foo\n---\nbar");
         assert_eq!(html.trim(), "foo\n---\nbar");
-        let html = md.parse("|foo\n---\nbar").render();
-        assert_eq!(html.trim(), "|foo\n---\nbar");
-        let html = md.parse("foo\n|---\nbar").render();
+        let html = md.render("|foo\n---\nbar");
         assert!(html.trim().starts_with("<table"));
-        let html = md.parse("foo\n:---\nbar").render();
+        let html = md.render("foo\n|---\nbar");
+        assert_eq!(html.trim(), "foo\n|---\nbar");
+        let html = md.render("foo\n:---\nbar");
+        assert_eq!(html.trim(), "foo\n:---\nbar");
+        let html = md.render("|foo\n|---\nbar");
+        assert!(html.trim().starts_with("<table"));
+        let html = md.render("|foo\n:---\nbar");
         assert!(html.trim().starts_with("<table"));
     }
 

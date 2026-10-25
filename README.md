@@ -17,7 +17,7 @@ You can check a [demo](https://gsgfs7.github.io/markdown-it-rs/) in your browser
 - 100% CommonMark compatible & 100% markdown-it.js-compatible HTML rendering
 - Mutable, typed AST
 - Everything is a plugin
-- Source maps for parsed nodes
+- Optional source maps for parsed nodes
 - Extensible core, block, and inline rule chains
 - Optional CJK-friendly emphasis handling
 - Optional Python and WebAssembly bindings
@@ -53,18 +53,13 @@ fn main() {
 }
 ```
 
-## Planned plugin API
+## High-level plugin API
 
 > [!IMPORTANT]
-> This section is a design target for the next major version, not an API that is
-> available in the current release yet.
+> This API is implemented on the development branch for the next major version;
+> it is not available in the current published release yet.
 
-The planned high-level API uses typed, composable builders for common plugins,
-while keeping the lower-level rule and AST interfaces available for advanced
-parsers. An emoji shortcode plugin with custom HTML rendering should look roughly
-like this:
-
-```rust,ignore
+```rust
 use markdown_it::{MarkdownIt, PluginSpec};
 
 const EMOJIS: &[(&str, &str, &str)] = &[
@@ -100,16 +95,16 @@ fn emoji() -> PluginSpec {
         .finish()
 }
 
-let md = MarkdownIt::builder().plugin(emoji()).build()?;
+let md = MarkdownIt::builder().plugin(emoji()).build();
 let html = md.render("Ready :rocket:");
-//assert_eq!(html, r#"<p>Ready <span class="emoji" role="img" aria-label="rocket">🚀</span></p>"#)
+
+assert_eq!(
+    html,
+    "<p>Ready <span class=\"emoji\" role=\"img\" aria-label=\"rocket\">🚀</span></p>\n"
+);
 ```
 
-The goal is to keep simple plugins around 20 lines, with automatic rollback and
-HTML escaping, while retaining lower-level APIs for advanced plugins.
-
-Until then, see the `examples/ferris` folder for a detailed guide to the current
-low-level plugin API.
+See the `examples/ferris` folder for a detailed guide to the low-level rule API.
 
 ## CJK-friendly delimiters
 

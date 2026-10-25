@@ -11,13 +11,51 @@
 #![allow(clippy::collapsible_match)]
 
 pub mod common;
+pub mod document;
 pub mod examples;
-pub mod generics;
+pub mod links;
+mod markdown_it;
 pub mod parser;
+pub mod plugin;
 pub mod plugins;
+pub mod render;
 
-pub use parser::main::MarkdownIt;
-pub use parser::node::{HtmlAttribute, HtmlAttributes, Node, NodeValue};
-pub use parser::render_options::RenderOptions;
-pub use parser::renderer::Renderer;
+pub use document::edit::EditBatch;
+pub use document::text::{TextBoundary, TextClassifier, TextEvent, TextEvents, TextProjectionKind};
+pub use document::{
+    Document,
+    HtmlAttribute,
+    HtmlAttributes,
+    Node,
+    NodeDraft,
+    NodeId,
+    NodeRef,
+    NodeValue,
+    Root,
+    StructuralEvent,
+    StructuralEvents,
+    Text,
+    TextSpecial,
+};
+pub use markdown_it::MarkdownIt;
+pub use parser::block::BlockState;
+pub use parser::inline::InlineState;
+pub use plugin::{
+    BlockLeafBuilder,
+    BlockPluginState,
+    Html,
+    HtmlElement,
+    InlineLeafBuilder,
+    InlinePairBuilder,
+    InlinePlugin,
+    InlinePluginState,
+    LeafRenderer,
+    LeafRule,
+    MarkdownItBuilder,
+    PairDelimiter,
+    Plugin,
+    PluginSpec,
+    WithRenderer,
+};
 pub use plugins::presets::{Preset, PresetConfig};
+pub use render::{NodeRenderer, RenderContext, RenderOptions, RendererRegistry, Writer};

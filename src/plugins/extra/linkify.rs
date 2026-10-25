@@ -1,29 +1,36 @@
 //! Find urls and emails, and turn them into links
 
+// TODO: refactor this
+
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 use linkify::{LinkKind, Linkify};
 
-use crate::parser::core::{CoreRule, Root};
-use crate::parser::inline::builtin::InlineParserRule;
-use crate::parser::inline::{InlineRule, InlineState, TextSpecial};
-use crate::parser::main::MarkdownIt;
-use crate::parser::node::{Node, NodeValue};
-use crate::parser::renderer::Renderer;
+use crate::MarkdownIt;
+use crate::document::{Document, NodeId, NodeRef, StructuralEvent, Text, TextSpecial};
+use crate::links::LinkFormatter;
+use crate::parser::core::{CoreRule, CoreState};
+use crate::parser::inline::{InlineParserRule, InlinePostprocessRanges, InlineRule, InlineState};
+use crate::plugins::html::anchor_delta;
+use crate::render::{NodeRenderer, RenderContext, TransparentRenderer, render_html_link};
 
 #[derive(Debug)]
 pub struct Linkified {
     pub url: String,
 }
 
-impl NodeValue for Linkified {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let mut attrs = node.attrs.clone();
-        attrs.push(("href".into(), self.url.clone()));
+struct LinkifiedRenderer;
 
-        fmt.open("a", &attrs);
-        fmt.contents(&node.children);
-        fmt.close("a");
+impl NodeRenderer<Linkified> for LinkifiedRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        link: &Linkified,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        render_html_link(node, &link.url, None, context, output);
     }
 }
 
@@ -44,13 +51,269 @@ pub fn add_with_options(md: &mut MarkdownIt, options: LinkifyOptions) {
     md.add_rule::<LinkifyPrescan>()
         .before::<InlineParserRule>()
         .before_all();
-
+    md.add_rule::<LinkifyRule>()
+        .after::<InlineParserRule>()
+        .before_all();
     md.inline.add_rule::<LinkifyScanner>();
     md.inline.add_rule::<LinkifyFuzzyScanner>();
     md.inline.add_rule::<LinkifyEmailScanner>();
+    md.add_renderer::<Linkified, _>("html", LinkifiedRenderer);
+    md.add_renderer::<Linkified, _>("text", TransparentRenderer);
 }
 
-type LinkifyState = Vec<LinkifyPosition>;
+/// Document-level linkification after inline parsing and emphasis cleanup.
+#[derive(Default)]
+pub struct LinkifyRule;
+
+impl CoreRule for LinkifyRule {
+    const NAMES: &'static [&'static str] = &["linkify"];
+
+    fn run(&self, state: &mut CoreState<'_>) {
+        let document = &mut *state.document;
+        let ranges = document
+            .node_mut(document.root())
+            .ext_mut()
+            .remove::<InlinePostprocessRanges>()
+            .unwrap_or_default();
+        let fuzzy = state
+            .md
+            .ext
+            .get::<LinkifyOptions>()
+            .copied()
+            .unwrap_or_default()
+            .fuzzy_links;
+        for roots in ranges.0 {
+            let roots: Vec<_> = roots
+                .into_iter()
+                .filter(|&id| {
+                    document
+                        .get_node(id)
+                        .is_some_and(|node| node.parent().is_some())
+                })
+                .collect();
+            let events = collect_linkify_events(document, &roots);
+            let replacements = collect_linkify_replacements(
+                document,
+                &events,
+                state.md.link_formatter.as_ref(),
+                fuzzy,
+            );
+            apply_linkify_replacements(document, replacements);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LinkifyPositions(Vec<LinkifyPosition>);
+
+fn collect_linkify_events(document: &Document, roots: &[NodeId]) -> Vec<(NodeId, i32)> {
+    use crate::plugins::cmark::inline::autolink::Autolink;
+    use crate::plugins::cmark::inline::backticks::CodeInline;
+    use crate::plugins::cmark::inline::image::Image;
+    use crate::plugins::cmark::inline::link::Link;
+    use crate::plugins::html::html_inline::HtmlInline;
+
+    let mut events = Vec::new();
+    let mut protected_depth = 0;
+    for &root in roots {
+        for event in document.events(root) {
+            let node = event.node();
+            let protected = node.is::<CodeInline>()
+                || node.is::<Link>()
+                || node.is::<Autolink>()
+                || node.is::<Linkified>()
+                || node.is::<Image>();
+            match event {
+                StructuralEvent::Enter(_) if protected => protected_depth += 1,
+                StructuralEvent::Exit(_) if protected => protected_depth -= 1,
+                StructuralEvent::Leaf(_) if protected_depth == 0 && !protected => {
+                    if let Some(html) = node.cast::<HtmlInline>() {
+                        events.push((node.id(), anchor_delta(&html.content)));
+                    } else {
+                        events.push((node.id(), 0));
+                    }
+                }
+                StructuralEvent::Enter(_) | StructuralEvent::Exit(_) if protected_depth == 0 => {
+                    events.push((node.id(), 0));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    events
+}
+
+type LinkifyReplacements = HashMap<Option<NodeId>, HashMap<NodeId, Vec<NodeId>>>;
+
+fn collect_linkify_replacements(
+    document: &mut Document,
+    events: &[(NodeId, i32)],
+    formatter: &dyn LinkFormatter,
+    fuzzy: bool,
+) -> LinkifyReplacements {
+    let mut reverse_level = 0;
+    let mut replacements: LinkifyReplacements = HashMap::new();
+    for index in (0..events.len()).rev() {
+        let (id, delta) = events[index];
+        if delta < 0 {
+            reverse_level += 1;
+        } else if delta > 0 && reverse_level > 0 {
+            reverse_level -= 1;
+        }
+
+        if reverse_level > 0 {
+            continue;
+        }
+
+        let previous = index.checked_sub(1).map(|index| events[index].0);
+        if let Some(nodes) = linkify_text_node(document, id, previous, formatter, fuzzy) {
+            replacements
+                .entry(document.parent(id))
+                .or_default()
+                .insert(id, nodes);
+        }
+    }
+    replacements
+}
+
+fn linkify_text_node(
+    document: &mut Document,
+    id: NodeId,
+    previous: Option<NodeId>,
+    formatter: &dyn LinkFormatter,
+    fuzzy: bool,
+) -> Option<Vec<NodeId>> {
+    let text = document.node(id).cast::<Text>()?;
+
+    if !fuzzy && !text.content.contains([':', '@', '/']) {
+        return None;
+    }
+
+    let links = Linkify::new().links_with_fuzzy(&text.content, fuzzy);
+    if links.is_empty() {
+        return None;
+    }
+
+    let content = text.content.clone();
+    let preceded_by_special = previous.is_some_and(|id| document.node(id).is::<TextSpecial>());
+    #[cfg(feature = "sourcemap")]
+    let source_map = document.node(id).srcmap();
+    let mut nodes = Vec::new();
+    let mut end = 0;
+    for found in links {
+        if found.start() == 0 && preceded_by_special {
+            continue;
+        }
+
+        let url = &content[found.start()..found.end()];
+        let mode = if found.kind() == LinkKind::Email {
+            LinkifyMode::Email
+        } else if url.contains("://") {
+            LinkifyMode::Scheme
+        } else {
+            LinkifyMode::Fuzzy
+        };
+        let Some(link) = prepare_link(formatter, mode, url) else {
+            continue;
+        };
+
+        if found.start() > end {
+            let node = document.create_node(Text {
+                content: content[end..found.start()].to_owned(),
+            });
+            #[cfg(feature = "sourcemap")]
+            document.node_mut(node).set_srcmap(text_range_map(
+                source_map,
+                content.len(),
+                end,
+                found.start(),
+            ));
+            nodes.push(node);
+        }
+
+        #[cfg(feature = "sourcemap")]
+        let map = text_range_map(source_map, content.len(), found.start(), found.end());
+        let node = create_linkified(
+            document,
+            link,
+            #[cfg(feature = "sourcemap")]
+            map,
+        );
+        #[cfg(feature = "sourcemap")]
+        document.node_mut(node).set_srcmap(map);
+        nodes.push(node);
+        end = found.end();
+    }
+
+    if nodes.is_empty() {
+        return None;
+    }
+
+    if end < content.len() {
+        let node = document.create_node(Text {
+            content: content[end..].to_owned(),
+        });
+        #[cfg(feature = "sourcemap")]
+        document.node_mut(node).set_srcmap(text_range_map(
+            source_map,
+            content.len(),
+            end,
+            content.len(),
+        ));
+        nodes.push(node);
+    }
+    Some(nodes)
+}
+
+fn apply_linkify_replacements(document: &mut Document, replacements: LinkifyReplacements) {
+    for (parent, replacements) in replacements {
+        if let Some(parent) = parent {
+            document.rewrite_children(parent, |document, children| {
+                rebuild_linkified_children(document, children, replacements);
+            });
+        }
+    }
+}
+
+// As in JS core linkify, size the result once and copy each sibling once.
+// Arena nodes are grouped by parent because emphasis creates nested arrays.
+fn rebuild_linkified_children(
+    document: &mut Document,
+    children: &mut Vec<NodeId>,
+    mut replacements: HashMap<NodeId, Vec<NodeId>>,
+) {
+    let extra: usize = replacements.values().map(|nodes| nodes.len() - 1).sum();
+    let old_children = std::mem::replace(children, Vec::with_capacity(children.len() + extra));
+    for child in old_children {
+        if let Some(nodes) = replacements.remove(&child) {
+            children.extend(nodes);
+            document.discard_node(child);
+        } else {
+            children.push(child);
+        }
+    }
+    debug_assert!(replacements.is_empty());
+}
+
+#[cfg(feature = "sourcemap")]
+fn text_range_map(
+    map: Option<crate::common::sourcemap::SourcePos>,
+    text_len: usize,
+    start: usize,
+    end: usize,
+) -> Option<crate::common::sourcemap::SourcePos> {
+    let (source_start, source_end) = map?.get_byte_offsets();
+    // Multiline container prefixes can make the original span noncontiguous.
+    // Only derive subranges when text and source offsets correspond directly.
+    (source_end - source_start == text_len)
+        .then(|| crate::common::sourcemap::SourcePos::new(source_start + start, source_start + end))
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LinkifyEnabled {
+    postprocess: bool,
+}
 
 #[derive(Debug, Clone, Copy)]
 struct LinkifyPosition {
@@ -60,33 +323,42 @@ struct LinkifyPosition {
 }
 
 #[doc(hidden)]
+#[derive(Default)]
 pub struct LinkifyPrescan;
 impl CoreRule for LinkifyPrescan {
     const NAMES: &'static [&'static str] = &["linkify_prescan"];
 
-    fn run(root: &mut Node, md: &MarkdownIt) {
-        let root_data = root.cast_mut::<Root>().unwrap();
-        let source = root_data.content.as_str();
-        let fuzzy_links = md
-            .ext
-            .get::<LinkifyOptions>()
-            .copied()
-            .unwrap_or_default()
-            .fuzzy_links;
-        let positions = Linkify::new()
-            .links_with_fuzzy(source, fuzzy_links)
-            .into_iter()
-            .map(|link| LinkifyPosition {
-                start: link.start(),
-                end: link.end(),
-                email: link.kind() == LinkKind::Email,
-            })
-            .collect::<Vec<_>>();
-        root_data.ext.insert(positions);
+    fn run(&self, state: &mut CoreState<'_>) {
+        // Gate inline scanners; positions are cached per inline source.
+        let postprocess = state.md.has_rule::<LinkifyRule>();
+        state.root_ext_mut().insert(LinkifyEnabled { postprocess });
     }
 }
 
-#[derive(Clone, Copy)]
+fn scan_positions(source: &str, md: &MarkdownIt) -> Vec<LinkifyPosition> {
+    let fuzzy_links = md
+        .ext
+        .get::<LinkifyOptions>()
+        .copied()
+        .unwrap_or_default()
+        .fuzzy_links;
+    // Every supported link form needs one of these bytes. Check each inline
+    // source because core rules may synthesize new content.
+    if !fuzzy_links && memchr::memchr3(b':', b'@', b'/', source.as_bytes()).is_none() {
+        return Vec::new();
+    }
+    Linkify::new()
+        .links_with_fuzzy(source, fuzzy_links)
+        .into_iter()
+        .map(|link| LinkifyPosition {
+            start: link.start(),
+            end: link.end(),
+            email: link.kind() == LinkKind::Email,
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy)]
 enum LinkifyMode {
     /// URL with an explicit scheme (`http://example.com/path`).
     Scheme,
@@ -115,65 +387,55 @@ impl LinkifyMode {
 
 #[doc(hidden)]
 pub struct LinkifyScanner;
+
+#[doc(hidden)]
+pub struct LinkifyFuzzyScanner;
+
+#[doc(hidden)]
+pub struct LinkifyEmailScanner;
+
+// Boundary scans must not consume or rewind linkify spans.
 impl InlineRule for LinkifyScanner {
     const MARKER: char = ':';
     const NAMES: &'static [&'static str] = &["linkify"];
 
-    // `run_candidate` mutates trailing text and the current position. The
-    // default `check` calls `run`, which would pollute speculative scans.
-    fn check(_: &mut InlineState) -> Option<usize> {
+    fn check(_: &mut InlineState<'_>) -> Option<usize> {
         None
     }
 
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        let mut chars = state.src[state.pos..state.pos_max].chars();
-        if chars.next().unwrap() != ':' {
-            return None;
-        }
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         run_candidate(state, LinkifyMode::Scheme)
     }
 }
 
-#[doc(hidden)]
-pub struct LinkifyFuzzyScanner;
 impl InlineRule for LinkifyFuzzyScanner {
     const MARKER: char = '.';
     const NAMES: &'static [&'static str] = &["linkify_fuzzy"];
 
-    fn check(_: &mut InlineState) -> Option<usize> {
+    fn check(_: &mut InlineState<'_>) -> Option<usize> {
         None
     }
 
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        // entrance guard
-        if !state.src[state.pos..state.pos_max].starts_with('.') {
-            return None;
-        }
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         run_candidate(state, LinkifyMode::Fuzzy)
     }
 }
 
-#[doc(hidden)]
-pub struct LinkifyEmailScanner;
 impl InlineRule for LinkifyEmailScanner {
     const MARKER: char = '@';
     const NAMES: &'static [&'static str] = &["linkify_email"];
 
-    fn check(_: &mut InlineState) -> Option<usize> {
+    fn check(_: &mut InlineState<'_>) -> Option<usize> {
         None
     }
 
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        if !state.src[state.pos..state.pos_max].starts_with('@') {
-            return None;
-        }
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         run_candidate(state, LinkifyMode::Email)
     }
 }
 
 // --- runner ---
 
-#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 struct CandidateRange {
     start: usize,
@@ -187,71 +449,64 @@ impl CandidateRange {
     }
 }
 
-#[doc(hidden)]
+#[derive(Debug, Clone)]
 struct PreparedLink {
     href: String,
     content: String,
 }
 
-// process pipeline
-fn run_candidate(state: &mut InlineState, mode: LinkifyMode) -> Option<(Node, usize)> {
-    let candidate = find_candidate(state, mode)?;
-    let url = &state.src[candidate.start..candidate.end];
-    let link = prepare_link(state, mode, url)?;
-    let node = build_link_node(state, candidate, link);
-
-    state.trailing_text_pop(candidate.rewind);
-    state.pos -= candidate.rewind;
-    Some((node, candidate.len()))
+struct CandidateInput<'a> {
+    src: &'a str,
+    pos: usize,
+    pos_max: usize,
+    trailing: &'a str,
+    source_start: usize,
+    positions: &'a [LinkifyPosition],
 }
 
-fn find_candidate(state: &InlineState, mode: LinkifyMode) -> Option<CandidateRange> {
-    if state.link_level > 0 {
-        // e.g. [https://example.com](other)
-        return None;
-    }
+fn scan_candidate(input: CandidateInput<'_>, mode: LinkifyMode) -> Option<CandidateRange> {
+    let trailing = input.trailing;
+    let (rewind, length) = if matches!(mode, LinkifyMode::Scheme) {
+        if !input.src[input.pos..input.pos_max].starts_with("://") {
+            return None;
+        }
 
-    let trailing = state.trailing_text_get();
-    let scheme_len = if matches!(mode, LinkifyMode::Scheme) {
-        Some(find_scheme_len(&state.src, state.pos, trailing.len())?)
+        let rewind = find_scheme_len(input.src, input.pos, trailing.len())?;
+        // Scheme match skips the prescan's boundary rule, so `//https://` still links.
+        let found = Linkify::new().match_at_start(&input.src[input.pos - rewind..input.pos_max])?;
+        (rewind, found.end())
     } else {
-        None
+        let start = input.source_start;
+        // https://example.com
+        // ^    ^            ^
+        // |    |            |
+        // start colon      end
+        // find which interval the colon is in
+        let found_idx = input
+            .positions
+            .binary_search_by(|x| {
+                if x.start >= start {
+                    Ordering::Greater
+                } else if x.end <= start {
+                    Ordering::Less
+                } else {
+                    Ordering::Equal
+                }
+            })
+            .ok()?;
+        let found = input.positions[found_idx];
+        if !mode.accepts(found) {
+            return None;
+        }
+
+        let rewind = start - found.start;
+        if rewind > trailing.len() {
+            return None;
+        }
+
+        (rewind, found.end - found.start)
     };
 
-    let map = state.get_map(state.pos, state.pos_max)?;
-    let (start, _) = map.get_byte_offsets();
-
-    let positions = state.root_ext.get::<LinkifyState>()?;
-
-    // https://example.com
-    // ^    ^            ^
-    // |    |            |
-    // start colon      end
-    // find which interval the colon is in
-    let found_idx = positions
-        .binary_search_by(|x| {
-            if x.start >= start {
-                Ordering::Greater
-            } else if x.end <= start {
-                Ordering::Less
-            } else {
-                Ordering::Equal
-            }
-        })
-        .ok()?;
-
-    let found = positions[found_idx];
-    if !mode.accepts(found) {
-        return None;
-    }
-
-    let rewind = start - found.start;
-    if rewind > trailing.len() {
-        return None;
-    }
-    if scheme_len.is_some_and(|scheme_len| scheme_len != rewind) {
-        return None;
-    }
     // \https://example.com
     // this should keep text.
     if trailing[..trailing.len() - rewind].ends_with('\\') {
@@ -260,19 +515,26 @@ fn find_candidate(state: &InlineState, mode: LinkifyMode) -> Option<CandidateRan
 
     debug_assert_eq!(
         &trailing[trailing.len() - rewind..],
-        &state.src[state.pos - rewind..state.pos]
+        &input.src[input.pos - rewind..input.pos]
     );
 
-    let candidate = CandidateRange {
-        start: state.pos - rewind,
-        end: state.pos - rewind + found.end - found.start,
+    let mut candidate = CandidateRange {
+        start: input.pos - rewind,
+        end: input.pos - rewind + length,
         rewind,
     };
-    if candidate.end > state.pos_max {
+    // markdown-it's inline linkifier leaves trailing asterisks for emphasis.
+    // The detector itself must retain them: they are valid URL path content.
+    if matches!(mode, LinkifyMode::Scheme) {
+        while candidate.end > candidate.start && input.src.as_bytes()[candidate.end - 1] == b'*' {
+            candidate.end -= 1;
+        }
+    }
+    if candidate.end > input.pos_max {
         return None;
     }
 
-    let url = &state.src[candidate.start..candidate.end];
+    let url = &input.src[candidate.start..candidate.end];
     if matches!(mode, LinkifyMode::Fuzzy) && url.contains("://") {
         return None;
     }
@@ -280,17 +542,21 @@ fn find_candidate(state: &InlineState, mode: LinkifyMode) -> Option<CandidateRan
     Some(candidate)
 }
 
-fn prepare_link(state: &InlineState, mode: LinkifyMode, url: &str) -> Option<PreparedLink> {
+fn prepare_link(
+    formatter: &dyn LinkFormatter,
+    mode: LinkifyMode,
+    url: &str,
+) -> Option<PreparedLink> {
     let injected_prefix = mode.injected_prefix(url);
     let href_source = match injected_prefix {
         Some(prefix) => format!("{prefix}{url}"),
         None => url.to_owned(),
     };
-    let href = state.md.link_formatter.normalize_link(&href_source);
 
-    state.md.link_formatter.validate_link(&href)?;
+    let href = formatter.normalize_link(&href_source);
+    formatter.validate_link(&href)?;
 
-    let mut content = state.md.link_formatter.normalize_link_text(&href_source);
+    let mut content = formatter.normalize_link_text(&href_source);
     if let Some(prefix) = injected_prefix
         && starts_with_ascii_case_insensitive(&content, prefix)
     {
@@ -300,17 +566,113 @@ fn prepare_link(state: &InlineState, mode: LinkifyMode, url: &str) -> Option<Pre
     Some(PreparedLink { href, content })
 }
 
-fn build_link_node(state: &InlineState, candidate: CandidateRange, link: PreparedLink) -> Node {
-    let mut inner_node = Node::new(TextSpecial {
+fn create_linkified(
+    document: &mut Document,
+    link: PreparedLink,
+    #[cfg(feature = "sourcemap")] map: Option<crate::common::sourcemap::SourcePos>,
+) -> NodeId {
+    let inner = document.create_node(TextSpecial {
         content: link.content.clone(),
         markup: link.content,
         info: "autolink",
     });
-    inner_node.srcmap = state.get_map(candidate.start, candidate.end);
 
-    let mut node = Node::new(Linkified { url: link.href });
-    node.children.push(inner_node);
+    #[cfg(feature = "sourcemap")]
+    document.node_mut(inner).set_srcmap(map);
+
+    let node = document.create_node(Linkified { url: link.href });
+    document.push_child(node, inner);
     node
+}
+
+fn run_candidate(
+    state: &mut InlineState<'_>,
+    mode: LinkifyMode,
+) -> Option<(Option<NodeId>, usize)> {
+    // Require the prescan gate; positions are local to this source.
+    let postprocess = state.root_ext?.get::<LinkifyEnabled>()?.postprocess;
+    if state.link_level > 0
+        && (!postprocess
+            || state
+                .inline_ext
+                .contains::<crate::parser::inline::helpers::full_link::MarkdownLinkLabel>())
+    {
+        return None;
+    }
+
+    let scheme = matches!(mode, LinkifyMode::Scheme);
+    let (has_candidates, candidate) = {
+        let mut cache = state.shared_ext();
+        // Scheme matching ignores prescan boundaries and needs no source-wide
+        // positions when there is no core pass.
+        let positions = if scheme && !postprocess {
+            &[][..]
+        } else {
+            cache
+                .get_or_insert_with(|| LinkifyPositions(scan_positions(&state.src, state.md)))
+                .0
+                .as_slice()
+        };
+        if !scheme && positions.is_empty() {
+            return None;
+        }
+        let has_candidates = !positions.is_empty();
+        let candidate = if state.link_level > 0 {
+            None
+        } else {
+            scan_candidate(
+                CandidateInput {
+                    src: &state.src,
+                    pos: state.pos,
+                    pos_max: state.pos_max,
+                    trailing: state.trailing_text(),
+                    source_start: state.pos,
+                    positions,
+                },
+                mode,
+            )
+        };
+        (has_candidates, candidate)
+    };
+
+    // Decide from the prescan even if this cursor did not match; core may
+    // retry text hidden by raw HTML anchors.
+    if postprocess
+        && has_candidates
+        && !state
+            .inline_ext
+            .contains::<crate::parser::inline::helpers::full_link::MarkdownLinkLabel>()
+    {
+        state.defer_to_core();
+    }
+    let candidate = candidate?;
+
+    // Emails are only linked by the core pass; a later `</a>` may still
+    // protect this text.
+    if matches!(mode, LinkifyMode::Email) {
+        return None;
+    }
+
+    let raw = &state.src[candidate.start..candidate.end];
+    if matches!(mode, LinkifyMode::Fuzzy) && raw.starts_with("//") {
+        // Defer until after emphasis cleanup.
+        return None;
+    }
+
+    let link = prepare_link(state.markdown_it().link_formatter.as_ref(), mode, raw)?;
+
+    #[cfg(feature = "sourcemap")]
+    let srcmap = state.get_map(candidate.start, candidate.end);
+    let node = create_linkified(
+        state.document,
+        link,
+        #[cfg(feature = "sourcemap")]
+        srcmap,
+    );
+    state.pop_trailing_text(candidate.rewind);
+    state.pos -= candidate.rewind;
+
+    Some((Some(node), candidate.len()))
 }
 
 // --- helper ---
@@ -344,232 +706,4 @@ fn find_scheme_len(src: &str, pos: usize, trailing_len: usize) -> Option<usize> 
 }
 
 #[cfg(all(test, feature = "linkify"))]
-mod tests {
-    use crate as markdown_it;
-
-    #[test]
-    fn prescan_does_not_run_inline_postprocessors_too_early() {
-        use crate::plugins::cmark;
-        use crate::plugins::extra::*;
-
-        let md = &mut MarkdownIt::empty();
-        cmark::add(md);
-        typographer::add(md);
-        smartquotes::add(md);
-        linkify::add(md);
-
-        assert_eq!(md.parse(r#"a~~"foo"~~"#).render(), "<p>a~~“foo”~~</p>\n");
-    }
-
-    fn run(input: &str, output: &str) {
-        let output = if output.is_empty() {
-            "".to_owned()
-        } else {
-            output.to_owned() + "\n"
-        };
-        let md = &mut markdown_it::MarkdownIt::empty();
-        markdown_it::plugins::cmark::add(md);
-        markdown_it::plugins::html::add(md);
-        markdown_it::plugins::extra::linkify::add(md);
-        let node = md.parse(&(input.to_owned() + "\n"));
-
-        // make sure we have sourcemaps for everything
-        node.walk(|node, _| assert!(node.srcmap.is_some()));
-
-        let result = node.render();
-        assert_eq!(result, output);
-
-        // make sure it doesn't crash without trailing \n
-        let _ = md.parse(input.trim_end());
-    }
-
-    #[test]
-    fn linkify() {
-        let input = r#"url http://www.youtube.com/watch?v=5Jt5GEr4AYg."#;
-        let output = r#"<p>url <a href="http://www.youtube.com/watch?v=5Jt5GEr4AYg">http://www.youtube.com/watch?v=5Jt5GEr4AYg</a>.</p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn don_t_touch_text_in_links() {
-        let input = r#"[https://example.com](https://example.com)"#;
-        let output = r#"<p><a href="https://example.com">https://example.com</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn don_t_touch_text_in_autolinks() {
-        let input = r#"<https://example.com>"#;
-        let output = r#"<p><a href="https://example.com">https://example.com</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn don_t_touch_text_in_html_a_tags() {
-        let input = r#"<a href="https://example.com">https://example.com</a>"#;
-        let output = r#"<p><a href="https://example.com">https://example.com</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn entities_inside_raw_links() {
-        let input = r#"https://example.com/foo&amp;bar"#;
-        let output = r#"<p><a href="https://example.com/foo&amp;amp;bar">https://example.com/foo&amp;amp;bar</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn emphasis_inside_raw_links_asterisk_can_happen_in_links_with_params() {
-        let input = r#"https://example.com/foo*bar*baz"#;
-        let output = r#"<p><a href="https://example.com/foo*bar*baz">https://example.com/foo*bar*baz</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn emphasis_inside_raw_links_underscore() {
-        let input = r#"http://example.org/foo._bar_-_baz"#;
-        let output = r#"<p><a href="http://example.org/foo._bar_-_baz">http://example.org/foo._bar_-_baz</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn backticks_inside_raw_links() {
-        let input = r#"https://example.com/foo`bar`baz"#;
-        let output = r#"<p><a href="https://example.com/foo%60bar%60baz">https://example.com/foo`bar`baz</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn links_inside_raw_links() {
-        let input = r#"https://example.com/foo[123](456)bar"#;
-        let output = r#"<p><a href="https://example.com/foo%5B123%5D(456)bar">https://example.com/foo[123](456)bar</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn escapes_not_allowed_at_the_start() {
-        let input = r#"\https://example.com"#;
-        let output = r#"<p>\https://example.com</p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn escapes_not_allowed_at_comma() {
-        let input = r#"https\://example.com"#;
-        let output = r#"<p>https://example.com</p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn escapes_not_allowed_at_slashes() {
-        let input = r#"https:\//aa.org https://bb.org"#;
-        let output = r#"<p>https://aa.org <a href="https://bb.org">https://bb.org</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn fuzzy_link_shouldn_t_match_cc_org() {
-        let input = r#"https:/\/cc.org"#;
-        let output = r#"<p>https://cc.org</p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn bold_links_exclude_markup_of_pairs_from_link_tail() {
-        let input = r#"**http://example.com/foobar**"#;
-        let output = r#"<p><strong><a href="http://example.com/foobar">http://example.com/foobar</a></strong></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn match_links_without_protocol() {
-        let md = &mut markdown_it::MarkdownIt::empty();
-        markdown_it::plugins::cmark::add(md);
-        markdown_it::plugins::extra::linkify::add_with_options(
-            md,
-            markdown_it::plugins::extra::linkify::LinkifyOptions { fuzzy_links: true },
-        );
-
-        assert_eq!(
-            md.parse("www.example.org").render(),
-            "<p><a href=\"http://www.example.org\">www.example.org</a></p>\n"
-        );
-    }
-
-    #[test]
-    fn links_without_protocol_are_disabled_by_default() {
-        let md = &mut markdown_it::MarkdownIt::empty();
-        markdown_it::plugins::cmark::add(md);
-        markdown_it::plugins::extra::linkify::add(md);
-
-        assert_eq!(
-            md.parse("www.example.org").render(),
-            "<p>www.example.org</p>\n"
-        );
-    }
-
-    #[test]
-    fn short_email_with_beautifier_does_not_panic() {
-        let md = &mut markdown_it::MarkdownIt::empty();
-        markdown_it::plugins::cmark::add(md);
-        markdown_it::plugins::extra::beautify_links::add(md);
-        markdown_it::plugins::extra::linkify::add(md);
-
-        assert_eq!(
-            md.parse("ping a@b.co ok").render(),
-            "<p>ping <a href=\"mailto:a@b.co\">a@b.co</a> ok</p>\n"
-        );
-    }
-
-    #[test]
-    fn emails() {
-        let input = r#"test@example.com
-
-mailto:test@example.com"#;
-        let output = r#"<p><a href="mailto:test@example.com">test@example.com</a></p>
-<p><a href="mailto:test@example.com">mailto:test@example.com</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn typorgapher_should_not_break_href() {
-        let input = r#"http://example.com/(c)"#;
-        let output = r#"<p><a href="http://example.com/(c)">http://example.com/(c)</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn coverage_prefix_not_valid() {
-        let input = r#"http:/example.com/"#;
-        let output = r#"<p>http:/example.com/</p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn unregistered_schemes_are_not_linkified() {
-        let input = r#"a://a://"#;
-        let output = r#"<p>a://a://</p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn coverage_negative_link_level() {
-        let input = r#"</a>[https://example.com](https://example.com)"#;
-        let output = r#"<p></a><a href="https://example.com"><a href="https://example.com">https://example.com</a></a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn emphasis_with_real_link() {
-        let input = r#"http://cdecl.ridiculousfish.com/?q=int+%28*f%29+%28float+*%29%3B"#;
-        let output = r#"<p><a href="http://cdecl.ridiculousfish.com/?q=int+%28*f%29+%28float+*%29%3B">http://cdecl.ridiculousfish.com/?q=int+(*f)+(float+*)%3B</a></p>"#;
-        run(input, output);
-    }
-
-    #[test]
-    fn emphasis_with_real_link_1() {
-        let input = r#"https://www.sell.fi/sites/default/files/elainlaakarilehti/tieteelliset_artikkelit/kahkonen_t._et_al.canine_pancreatitis-_review.pdf"#;
-        let output = r#"<p><a href="https://www.sell.fi/sites/default/files/elainlaakarilehti/tieteelliset_artikkelit/kahkonen_t._et_al.canine_pancreatitis-_review.pdf">https://www.sell.fi/sites/default/files/elainlaakarilehti/tieteelliset_artikkelit/kahkonen_t._et_al.canine_pancreatitis-_review.pdf</a></p>"#;
-        run(input, output);
-    }
-}
+mod tests;

@@ -4,84 +4,99 @@
 //!
 //!  - <https://spec.commonmark.org/0.30/#hard-line-breaks>
 //!  - <https://spec.commonmark.org/0.30/#soft-line-breaks>
+use crate::MarkdownIt;
+use crate::document::{NodeId, NodeRef};
 use crate::parser::inline::{InlineRule, InlineState};
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{NodeRenderer, PlainTextBreakRenderer, RenderContext, write_html_self_close};
 
 #[derive(Debug)]
 pub struct Hardbreak;
 
-impl NodeValue for Hardbreak {
-    fn render(&self, _: &Node, fmt: &mut dyn Renderer) {
-        fmt.self_close("br", &[]);
-        fmt.cr();
+struct HardbreakRenderer;
+
+impl NodeRenderer<Hardbreak> for HardbreakRenderer {
+    fn render(
+        &self,
+        _: NodeRef<'_>,
+        _: &Hardbreak,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        write_html_self_close(output, "br", &[], context.options().xhtml_out);
+        output.write_str("\n");
     }
 }
 
 #[derive(Debug)]
 pub struct Softbreak;
 
-impl NodeValue for Softbreak {
-    fn render(&self, _: &Node, fmt: &mut dyn Renderer) {
-        fmt.softbreak();
+struct SoftbreakRenderer;
+
+impl NodeRenderer<Softbreak> for SoftbreakRenderer {
+    fn render(
+        &self,
+        _: NodeRef<'_>,
+        _: &Softbreak,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        if context.options().breaks {
+            write_html_self_close(output, "br", &[], context.options().xhtml_out);
+        }
+        // A decoded entity may already end in a newline; write ours directly
+        // instead of `cr`, which would coalesce the two.
+        output.write_str("\n");
     }
 }
 
 pub fn add(md: &mut MarkdownIt) {
     md.inline.add_rule::<NewlineScanner>();
+    md.add_renderer::<Hardbreak, _>("html", HardbreakRenderer);
+    md.add_renderer::<Softbreak, _>("html", SoftbreakRenderer);
+    md.add_renderer::<Hardbreak, _>("text", PlainTextBreakRenderer);
+    md.add_renderer::<Softbreak, _>("text", PlainTextBreakRenderer);
 }
 
 #[doc(hidden)]
 pub struct NewlineScanner;
+
 impl InlineRule for NewlineScanner {
     const MARKER: char = '\n';
     const NAMES: &'static [&'static str] = &["newline"];
 
-    fn check(state: &mut InlineState) -> Option<usize> {
+    fn check(context: &mut InlineState<'_>) -> Option<usize> {
         // check rule is required because run() modifies trailing text
-        let mut chars = state.src[state.pos..state.pos_max].chars();
-        if chars.next().unwrap() != '\n' {
-            return None;
+        if context.remaining().starts_with('\n') {
+            Some(1)
+        } else {
+            None
         }
-        Some(1)
     }
 
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         let mut chars = state.src[state.pos..state.pos_max].chars();
-
-        if chars.next().unwrap() != '\n' {
+        if chars.next()? != '\n' {
             return None;
         }
 
-        let mut pos = state.pos;
-        pos += 1;
-
         // skip leading whitespaces from next line
-        while let Some(' ' | '\t') = chars.next() {
-            pos += 1;
-        }
+        let end = state.pos + 1 + chars.take_while(|ch| matches!(ch, ' ' | '\t')).count();
+        let spaces = state
+            .trailing_text()
+            .bytes()
+            .rev()
+            .take_while(|&ch| ch == b' ')
+            .count();
+        state.pop_trailing_text(spaces);
 
         // '  \n' -> hardbreak
-        let mut tail_size = 0;
-        let trailing_text = state.trailing_text_get();
-
-        for ch in trailing_text.chars().rev() {
-            if ch == ' ' {
-                tail_size += 1;
-            } else {
-                break;
-            }
-        }
-
-        state.trailing_text_pop(tail_size);
-
-        let node = if tail_size >= 2 {
-            Node::new(Hardbreak)
+        let node = if spaces >= 2 {
+            state.document.create_node(Hardbreak)
         } else {
-            Node::new(Softbreak)
+            state.document.create_node(Softbreak)
         };
-
-        state.pos -= tail_size; // backtrack to include tail in source maps
-        Some((node, pos - state.pos))
+        state.pos -= spaces; // backtrack to include tail in source maps
+        Some((Some(node), end - state.pos))
     }
 }
 
@@ -97,21 +112,62 @@ mod test {
 
     #[test]
     fn renders_softbreak_as_newline_by_default() {
-        let ast = parser().parse("hello\nworld");
-        assert_eq!(ast.render(), "<p>hello\nworld</p>\n");
+        let md = parser();
+        let ast = md.parse("hello\nworld");
+        assert_eq!(md.render_html(&ast), "<p>hello\nworld</p>\n");
+    }
+
+    #[test]
+    fn softbreak_preserves_newlines_decoded_from_entities() {
+        let mut md = parser();
+        for (source, expected) in [
+            ("foo&#10;\nbar", "<p>foo\n\nbar</p>\n"),
+            (
+                "foo&#10;&#10;\n\\a~9中\rbar\n",
+                "<p>foo\n\n\n\\a~9中\nbar</p>\n",
+            ),
+            (
+                "foo&#10;\r*_ é*:`\t0|bar\n",
+                "<p>foo\n\n<em>_ é</em>:`\t0|bar</p>\n",
+            ),
+        ] {
+            assert_eq!(md.render(source), expected, "{source:?}");
+        }
+        md.render_options.breaks = true;
+        assert_eq!(md.render("foo&#10;\nbar"), "<p>foo\n<br>\nbar</p>\n");
     }
 
     #[test]
     fn breaks_respects_xhtml_out() {
-        let ast = parser().parse("hello\nworld");
+        let md = parser();
+        let ast = md.parse("hello\nworld");
 
         assert_eq!(
-            ast.render_with(&RenderOptions {
-                breaks: true,
-                xhtml_out: true,
-                ..Default::default()
-            }),
+            md.renderers.render(
+                &ast,
+                "html",
+                &RenderOptions {
+                    breaks: true,
+                    xhtml_out: true,
+                    ..Default::default()
+                }
+            ),
             "<p>hello<br />\nworld</p>\n"
         );
+    }
+
+    #[test]
+    fn breaks_match_expected_output() {
+        let mut md = MarkdownIt::empty();
+        plugins::cmark::block::paragraph::add(&mut md);
+        plugins::cmark::inline::newline::add(&mut md);
+
+        for (source, expected) in [
+            ("a  \n \tb", "<p>a<br>\nb</p>\n"),
+            ("a\nb", "<p>a\nb</p>\n"),
+            ("a  \nb", "<p>a<br>\nb</p>\n"),
+        ] {
+            assert_eq!(md.render(source), expected, "{source}");
+        }
     }
 }

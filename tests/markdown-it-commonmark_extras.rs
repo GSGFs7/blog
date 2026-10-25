@@ -8,7 +8,7 @@ fn run(input: &str, output: &str) {
     };
 
     let md = common::markdown_it_fixture_parser();
-    let actual = md.parse(&(input.to_owned() + "\n")).render();
+    let actual = md.render(&(input.to_owned() + "\n"));
     assert_eq!(actual, expected);
 }
 
@@ -80,6 +80,29 @@ fn reference_can_be_interrupted_by_other_rules() {
 <p>’</p>
 <p>[foo]</p>"#;
     run(input, output);
+}
+
+#[test]
+fn reference_title_continuations_strip_leading_whitespace() {
+    for (open, close) in [('\'', '\''), ('"', '"'), ('(', ')')] {
+        for indent in [" ", "   ", "    ", "\t", " \t "] {
+            let input = format!("[foo]: /url {open}title\n{indent}中 - -  \n{indent}{close}\n\n[foo]\n");
+            run(&input, "<p><a href=\"/url\" title=\"title\n中 - -  \n\">foo</a></p>");
+        }
+    }
+
+    run(
+        "> [foo]: /url 'title\n>   中 - -\n>   '\n>\n> [foo]\n",
+        "<blockquote>\n<p><a href=\"/url\" title=\"title\n中 - -\n\">foo</a></p>\n</blockquote>",
+    );
+    run(
+        "- [foo]: /url 'title\n    中 - -\n    '\n\n  [foo]\n",
+        "<ul>\n<li>\n<p><a href=\"/url\" title=\"title\n中 - -\n\">foo</a></p>\n</li>\n</ul>",
+    );
+    run(
+        "[foo]: /url 'title\\\n  中\n  '\n\n[foo]\n",
+        "<p><a href=\"/url\" title=\"title\\\n中\n\">foo</a></p>",
+    );
 }
 
 #[test]

@@ -3,97 +3,122 @@
 //! `# h1`, `## h2`, etc.
 //!
 //! <https://spec.commonmark.org/0.30/#atx-heading>
+use crate::MarkdownIt;
+use crate::document::{NodeId, NodeRef};
 use crate::parser::block::{BlockRule, BlockState};
-use crate::parser::inline::InlineRoot;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{
+    HtmlBlockElementRenderer,
+    NodeRenderer,
+    PlainTextBlockRenderer,
+    RenderContext,
+};
 
 #[derive(Debug)]
 pub struct ATXHeading {
     pub level: u8,
 }
 
-impl NodeValue for ATXHeading {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        static TAG: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
-        debug_assert!(self.level >= 1 && self.level <= 6);
+struct ATXHeadingRenderer;
 
-        fmt.cr();
-        fmt.open(TAG[self.level as usize - 1], &node.attrs);
-        fmt.contents(&node.children);
-        fmt.close(TAG[self.level as usize - 1]);
-        fmt.cr();
+impl NodeRenderer<ATXHeading> for ATXHeadingRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        heading: &ATXHeading,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        static TAG: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
+        debug_assert!((1..=6).contains(&heading.level));
+        let tag = TAG[heading.level as usize - 1];
+
+        HtmlBlockElementRenderer(tag).render(node, heading, context, output);
     }
 }
 
 pub fn add(md: &mut MarkdownIt) {
     md.block.add_rule::<HeadingScanner>();
+    md.add_renderer::<ATXHeading, _>("html", ATXHeadingRenderer);
+    md.add_renderer::<ATXHeading, _>("text", PlainTextBlockRenderer);
 }
 
 #[doc(hidden)]
 pub struct HeadingScanner;
+
+/// Scan an ATX heading line, returning `(level, text_pos, text_max)`.
+fn scan_atx_heading(line: &str) -> Option<(u8, usize, usize)> {
+    let Some('#') = line.chars().next() else {
+        return None;
+    };
+
+    let text_pos;
+
+    // count heading level
+    let mut level = 0u8;
+    let mut chars = line.char_indices();
+    loop {
+        match chars.next() {
+            Some((_, '#')) => {
+                level += 1;
+                if level > 6 {
+                    return None;
+                }
+            }
+            Some((x, ' ' | '\t')) => {
+                text_pos = x;
+                break;
+            }
+            None => {
+                text_pos = level as usize;
+                break;
+            }
+            Some(_) => return None,
+        }
+    }
+
+    // Let's cut tails like '    ###  ' from the end of string
+    let mut chars_back = chars.rev().peekable();
+    while let Some((_, ' ' | '\t')) = chars_back.peek() {
+        chars_back.next();
+    }
+    while let Some((_, '#')) = chars_back.peek() {
+        chars_back.next();
+    }
+
+    let text_max = match chars_back.next() {
+        // ## foo ##
+        Some((last_pos, ' ' | '\t')) => last_pos + 1,
+        // ## foo##
+        Some(_) => line.len(),
+        // ## ## (already consumed the space)
+        None => text_pos,
+    };
+
+    Some((level, text_pos, text_max))
+}
+
 impl BlockRule for HeadingScanner {
+    const MARKERS: &'static [char] = &['#'];
     const NAMES: &'static [&'static str] = &["heading"];
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
         if state.line_indent(state.line) >= state.md.max_indent {
             return None;
         }
 
         let line = state.get_line(state.line);
-        let Some('#') = line.chars().next() else {
-            return None;
-        };
-
-        let text_pos;
-
-        // count heading level
-        let mut level = 0u8;
-        let mut chars = line.char_indices();
-        loop {
-            match chars.next() {
-                Some((_, '#')) => {
-                    level += 1;
-                    if level > 6 {
-                        return None;
-                    }
-                }
-                Some((x, ' ' | '\t')) => {
-                    text_pos = x;
-                    break;
-                }
-                None => {
-                    text_pos = level as usize;
-                    break;
-                }
-                Some(_) => return None,
-            }
-        }
-
-        // Let's cut tails like '    ###  ' from the end of string
-
-        let mut chars_back = chars.rev().peekable();
-        while let Some((_, ' ' | '\t')) = chars_back.peek() {
-            chars_back.next();
-        }
-        while let Some((_, '#')) = chars_back.peek() {
-            chars_back.next();
-        }
-
-        let text_max = match chars_back.next() {
-            // ## foo ##
-            Some((last_pos, ' ' | '\t')) => last_pos + 1,
-            // ## foo##
-            Some(_) => line.len(),
-            // ## ## (already consumed the space)
-            None => text_pos,
-        };
+        let (level, text_pos, text_max) = scan_atx_heading(line)?;
 
         let content = line[text_pos..text_max].to_owned();
+        #[cfg(feature = "sourcemap")]
         let mapping = vec![(0, state.line_offsets[state.line].first_nonspace + text_pos)];
+        #[cfg(not(feature = "sourcemap"))]
+        let mapping = crate::parser::InlineMapping;
 
-        let mut node = Node::new(ATXHeading { level });
-        node.children
-            .push(Node::new(InlineRoot::new(content, mapping)));
-        Some((node, 1))
+        let node = state.document.create_node(ATXHeading { level });
+        let pending = state.pending_inline(content, mapping);
+        state.document.push_child(node, pending);
+
+        Some((Some(node), 1))
     }
 }

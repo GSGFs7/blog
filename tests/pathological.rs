@@ -43,7 +43,7 @@ fn run_render(src: &str) {
 #[track_caller]
 fn run_render_with_output_limit(src: &str, output_limit: usize) {
     let start = Instant::now();
-    let output = MD.parse(src).render();
+    let output = MD.render(src);
     black_box(&output);
     assert_within_budget(start, "render", src.len());
 
@@ -259,7 +259,9 @@ mod commonmark {
 
 mod markdownit {
     // Ported from markdown-it.js
-    use super::{run, run_render, run_render_with_output_limit};
+    #[cfg(feature = "linkify")]
+    use super::run_render;
+    use super::{run, run_render_with_output_limit};
 
     #[test]
     fn table_autocompleted_cells() {
@@ -307,8 +309,10 @@ mod markdownit {
     }
 
     #[test]
-    fn many_smartquotes_in_single_block() {
-        run(&"\"".repeat(70000));
+    fn smartquotes_scaling_sizes() {
+        for size in [70_000, 140_000, 280_000] {
+            run(&"\"".repeat(size));
+        }
     }
 
     #[cfg(feature = "linkify")]
@@ -317,5 +321,133 @@ mod markdownit {
         let src = format!("https://test.com?{}a", "*".repeat(70_000),);
 
         run_render(&src);
+    }
+}
+
+mod markdownit_rs {
+    use super::{Instant, MarkdownIt, assert_within_budget, black_box, run, run_render};
+
+    #[test]
+    fn emphasis_matches_removing_cached_bounds() {
+        // Each `*a_ b*` moves a failed `_` closer into an emphasis node. If the
+        // cached search bound is lost, later closers repeatedly scan the code
+        // nodes and earlier emphasis nodes, causing quadratic growth.
+        for size in [10_000, 20_000, 40_000] {
+            let src = format!("{}{}", "`x` ".repeat(size), "*a_ b* ".repeat(size));
+            run(&src);
+            run_render(&src);
+        }
+    }
+
+    #[test]
+    fn nested_brackets_with_inline_target() {
+        // The trailing `(x)` disables the plain-label fast path, so the link
+        // checker rescans the entire nested label for every opening bracket.
+        run(&format!(
+            "{}{}{}(x)",
+            "[".repeat(50_000),
+            "a",
+            "]".repeat(50_000),
+        ));
+    }
+
+    #[test]
+    fn nested_link_labels_respect_depth_limits() {
+        // Cover the cutoff and larger inputs, including unmatched outer
+        // openers; generate runs instead of storing fuzzed strings.
+        for limit in [3, 20, 100] {
+            let mut md = MarkdownIt::new();
+            md.max_nesting = limit;
+            for depth in [limit as usize + 1, limit as usize * 2 + 1, 4000] {
+                for extra_openers in [0, 2, 7] {
+                    for target in ["()", "(rl)"] {
+                        let source = format!(
+                            "{}leaf{}{target}",
+                            "[".repeat(depth + extra_openers),
+                            "]".repeat(depth),
+                        );
+                        let start = Instant::now();
+                        let output = md.render(&source);
+                        assert_within_budget(start, "render nested link label", source.len());
+                        assert_eq!(
+                            output,
+                            format!("<p>{source}</p>\n"),
+                            "limit={limit}, depth={depth}, extra_openers={extra_openers}, target={target}",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn nested_brackets_with_reference_map() {
+        // A reference definition also disables the plain-label fast path even
+        // though the nested source contains no inline target.
+        run(&format!(
+            "[r]: /u\n\n{}{}{}",
+            "[".repeat(50_000),
+            "a",
+            "]".repeat(50_000),
+        ));
+    }
+
+    #[test]
+    fn sibling_links_with_nested_brackets() {
+        // Parsing each label enters a shorter window; it must reuse the source
+        // index rather than invalidating the parent window's bracket cache.
+        run_render(&"[[a]](x) ".repeat(50_000));
+    }
+
+    #[test]
+    fn nested_brackets_outside_plain_fast_path() {
+        // Every prefix triggers a check rule that the plain-label index cannot
+        // handle: emphasis, non-ASCII text, `mark` (=) and the linkify scanners
+        // (`.`, `:`, `@`). They must all stay linear through label memoization.
+        for prefix in ["*", "雪", "=", ".", ":", "@"] {
+            for size in [10, 20, 40, 80, 160, 1000, 4000] {
+                let src = format!("{prefix}{}a{}(x)", "[".repeat(size), "]".repeat(size));
+                run_render(&src);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_brackets_with_opaque_label_spans() {
+        for size in [10, 20, 40, 80, 160, 1000, 4000] {
+            let src = format!("{}a `]` {}(x)", "[".repeat(size), "]".repeat(size));
+            run_render(&src);
+        }
+    }
+
+    #[test]
+    fn inline_footnote_with_nested_link_brackets() {
+        // The mutable footnote check is outside the link-label scan window;
+        // it must not disable memoization of the nested brackets inside it.
+        for size in [10, 20, 40, 80, 160, 1000, 4000] {
+            let src = format!("^{}a{}(x)", "[".repeat(size), "]".repeat(size));
+            run_render(&src);
+        }
+    }
+
+    #[test]
+    fn deferred_inline_siblings() {
+        let mut md = MarkdownIt::empty();
+        markdown_it::plugins::cmark::inline::emphasis::add(&mut md);
+        let lines = 64_000;
+        let src = "*a*\n".repeat(lines);
+
+        let start = Instant::now();
+        let document = md.parse(&src);
+        black_box(&document);
+        assert_within_budget(start, "parse deferred inline siblings", src.len());
+        assert_eq!(document.children(document.root()).len(), lines * 2);
+        assert_eq!(document.len(), lines * 3 + 1);
+
+        let start = Instant::now();
+        let output = md.render_html(&document);
+        black_box(&output);
+        assert_within_budget(start, "render deferred inline siblings", src.len());
+        assert_eq!(output, "<em>a</em>\n".repeat(lines));
     }
 }

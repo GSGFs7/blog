@@ -25,6 +25,29 @@ jobs:
       - name: Run Clippy
         run: cargo +stable clippy -p markdown-it-rs --all-targets --all-features -- -D warnings
 
+  subcrates:
+    name: Test and Clippy (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_NET_RETRY: "3"
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - markdown-it-rs-url
+          - markdown-it-rs-linkify
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Run Clippy
+        run: cargo clippy -p ${{ matrix.package }} --locked --all-targets --all-features -- -D warnings
+      - name: Run unit, integration, and documentation tests
+        if: ${{ !cancelled() }}
+        run: cargo test -p ${{ matrix.package }} --locked --all-features --no-fail-fast
+
   test:
     name: Test (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -39,9 +62,52 @@ jobs:
             args: ""
           - name: no default features
             args: --no-default-features
+          - name: source maps only
+            args: --no-default-features --features sourcemap
+          - name: linkify without source maps
+            args: --no-default-features --features linkify
           - name: all features
             args: --all-features
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p markdown-it-rs --locked --no-fail-fast ${{ matrix.args }}
+      - name: Run unit and integration tests
+        shell: bash
+        run: |
+          test_targets=()
+          for test_file in tests/*.rs; do
+            test_name="$(basename "$test_file" .rs)"
+            if [[ "$test_name" != pathological ]]; then
+              test_targets+=(--test "$test_name")
+            fi
+          done
+          cargo test -p markdown-it-rs --locked --no-fail-fast ${{ matrix.args }} --lib --bins --examples "${test_targets[@]}"
+      - name: Run documentation tests
+        if: ${{ !cancelled() }}
+        run: cargo test -p markdown-it-rs --locked --no-fail-fast ${{ matrix.args }} --doc
+
+  pathological:
+    name: Pathological tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_NET_RETRY: "3"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default features
+            args: ""
+          - name: no default features
+            args: --no-default-features
+          - name: source maps only
+            args: --no-default-features --features sourcemap
+          - name: linkify without source maps
+            args: --no-default-features --features linkify
+          - name: all features
+            args: --all-features
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run pathological tests on a single thread
+        run: cargo test -p markdown-it-rs --locked --no-fail-fast ${{ matrix.args }} --test pathological -- --test-threads=1
