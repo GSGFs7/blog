@@ -1,0 +1,68 @@
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use markdown_it::{Document, HtmlAttribute, MarkdownIt};
+
+fn parser() -> MarkdownIt {
+    let mut md = MarkdownIt::empty();
+    markdown_it::plugins::cmark::add(&mut md);
+    md
+}
+
+fn document_with_attrs(md: &MarkdownIt, attrs: &[HtmlAttribute]) -> Document {
+    let mut root = markdown_it::NodeDraft::new(markdown_it::Root::new("text"));
+    let mut paragraph =
+        markdown_it::NodeDraft::new(markdown_it::plugins::cmark::block::paragraph::Paragraph);
+    paragraph.attrs_mut().extend_from_slice(attrs);
+    paragraph.push_child(markdown_it::NodeDraft::new(markdown_it::Text {
+        content: "text".into(),
+    }));
+    root.push_child(paragraph);
+    let document = Document::from_draft("text", root);
+    md.render_html(&document);
+    document
+}
+
+fn benchmark(c: &mut Criterion) {
+    let md = parser();
+    let cases = [
+        ("empty", Vec::new()),
+        ("single", vec![("id".into(), "value".into())]),
+        (
+            "repeated",
+            vec![
+                ("class".into(), "first".into()),
+                ("id".into(), "one".into()),
+                ("class".into(), "second".into()),
+                ("style".into(), "color:red".into()),
+                ("title".into(), "<&>".into()),
+                ("style".into(), "display:block".into()),
+                ("id".into(), "two".into()),
+            ],
+        ),
+        (
+            "large",
+            (0..32)
+                .flat_map(|index| {
+                    [
+                        (format!("data-{index}"), format!("value-{index}")),
+                        ("class".into(), format!("class-{index}")),
+                    ]
+                })
+                .collect(),
+        ),
+    ];
+
+    for (name, attrs) in cases {
+        let document = document_with_attrs(&md, &attrs);
+        let mut group = c.benchmark_group(format!("attrs/{name}"));
+        group.throughput(Throughput::Elements(attrs.len() as u64));
+        group.bench_function("markdown-it-rs", |b| {
+            b.iter(|| black_box(md.render_html(black_box(&document))))
+        });
+        group.finish();
+    }
+}
+
+criterion_group!(benches, benchmark);
+criterion_main!(benches);

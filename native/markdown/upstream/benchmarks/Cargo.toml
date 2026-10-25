@@ -14,8 +14,63 @@ markdown-it-v6 = { package = "markdown-it", version = "0.6" }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 [[bench]]
+name = "html_escape"
+path = "benches/html_escape.rs"
+harness = false
+
+[[bench]]
 name = "throughput"
 path = "benches/throughput.rs"
+harness = false
+
+[[bench]]
+name = "smartquotes"
+path = "benches/smartquotes.rs"
+harness = false
+
+[[bench]]
+name = "typographer"
+path = "benches/typographer.rs"
+harness = false
+
+[[bench]]
+name = "heading_anchors"
+path = "benches/heading_anchors.rs"
+harness = false
+
+[[bench]]
+name = "sourcepos"
+path = "benches/sourcepos.rs"
+harness = false
+
+[[bench]]
+name = "tasklist"
+path = "benches/tasklist.rs"
+harness = false
+
+[[bench]]
+name = "document"
+path = "benches/document.rs"
+harness = false
+
+[[bench]]
+name = "parse"
+path = "benches/parse.rs"
+harness = false
+
+[[bench]]
+name = "render"
+path = "benches/render.rs"
+harness = false
+
+[[bench]]
+name = "attrs"
+path = "benches/attrs.rs"
+harness = false
+
+[[bench]]
+name = "plugin_api"
+path = "benches/plugin_api.rs"
 harness = false
 
 [workspace]

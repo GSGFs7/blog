@@ -57,6 +57,10 @@ impl<M, T> Ruler<M, T> {
     pub fn new() -> Self {
         Self::default()
     }
+
+    pub(crate) fn len(&self) -> usize {
+        self.deps.len()
+    }
 }
 
 impl<M: Eq + Hash + Clone + Debug, T: Clone> Ruler<M, T> {
@@ -82,20 +86,12 @@ impl<M: Eq + Hash + Clone + Debug, T: Clone> Ruler<M, T> {
     /// Ordered iteration through rules.
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
-        self.compiled.get_or_init(|| self.compile()).1.iter()
+        self.as_slice().iter()
     }
 
-    /// Ordered iteration with each rule's primary (non-alias) mark.
-    ///
-    /// This is crate-private because public consumers should order and invoke
-    /// rules through [`Ruler::iter`]. Parser dispatch tables use the primary
-    /// mark to join ordered rule values with parser-specific metadata.
-    pub(crate) fn iter_with_marks(&self) -> impl Iterator<Item = (&M, &T)> {
-        let indices = &self.compiled.get_or_init(|| self.compile()).0;
-        indices.iter().map(move |idx| {
-            let item = &self.deps[*idx];
-            (item.marks.first().unwrap(), &item.value)
-        })
+    /// Borrow the cached ordered payloads without copying the rule table.
+    pub(crate) fn as_slice(&self) -> &[T] {
+        &self.compiled.get_or_init(|| self.compile()).1
     }
 
     fn compile(&self) -> (Vec<usize>, Vec<T>) {
@@ -146,12 +142,12 @@ impl<M: Eq + Hash + Clone + Debug, T: Clone> Ruler<M, T> {
             for constraint in &dep.cons {
                 match constraint {
                     RuleItemConstraint::Before(v) => {
-                        for depidx in idhash.entry(v.clone()).or_default().iter() {
+                        for depidx in idhash.get(v).into_iter().flatten() {
                             deps_graph.get_mut(*depidx).unwrap().insert(idx);
                         }
                     }
                     RuleItemConstraint::After(v) => {
-                        for depidx in idhash.entry(v.clone()).or_default().iter() {
+                        for depidx in idhash.get(v).into_iter().flatten() {
                             deps_graph.get_mut(idx).unwrap().insert(*depidx);
                         }
                     }

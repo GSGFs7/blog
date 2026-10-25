@@ -25,12 +25,22 @@
 //! markdown_it::plugins::extra::syntect::add(&mut md);
 //! markdown_it::plugins::extra::syntect::set_theme(&mut md, "base16-ocean.dark");
 //!
-//! let html = md.parse("```rust\nfn main() {}\n```").render();
+//! let html = md.render("```rust\nfn main() {}\n```");
 //! assert!(html.contains(r#"class="language-rust""#));
 //! ```
 
+//! Highlighting runs automatically during document parsing:
+//!
+//! ```rust
+//! let mut md = markdown_it::MarkdownIt::empty();
+//! markdown_it::plugins::cmark::add(&mut md);
+//! markdown_it::plugins::extra::syntect::add(&mut md);
+//! let mut document = md.parse("```rust\nfn main() {}\n```");
+//! assert!(md.render_html(&document).contains("language-rust"));
+//! ```
+
 use std::collections::HashSet;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, RwLock};
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::Theme;
@@ -46,10 +56,13 @@ use syntect::util::LinesWithEndings;
 use two_face::theme::LazyThemeSet;
 
 use crate::common::utils::unescape_all;
-use crate::parser::core::CoreRule;
+use crate::document::edit::EditBatch;
+use crate::document::{NodeRef, StructuralEvent};
+use crate::parser::core::{CoreRule, CoreState};
 use crate::plugins::cmark::block::code::CodeBlock;
 use crate::plugins::cmark::block::fence::CodeFence;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{NodeRenderer, RenderContext, write_html_close, write_html_open};
+use crate::{MarkdownIt, Writer};
 
 // lazy load themes. it wast a lot of performance
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
@@ -66,6 +79,7 @@ static THEME_SET: LazyLock<LazyThemeSet> =
 pub struct SyntectSnippet {
     /// Highlighted HTML
     pub html: String,
+    content: String,
     /// Language of the fenced code block (e.g. `rust`), if any.
     language: Option<String>,
     /// Default class prefix prepended to the language, e.g. `language-`.
@@ -74,35 +88,61 @@ pub struct SyntectSnippet {
     code_class: Option<String>,
 }
 
-impl NodeValue for SyntectSnippet {
-    fn render(&self, _: &Node, fmt: &mut dyn Renderer) {
-        let lang_prefix = fmt
-            .options()
-            .and_then(|options| options.lang_prefix.as_deref())
-            .unwrap_or(&self.lang_prefix);
-
+impl SyntectSnippet {
+    fn code_attrs(&self, lang_prefix: Option<&str>) -> Vec<(String, String)> {
+        let lang_prefix = lang_prefix.unwrap_or(&self.lang_prefix);
         let mut classes = Vec::new();
         if let Some(class) = &self.code_class {
             classes.push(class.clone());
         }
-
         if let Some(language) = &self.language {
             if !language.is_empty() {
                 classes.push(format!("{lang_prefix}{language}"));
             }
         }
-
-        let attrs = if classes.is_empty() {
+        if classes.is_empty() {
             Vec::new()
         } else {
             vec![("class".into(), classes.join(" "))]
-        };
+        }
+    }
+}
 
-        fmt.open("pre", &[]);
-        fmt.open("code", &attrs);
-        fmt.text_raw(&self.html);
-        fmt.close("code");
-        fmt.close("pre");
+struct SyntectHtmlRenderer;
+
+impl NodeRenderer<SyntectSnippet> for SyntectHtmlRenderer {
+    fn render(
+        &self,
+        _: NodeRef<'_>,
+        value: &SyntectSnippet,
+        context: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        write_html_open(output, "pre", &[]);
+        write_html_open(
+            output,
+            "code",
+            &value.code_attrs(context.options().lang_prefix.as_deref()),
+        );
+        output.write_str(&value.html);
+        write_html_close(output, "code");
+        write_html_close(output, "pre");
+    }
+}
+
+struct SyntectTextRenderer;
+
+impl NodeRenderer<SyntectSnippet> for SyntectTextRenderer {
+    fn render(
+        &self,
+        _: NodeRef<'_>,
+        value: &SyntectSnippet,
+        context: &mut RenderContext<'_>,
+        output: &mut Writer,
+    ) {
+        context.cr(output);
+        output.write_str(&value.content);
+        context.cr(output);
     }
 }
 
@@ -215,65 +255,92 @@ impl FenceMeta {
 // --- behavior ---
 
 /// Replaces code blocks with syntect highlighted HTML.
-pub struct SyntectRule;
+fn highlight_node(
+    code: Option<&CodeBlock>,
+    fence: Option<&CodeFence>,
+    settings: &SyntectSettings,
+) -> Option<SyntectSnippet> {
+    let (content, meta, lang_prefix) = if let Some(code) = code {
+        (
+            code.content.as_str(),
+            FenceMeta {
+                language: None,
+                highlighted_lines: HashSet::new(),
+            },
+            "language-".to_owned(),
+        )
+    } else {
+        let fence = fence?;
+        (
+            fence.content.as_str(),
+            FenceMeta::parse_fence_meta(fence),
+            fence.lang_prefix.clone(),
+        )
+    };
+    let ss = &*SYNTAX_SET;
+    let syntax = meta
+        .language
+        .as_deref()
+        .and_then(|lang| ss.find_syntax_by_token(lang))
+        .unwrap_or_else(|| ss.find_syntax_plain_text());
+    let options = HighlightOptions {
+        prefix: settings.prefix,
+        highlighted_lines: &meta.highlighted_lines,
+    };
+
+    let (html, code_class) = match settings.mode {
+        SyntectMode::Inline => {
+            let theme = resolve_theme(&THEME_SET, settings)
+                .unwrap_or_else(|| panic!("unknown syntect theme: {}", settings.theme));
+            (
+                render_inline_html(content, ss, syntax, theme, &options)?,
+                None,
+            )
+        }
+        SyntectMode::Classed => (
+            render_classed_html(content, ss, syntax, &options)?,
+            Some(format!("{}code", settings.prefix)),
+        ),
+    };
+    Some(SyntectSnippet {
+        html,
+        content: content.to_owned(),
+        language: meta.language,
+        lang_prefix,
+        code_class,
+    })
+}
+
+#[derive(Debug, Clone, Default)]
+struct SharedSyntectSettings(Arc<RwLock<SyntectSettings>>);
+
+/// Highlights code blocks.
+#[derive(Debug, Default)]
+pub struct SyntectRule {
+    settings: SharedSyntectSettings,
+}
 
 impl CoreRule for SyntectRule {
     const NAMES: &'static [&'static str] = &["syntect"];
 
-    fn run(root: &mut Node, md: &MarkdownIt) {
-        let settings = load_syntect_settings(md);
-
-        root.walk_mut(|node, _| {
-            let (content, highlighted_lines, lang_prefix, language);
-            if let Some(data) = node.cast::<CodeBlock>() {
-                content = data.content.as_str();
-                highlighted_lines = HashSet::new();
-                lang_prefix = None;
-                language = None;
-            } else if let Some(data) = node.cast::<CodeFence>() {
-                let meta = FenceMeta::parse_fence_meta(data);
-                content = data.content.as_str();
-                highlighted_lines = meta.highlighted_lines;
-                lang_prefix = Some(data.lang_prefix.clone());
-                language = meta.language;
-            } else {
-                return;
-            }
-
-            let ss = &*SYNTAX_SET;
-            let language_ref = language.as_deref();
-            let syntax = language_ref
-                .and_then(|lang| ss.find_syntax_by_token(lang))
-                .unwrap_or_else(|| ss.find_syntax_plain_text());
-            let options = HighlightOptions {
-                prefix: settings.prefix,
-                highlighted_lines: &highlighted_lines,
+    fn run(&self, state: &mut CoreState<'_>) {
+        let document = &mut *state.document;
+        let settings = self.settings.0.read().unwrap().clone();
+        let mut edits = EditBatch::new();
+        for event in document.events(document.root()) {
+            let node = match event {
+                StructuralEvent::Enter(node) | StructuralEvent::Leaf(node) => node,
+                StructuralEvent::Exit(_) => continue,
             };
-
-            let (html, code_class) = match settings.mode {
-                SyntectMode::Inline => {
-                    let theme = resolve_theme(&THEME_SET, &settings)
-                        .unwrap_or_else(|| panic!("unknown syntect theme: {}", settings.theme));
-                    (
-                        render_inline_html(content, ss, syntax, theme, &options),
-                        None,
-                    )
-                }
-                SyntectMode::Classed => (
-                    render_classed_html(content, ss, syntax, &options),
-                    Some(format!("{}code", settings.prefix)),
-                ),
-            };
-
-            if let Some(html) = html {
-                node.replace(SyntectSnippet {
-                    html,
-                    language,
-                    lang_prefix: lang_prefix.unwrap_or_else(|| "language-".to_owned()),
-                    code_class,
-                });
+            if let Some(snippet) = highlight_node(
+                node.cast::<CodeBlock>(),
+                node.cast::<CodeFence>(),
+                &settings,
+            ) {
+                edits.replace_value(node.id(), snippet);
             }
-        });
+        }
+        edits.commit(document);
     }
 }
 
@@ -283,7 +350,19 @@ impl CoreRule for SyntectRule {
 ///
 /// The rule will replace [`CodeBlock`] and [`CodeFence`] nodes with syntect rendered HTML snippets.
 pub fn add(md: &mut MarkdownIt) {
-    md.add_rule::<SyntectRule>();
+    let settings = md
+        .ext
+        .get_or_insert_default::<SharedSyntectSettings>()
+        .clone();
+    md.add_rule_instance(SyntectRule { settings })
+        .after_named("inline")
+        .after_named("footnote_tail");
+    register_renderers(md);
+}
+
+fn register_renderers(md: &mut MarkdownIt) {
+    md.add_renderer::<SyntectSnippet, _>("html", SyntectHtmlRenderer);
+    md.add_renderer::<SyntectSnippet, _>("text", SyntectTextRenderer);
 }
 
 /// Return the names of all built-in themes available to this plugin.
@@ -359,13 +438,15 @@ pub fn theme_css(md: &MarkdownIt) -> Option<String> {
 // --- helper method ---
 
 fn load_syntect_settings(md: &MarkdownIt) -> SyntectSettings {
-    md.ext.get::<SyntectSettings>().cloned().unwrap_or_default()
+    md.ext
+        .get::<SharedSyntectSettings>()
+        .map(|settings| settings.0.read().unwrap().clone())
+        .unwrap_or_default()
 }
 
 fn update_syntect_settings(md: &mut MarkdownIt, f: impl FnOnce(&mut SyntectSettings)) {
-    let mut settings = md.ext.remove::<SyntectSettings>().unwrap_or_default();
-    f(&mut settings);
-    md.ext.insert(settings);
+    let settings = md.ext.get_or_insert_default::<SharedSyntectSettings>();
+    f(&mut settings.0.write().unwrap());
 }
 
 fn resolve_theme<'a>(themes: &'a LazyThemeSet, settings: &SyntectSettings) -> Option<&'a Theme> {
@@ -512,11 +593,16 @@ mod test {
 
     #[test]
     fn render_options_override_syntect_lang_prefix() {
-        let ast = parser().parse("```rust\nfn main() {}\n```");
-        let html = ast.render_with(&RenderOptions {
-            lang_prefix: Some("lang-".into()),
-            ..Default::default()
-        });
+        let md = parser();
+        let ast = md.parse("```rust\nfn main() {}\n```");
+        let html = md.renderers.render(
+            &ast,
+            "html",
+            &RenderOptions {
+                lang_prefix: Some("lang-".into()),
+                ..Default::default()
+            },
+        );
 
         assert!(html.contains(r#"class="lang-rust""#));
         assert!(!html.contains("language-rust"));
@@ -524,7 +610,7 @@ mod test {
 
     #[test]
     fn highlights_indented_code_blocks() {
-        let html = parser().parse("    plain code\n").render();
+        let html = parser().render("    plain code\n");
 
         assert!(html.contains(r#"class="syntect-line""#));
     }

@@ -2,6 +2,14 @@
 
 mod common;
 
+#[test]
+fn closing_html_anchors_do_not_enable_core_linkify_inside_markdown_links() {
+    run(
+        "[</a>b@e[</a>b@example.com](/url)\r",
+        "<p>[</a>b@e<a href=\"/url\"></a>b@example.com</a></p>",
+    );
+}
+
 fn run(input: &str, output: &str) {
     let expected = if output.is_empty() {
         String::new()
@@ -10,8 +18,16 @@ fn run(input: &str, output: &str) {
     };
 
     let md = common::markdown_it_fixture_parser();
-    let actual = md.parse(&(input.to_owned() + "\n")).render();
+    let actual = md.render(&(input.to_owned() + "\n"));
     assert_eq!(actual, expected);
+
+    let mut direct_md = markdown_it::MarkdownIt::new();
+    markdown_it::plugins::html::add(&mut direct_md);
+    markdown_it::plugins::extra::linkify::add(&mut direct_md);
+    markdown_it::plugins::extra::typographer::add(&mut direct_md);
+    markdown_it::plugins::extra::smartquotes::add(&mut direct_md);
+    let document = direct_md.parse(&(input.to_owned() + "\n"));
+    assert_eq!(direct_md.render_html(&document), expected);
 }
 
 ///////////////////////////////////////////////////////////////////////////

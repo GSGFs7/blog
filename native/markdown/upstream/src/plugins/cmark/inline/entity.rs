@@ -7,9 +7,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::MarkdownIt;
 use crate::common::utils::{get_entity_from_str, is_valid_entity_code};
-use crate::parser::inline::{InlineRule, InlineState, TextSpecial};
-use crate::{MarkdownIt, Node};
+use crate::document::{NodeId, TextSpecial};
+use crate::parser::inline::{InlineRule, InlineState};
 
 pub fn add(md: &mut MarkdownIt) {
     md.inline.add_rule::<EntityScanner>();
@@ -21,50 +22,65 @@ static DIGITAL_RE: LazyLock<Regex> =
 static NAMED_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new("(?i)^&([a-z][a-z0-9]{1,31});").unwrap());
 
+enum EntityValue {
+    Character(char),
+    Named(&'static str),
+}
+
+struct EntityMatch {
+    len: usize,
+    value: EntityValue,
+}
+
+fn scan_entity(src: &str) -> Option<EntityMatch> {
+    if !src.starts_with('&') {
+        return None;
+    }
+
+    if src.starts_with("&#") {
+        let capture = DIGITAL_RE.captures(src)?;
+        let entity = &capture[1];
+        let code = if entity.starts_with('x') || entity.starts_with('X') {
+            u32::from_str_radix(&entity[1..], 16).ok()?
+        } else {
+            entity.parse::<u32>().ok()?
+        };
+        let value = if is_valid_entity_code(code) {
+            char::from_u32(code)?
+        } else {
+            '\u{FFFD}'
+        };
+        Some(EntityMatch {
+            len: capture[0].len(),
+            value: EntityValue::Character(value),
+        })
+    } else {
+        let capture = NAMED_RE.captures(src)?;
+        Some(EntityMatch {
+            len: capture[0].len(),
+            value: EntityValue::Named(get_entity_from_str(&capture[0])?),
+        })
+    }
+}
+
 #[doc(hidden)]
 pub struct EntityScanner;
 
 impl EntityScanner {
-    fn parse_digital_entity(state: &mut InlineState) -> Option<(Node, usize)> {
-        let capture = DIGITAL_RE.captures(&state.src[state.pos..])?;
-        let entity_len = capture[0].len();
-        let entity = &capture[1];
-        #[allow(clippy::from_str_radix_10)]
-        let code = if entity.starts_with('x') || entity.starts_with('X') {
-            u32::from_str_radix(&entity[1..], 16).unwrap()
-        } else {
-            u32::from_str_radix(entity, 10).unwrap()
+    fn parse(src: &str) -> Option<(TextSpecial, usize)> {
+        let matched = scan_entity(src)?;
+        let content = match matched.value {
+            EntityValue::Character(ch) => ch.to_string(),
+            EntityValue::Named(value) => value.to_owned(),
         };
-
-        let content_str = if is_valid_entity_code(code) {
-            char::from_u32(code).unwrap().into()
-        } else {
-            '\u{FFFD}'.into()
-        };
-
-        let markup_str = capture[0].to_owned();
-
-        let node = Node::new(TextSpecial {
-            content: content_str,
-            markup: markup_str,
-            info: "entity",
-        });
-        Some((node, entity_len))
-    }
-
-    fn parse_named_entity(state: &mut InlineState) -> Option<(Node, usize)> {
-        let capture = NAMED_RE.captures(&state.src[state.pos..])?;
-        let str = get_entity_from_str(&capture[0])?;
-        let entity_len = capture[0].len();
-        let markup_str = capture[0].to_owned();
-        let content_str = (*str).to_owned();
-
-        let node = Node::new(TextSpecial {
-            content: content_str,
-            markup: markup_str,
-            info: "entity",
-        });
-        Some((node, entity_len))
+        Some((
+            TextSpecial {
+                content,
+                markup: src[..matched.len].to_owned(),
+                info: "entity",
+            },
+            matched.len,
+        ))
     }
 }
 
@@ -72,16 +88,15 @@ impl InlineRule for EntityScanner {
     const MARKER: char = '&';
     const NAMES: &'static [&'static str] = &["entity"];
 
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        let mut chars = state.src[state.pos..state.pos_max].chars();
-        if chars.next().unwrap() != '&' {
-            return None;
+    fn check(context: &mut InlineState<'_>) -> Option<usize> {
+        match scan_entity(context.remaining()) {
+            Some(matched) => Some(matched.len),
+            None => None,
         }
+    }
 
-        if let Some('#') = chars.next() {
-            Self::parse_digital_entity(state)
-        } else {
-            Self::parse_named_entity(state)
-        }
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let (entity, len) = Self::parse(&state.src[state.pos..state.pos_max])?;
+        Some((Some(state.document.create_node(entity)), len))
     }
 }

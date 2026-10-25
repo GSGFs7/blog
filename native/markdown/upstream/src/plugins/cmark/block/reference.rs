@@ -13,20 +13,23 @@ use std::fmt::Debug;
 use derive_more::{Deref, DerefMut};
 use downcast_rs::{Downcast, impl_downcast};
 
+use crate::MarkdownIt;
 use crate::common::utils::{normalize_reference, unescape_all};
-use crate::generics::inline::full_link;
+use crate::document::NodeId;
 use crate::parser::block::{BlockRule, BlockState};
-use crate::{MarkdownIt, Node, NodeValue};
+use crate::parser::inline::helpers::full_link;
+use crate::render::EmptyRenderer;
 
 /// Storage for parsed references
 ///
 /// if you have some external source for your link references, you can add them like this:
 ///
 /// ```rust
-/// use markdown_it::parser::block::builtin::BlockParserRule;
-/// use markdown_it::parser::core::{CoreRule, Root};
+/// use markdown_it::parser::block::BlockParserRule;
+/// use markdown_it::Root;
+/// use markdown_it::parser::core::{CoreRule, CoreState};
 /// use markdown_it::plugins::cmark::block::reference::{ReferenceMap, DefaultReferenceMap, CustomReferenceMap};
-/// use markdown_it::{MarkdownIt, Node};
+/// use markdown_it::{MarkdownIt};
 ///
 /// let md = &mut MarkdownIt::empty();
 /// markdown_it::plugins::cmark::add(md);
@@ -51,18 +54,18 @@ use crate::{MarkdownIt, Node, NodeValue};
 ///     }
 /// }
 ///
+/// #[derive(Default)]
 /// struct AddCustomReferences;
 /// impl CoreRule for AddCustomReferences {
-///     fn run(root: &mut Node, _: &MarkdownIt) {
-///         let data = root.cast_mut::<Root>().unwrap();
-///         data.ext.insert(ReferenceMap::new(RefMapOverride::default()));
+///     fn run(&self, state: &mut CoreState<'_>) {
+///         state.root_ext_mut().insert(ReferenceMap::new(RefMapOverride::default()));
 ///     }
 /// }
 ///
 /// md.add_rule::<AddCustomReferences>()
 ///     .before::<BlockParserRule>();
 ///
-/// let html = md.parse("[rust]").render();
+/// let html = md.render("[rust]");
 /// assert_eq!(
 ///     html.trim(),
 ///     r#"<p><a href="https://www.rust-lang.org/" title="The Rust Language">rust</a></p>"#
@@ -72,15 +75,16 @@ use crate::{MarkdownIt, Node, NodeValue};
 /// You can also view all references that user created by adding the following rule:
 ///
 /// ```rust
-/// use markdown_it::parser::core::{CoreRule, Root};
+/// use markdown_it::Root;
+/// use markdown_it::parser::core::{CoreRule, CoreState};
 /// use markdown_it::plugins::cmark::block::reference::{ReferenceMap, DefaultReferenceMap};
-/// use markdown_it::{MarkdownIt, Node};
+/// use markdown_it::{MarkdownIt};
 ///
 /// let md = &mut MarkdownIt::empty();
 /// markdown_it::plugins::cmark::add(md);
 ///
 /// let ast = md.parse("[hello]: world");
-/// let root = ast.node_value.downcast_ref::<Root>().unwrap();
+/// let root = ast.node(ast.root()).cast::<Root>().unwrap();
 /// let refmap = root.ext.get::<ReferenceMap>()
 ///     .map(|m| m.downcast_ref::<DefaultReferenceMap>().expect("expect references to be handled by default map"));
 ///
@@ -122,7 +126,10 @@ pub trait CustomReferenceMap: Debug + Downcast + Send + Sync {
 impl_downcast!(CustomReferenceMap);
 
 #[derive(Default, Debug)]
-pub struct DefaultReferenceMap(HashMap<ReferenceMapKey, ReferenceMapEntry>);
+pub struct DefaultReferenceMap {
+    entries: HashMap<ReferenceMapKey, ReferenceMapEntry>,
+    max_normalized_len: usize,
+}
 
 impl DefaultReferenceMap {
     pub fn new() -> Self {
@@ -131,7 +138,7 @@ impl DefaultReferenceMap {
 
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str, Option<&str>)> {
         Box::new(
-            self.0
+            self.entries
                 .iter()
                 .map(|(a, b)| (a.label.as_str(), b.destination.as_str(), b.title.as_deref())),
         )
@@ -143,15 +150,26 @@ impl CustomReferenceMap for DefaultReferenceMap {
         let Some(key) = ReferenceMapKey::new(label) else {
             return false;
         };
-        self.0
+        self.max_normalized_len = self.max_normalized_len.max(key.normalized.len());
+        self.entries
             .entry(key)
             .or_insert(ReferenceMapEntry::new(destination, title));
         true
     }
 
     fn get(&self, label: &str) -> Option<(&str, Option<&str>)> {
+        if label
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .take(self.max_normalized_len.saturating_add(1))
+            .count()
+            > self.max_normalized_len
+        {
+            return None;
+        }
+
         let key = ReferenceMapKey::new(label.to_owned())?;
-        self.0
+        self.entries
             .get(&key)
             .map(|r| (r.destination.as_str(), r.title.as_deref()))
     }
@@ -207,6 +225,8 @@ impl ReferenceMapEntry {
 /// Add plugin that parses markdown link references
 pub fn add(md: &mut MarkdownIt) {
     md.block.add_rule::<ReferenceScanner>();
+    md.add_renderer::<Definition, _>("html", EmptyRenderer);
+    md.add_renderer::<Definition, _>("text", EmptyRenderer);
 }
 
 #[derive(Debug)]
@@ -215,198 +235,225 @@ pub struct Definition {
     pub destination: String,
     pub title: Option<String>,
 }
-impl NodeValue for Definition {
-    fn render(&self, _: &Node, _: &mut dyn crate::Renderer) {}
-}
 
 #[doc(hidden)]
 pub struct ReferenceScanner;
-impl BlockRule for ReferenceScanner {
-    const NAMES: &'static [&'static str] = &["reference"];
 
-    fn check(_: &mut BlockState) -> Option<()> {
-        None // can't interrupt anything
+impl BlockState<'_> {
+    fn markdown_it(&self) -> &MarkdownIt {
+        self.md
     }
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
-        if state.line_indent(state.line) >= state.md.max_indent {
+    fn start_line(&self) -> Option<(usize, &str)> {
+        if self.line_indent(self.line) >= self.md.max_indent {
             return None;
         }
+        Some((self.line, self.get_line(self.line)))
+    }
 
-        let mut chars = state.get_line(state.line).chars();
-
-        let Some('[') = chars.next() else {
+    fn continuation_line(&mut self, line: usize) -> Option<String> {
+        if line >= self.line_max || self.is_empty(line) {
             return None;
-        };
-
-        // Simple check to quickly interrupt scan on [link](url) at the start of line.
-        // Can be useful on practice: https://github.com/markdown-it/markdown-it/issues/54
-        loop {
-            match chars.next() {
-                Some('\\') => {
-                    chars.next();
-                }
-                Some(']') => {
-                    if let Some(':') = chars.next() {
-                        break;
-                    } else {
-                        return None;
-                    }
-                }
-                Some(_) => {}
-                None => break,
-            }
         }
-
-        let start_line = state.line;
-        let mut next_line = start_line + 1;
-        let mut str = state.get_line(start_line).to_owned();
-        str.push('\n');
-
-        let mut pos = 1; // skip '['
-        let label_end;
-
-        loop {
-            let ch = str[pos..].chars().next()?;
-            match ch {
-                '[' => return None,
-                ']' => {
-                    label_end = pos;
-                    pos += 1;
-                    break;
-                }
-                '\n' => {
-                    pos += 1;
-                    if pos == str.len()
-                        && !append_next_reference_line(state, &mut next_line, &mut str)
-                    {
-                        return None;
-                    }
-                }
-                '\\' => {
-                    pos += 1;
-                    let escaped = str[pos..].chars().next()?;
-                    pos += escaped.len_utf8();
-                    if escaped == '\n'
-                        && pos == str.len()
-                        && !append_next_reference_line(state, &mut next_line, &mut str)
-                    {
-                        return None;
-                    }
-                }
-                _ => pos += ch.len_utf8(),
-            }
-        }
-
-        let Some(':') = str[pos..].chars().next() else {
-            return None;
-        };
-        pos += 1;
-
-        // [label]:   destination   'title'
-        //         ^^^ skip optional whitespace here
-        skip_reference_whitespace(state, &mut next_line, &mut str, &mut pos);
-
-        // [label]:   destination   'title'
-        //            ^^^^^^^^^^^ parse this
-        let href;
-        {
-            let res = full_link::parse_link_destination(&str, pos, str.len())?;
-            if pos == res.pos {
+        let is_continuation = self.line_indent(line) >= self.md.max_indent
+            || self.line_offsets[line].indent_nonspace < 0;
+        if !is_continuation {
+            let old_line = self.line;
+            self.line = line;
+            let terminated = self.test_rules_at_line();
+            self.line = old_line;
+            if terminated {
                 return None;
             }
-            href = state.md.link_formatter.normalize_link(&res.str);
-            state.md.link_formatter.validate_link(&href)?;
-            pos = res.pos;
         }
+        // Reference continuations start at the first nonspace character,
+        // including inside multiline labels and titles.
+        let mut content = self.get_line(line).to_owned();
+        content.push('\n');
+        Some(content)
+    }
 
-        // save cursor state, we could require to rollback later
-        let dest_end_pos = pos;
-        let dest_end_next_line = next_line;
-
-        // [label]:   destination   'title'
-        //                       ^^^ skipping those spaces
-        let start = pos;
-        skip_reference_whitespace(state, &mut next_line, &mut str, &mut pos);
-
-        // [label]:   destination   'title'
-        //                          ^^^^^^^ parse this
-        let mut title = None;
-        if pos != start {
-            if let Some(res) = parse_reference_title(state, &mut next_line, &mut str, pos) {
-                title = Some(res.str);
-                pos = res.pos;
-            } else {
-                pos = dest_end_pos;
-                next_line = dest_end_next_line;
-            }
-        }
-
-        // skip trailing spaces until the rest of the line
-        loop {
-            match str[pos..].chars().next() {
-                Some(ch @ (' ' | '\t')) => pos += ch.len_utf8(),
-                Some('\n') | None => break,
-                Some(_) if title.is_some() => {
-                    // garbage at the end of the line after title,
-                    // but it could still be a valid reference if we roll back
-                    title = None;
-                    pos = dest_end_pos;
-                    next_line = dest_end_next_line;
-                }
-                Some(_) => {
-                    // garbage at the end of the line
-                    return None;
-                }
-            }
-        }
-
-        let references = state.root_ext.get_or_insert_default::<ReferenceMap>();
-        if !references.insert(str[1..label_end].to_owned(), href.clone(), title.clone()) {
-            return None;
-        }
-
-        Some((
-            Node::new(Definition {
-                label: str[1..label_end].to_owned(),
-                destination: href,
-                title,
-            }),
-            next_line - start_line,
-        ))
+    fn references(&mut self) -> &mut ReferenceMap {
+        self.root_ext.get_or_insert_default::<ReferenceMap>()
     }
 }
 
-fn append_next_reference_line(
-    state: &mut BlockState,
-    next_line: &mut usize,
-    str: &mut String,
-) -> bool {
-    if *next_line >= state.line_max || state.is_empty(*next_line) {
-        return false;
+impl BlockRule for ReferenceScanner {
+    const MARKERS: &'static [char] = &['['];
+    const NAMES: &'static [&'static str] = &["reference"];
+
+    fn check(_: &mut BlockState<'_>) -> Option<()> {
+        None // can't interrupt anything
     }
 
-    let is_continuation = state.line_indent(*next_line) >= state.md.max_indent
-        || state.line_offsets[*next_line].indent_nonspace < 0;
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let (definition, lines) = scan_reference(state)?;
+        Some((Some(state.document.create_node(definition)), lines))
+    }
+}
 
-    if !is_continuation {
-        let old_state_line = state.line;
-        state.line = *next_line;
-        let terminated = state.test_rules_at_line();
-        state.line = old_state_line;
-        if terminated {
-            return false;
+fn scan_reference(state: &mut BlockState<'_>) -> Option<(Definition, usize)> {
+    let (start_line, first_line) = state.start_line()?;
+    let mut chars = first_line.chars();
+
+    let Some('[') = chars.next() else {
+        return None;
+    };
+
+    // Simple check to quickly interrupt scan on [link](url) at the start of line.
+    // Can be useful on practice: https://github.com/markdown-it/markdown-it/issues/54
+    loop {
+        match chars.next() {
+            Some('\\') => {
+                chars.next();
+            }
+            Some(']') => {
+                if let Some(':') = chars.next() {
+                    break;
+                } else {
+                    return None;
+                }
+            }
+            Some(_) => {}
+            None => break,
         }
     }
 
-    let (line, _) = state.get_lines(*next_line, *next_line + 1, state.blk_indent, true);
+    let mut next_line = start_line + 1;
+    let mut str = first_line.to_owned();
+    str.push('\n');
+
+    let mut pos = 1; // skip '['
+    let label_end;
+
+    loop {
+        let ch = str[pos..].chars().next()?;
+        match ch {
+            '[' => return None,
+            ']' => {
+                label_end = pos;
+                pos += 1;
+                break;
+            }
+            '\n' => {
+                pos += 1;
+                if pos == str.len() && !append_next_reference_line(state, &mut next_line, &mut str)
+                {
+                    return None;
+                }
+            }
+            '\\' => {
+                pos += 1;
+                let escaped = str[pos..].chars().next()?;
+                pos += escaped.len_utf8();
+                if escaped == '\n'
+                    && pos == str.len()
+                    && !append_next_reference_line(state, &mut next_line, &mut str)
+                {
+                    return None;
+                }
+            }
+            _ => pos += ch.len_utf8(),
+        }
+    }
+
+    let Some(':') = str[pos..].chars().next() else {
+        return None;
+    };
+    pos += 1;
+
+    // [label]:   destination   'title'
+    //         ^^^ skip optional whitespace here
+    skip_reference_whitespace(state, &mut next_line, &mut str, &mut pos);
+
+    // [label]:   destination   'title'
+    //            ^^^^^^^^^^^ parse this
+    let href;
+    {
+        let res = full_link::parse_link_destination(&str, pos, str.len())?;
+        if pos == res.pos {
+            return None;
+        }
+        href = state.markdown_it().link_formatter.normalize_link(&res.str);
+        state.markdown_it().link_formatter.validate_link(&href)?;
+        pos = res.pos;
+    }
+
+    // save cursor state, we could require to rollback later
+    let dest_end_pos = pos;
+    let dest_end_next_line = next_line;
+
+    // [label]:   destination   'title'
+    //                       ^^^ skipping those spaces
+    let start = pos;
+    skip_reference_whitespace(state, &mut next_line, &mut str, &mut pos);
+
+    // [label]:   destination   'title'
+    //                          ^^^^^^^ parse this
+    let mut title = None;
+    if let Some(res) = parse_reference_title(state, &mut next_line, &mut str, pos) {
+        // markdown-it also accepts adjacent multiline titles.
+        if pos != start || res.lines > 0 {
+            title = Some(res.str);
+            pos = res.pos;
+        } else {
+            pos = dest_end_pos;
+            next_line = dest_end_next_line;
+        }
+    } else {
+        pos = dest_end_pos;
+        next_line = dest_end_next_line;
+    }
+
+    // skip trailing spaces until the rest of the line
+    loop {
+        match str[pos..].chars().next() {
+            Some(ch @ (' ' | '\t')) => pos += ch.len_utf8(),
+            Some('\n') | None => break,
+            Some(_) if title.as_ref().is_some_and(|title| !title.is_empty()) => {
+                // garbage at the end of the line after title,
+                // but it could still be a valid reference if we roll back
+                title = None;
+                pos = dest_end_pos;
+                next_line = dest_end_next_line;
+            }
+            Some(_) => {
+                // garbage at the end of the line
+                return None;
+            }
+        }
+    }
+
+    let references = state.references();
+    if !references.insert(str[1..label_end].to_owned(), href.clone(), title.clone()) {
+        return None;
+    }
+
+    Some((
+        Definition {
+            label: str[1..label_end].to_owned(),
+            destination: href,
+            title,
+        },
+        next_line - start_line,
+    ))
+}
+
+fn append_next_reference_line(
+    state: &mut BlockState<'_>,
+    next_line: &mut usize,
+    str: &mut String,
+) -> bool {
+    let Some(line) = state.continuation_line(*next_line) else {
+        return false;
+    };
     str.push_str(&line);
     *next_line += 1;
     true
 }
 
 fn skip_reference_whitespace(
-    state: &mut BlockState,
+    state: &mut BlockState<'_>,
     next_line: &mut usize,
     str: &mut String,
     pos: &mut usize,
@@ -426,7 +473,7 @@ fn skip_reference_whitespace(
 }
 
 fn parse_reference_title(
-    state: &mut BlockState,
+    state: &mut BlockState<'_>,
     next_line: &mut usize,
     str: &mut String,
     start: usize,
@@ -473,5 +520,27 @@ fn parse_reference_title(
             }
             _ => pos += ch.len_utf8(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CustomReferenceMap, DefaultReferenceMap};
+
+    #[test]
+    fn lookup_length_filter_preserves_whitespace_and_unicode_normalization() {
+        let mut map = DefaultReferenceMap::new();
+        for (stored, query) in [("r", "R"), ("ss", "ß"), ("k", "K"), ("a b", "A\u{2003} B")] {
+            assert!(map.insert(stored.to_owned(), stored.to_owned(), None));
+            assert_eq!(map.get(query), Some((stored, None)), "{query}");
+        }
+        let padded = format!("{}R{}", " ".repeat(4096), "\t".repeat(4096));
+        assert_eq!(map.get(&padded), Some(("r", None)));
+        assert_eq!(map.get(&"[".repeat(50_000)), None);
+
+        // Publicly inserted maps can contain labels longer than parsed definitions.
+        let long = "a".repeat(2048);
+        assert!(map.insert(long.clone(), "long".to_owned(), None));
+        assert_eq!(map.get(&long), Some(("long", None)));
     }
 }

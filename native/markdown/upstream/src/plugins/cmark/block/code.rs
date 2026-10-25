@@ -3,8 +3,16 @@
 //! Parses anything indented with 4 spaces.
 //!
 //! <https://spec.commonmark.org/0.30/#indented-code-block>
+use crate::MarkdownIt;
+use crate::document::{NodeId, NodeRef};
 use crate::parser::block::{BlockRule, BlockState};
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::render::{
+    NodeRenderer,
+    RenderContext,
+    write_html_close,
+    write_html_open,
+    write_html_text,
+};
 
 const CODE_INDENT: i32 = 4;
 
@@ -13,33 +21,60 @@ pub struct CodeBlock {
     pub content: String,
 }
 
-impl NodeValue for CodeBlock {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.cr();
-        fmt.open("pre", &[]);
-        fmt.open("code", &node.attrs);
-        fmt.text(&self.content);
-        fmt.close("code");
-        fmt.close("pre");
-        fmt.cr();
+struct CodeBlockRenderer;
+
+impl NodeRenderer<CodeBlock> for CodeBlockRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        code: &CodeBlock,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        context.cr(output);
+        write_html_open(output, "pre", &[]);
+        write_html_open(output, "code", node.attrs());
+        write_html_text(output, &code.content);
+        write_html_close(output, "code");
+        write_html_close(output, "pre");
+        context.cr(output);
+    }
+}
+
+struct CodeBlockTextRenderer;
+
+impl NodeRenderer<CodeBlock> for CodeBlockTextRenderer {
+    fn render(
+        &self,
+        _: NodeRef<'_>,
+        code: &CodeBlock,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        context.cr(output);
+        output.write_str(&code.content);
+        context.cr(output);
     }
 }
 
 pub fn add(md: &mut MarkdownIt) {
     md.block.add_rule::<CodeScanner>();
+    md.add_renderer::<CodeBlock, _>("html", CodeBlockRenderer);
+    md.add_renderer::<CodeBlock, _>("text", CodeBlockTextRenderer);
     md.max_indent = CODE_INDENT;
 }
 
 #[doc(hidden)]
 pub struct CodeScanner;
+
 impl BlockRule for CodeScanner {
     const NAMES: &'static [&'static str] = &["code"];
 
-    fn check(_: &mut BlockState) -> Option<()> {
+    fn check(_: &mut BlockState<'_>) -> Option<()> {
         None
     }
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
         if state.line_indent(state.line) < CODE_INDENT {
             return None;
         }
@@ -70,9 +105,8 @@ impl BlockRule for CodeScanner {
         );
         content += "\n";
 
-        let node = Node::new(CodeBlock { content });
-        //node.srcmap = state.get_map_from_offsets(mapping[0].1, state.line_offsets[last - 1].line_end);
+        let node = state.document.create_node(CodeBlock { content });
 
-        Some((node, last - state.line))
+        Some((Some(node), last - state.line))
     }
 }

@@ -30,6 +30,10 @@ pub(crate) fn build(
     let _ = (syntax_theme, syntax_classed);
 
     let mut inner = MarkdownIt::empty();
+    inner.add_renderer::<markdown_it::plugins::html::html_inline::HtmlInline, _>(
+        "html",
+        RawHtmlRenderer,
+    );
     let mut state = PluginState::new();
 
     if enable_frontmatter {
@@ -75,4 +79,19 @@ pub(crate) fn build(
         inner,
         plugins: state,
     })
+}
+
+struct RawHtmlRenderer;
+impl markdown_it::NodeRenderer<markdown_it::plugins::html::html_inline::HtmlInline>
+    for RawHtmlRenderer
+{
+    fn render(
+        &self,
+        _: markdown_it::NodeRef<'_>,
+        value: &markdown_it::plugins::html::html_inline::HtmlInline,
+        _: &mut markdown_it::RenderContext<'_>,
+        output: &mut markdown_it::Writer,
+    ) {
+        output.write_str(&value.content);
+    }
 }

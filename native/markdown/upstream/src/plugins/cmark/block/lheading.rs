@@ -3,10 +3,16 @@
 //! Paragraph underlined with `===` or `---`.
 //!
 //! <https://spec.commonmark.org/0.30/#setext-headings>
+use crate::MarkdownIt;
+use crate::document::{NodeId, NodeRef};
 use crate::parser::block::{BlockRule, BlockState};
-use crate::parser::inline::InlineRoot;
-use crate::plugins::cmark::block::paragraph::ParagraphScanner;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::plugins::cmark::block::paragraph::{ParagraphScanner, test_paragraph_rules_at_line};
+use crate::render::{
+    HtmlBlockElementRenderer,
+    NodeRenderer,
+    PlainTextBlockRenderer,
+    RenderContext,
+};
 
 #[derive(Debug)]
 pub struct SetextHeader {
@@ -14,16 +20,22 @@ pub struct SetextHeader {
     pub marker: char,
 }
 
-impl NodeValue for SetextHeader {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        static TAG: [&str; 2] = ["h1", "h2"];
-        debug_assert!(self.level >= 1 && self.level <= 2);
+struct SetextHeaderRenderer;
 
-        fmt.cr();
-        fmt.open(TAG[self.level as usize - 1], &node.attrs);
-        fmt.contents(&node.children);
-        fmt.close(TAG[self.level as usize - 1]);
-        fmt.cr();
+impl NodeRenderer<SetextHeader> for SetextHeaderRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        heading: &SetextHeader,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        static TAG: [&str; 2] = ["h1", "h2"];
+        debug_assert!((1..=2).contains(&heading.level));
+
+        let tag = TAG[heading.level as usize - 1];
+
+        HtmlBlockElementRenderer(tag).render(node, heading, context, output);
     }
 }
 
@@ -32,18 +44,43 @@ pub fn add(md: &mut MarkdownIt) {
         .add_rule::<LHeadingScanner>()
         .before::<ParagraphScanner>()
         .after_all();
+    md.add_renderer::<SetextHeader, _>("html", SetextHeaderRenderer);
+    md.add_renderer::<SetextHeader, _>("text", PlainTextBlockRenderer);
 }
 
 #[doc(hidden)]
 pub struct LHeadingScanner;
+
+/// Recognize a setext underline line, returning the heading level.
+fn scan_setext_underline(line: &str) -> Option<u8> {
+    let mut chars = line.chars().peekable();
+    let marker @ ('-' | '=') = chars.next()? else {
+        return None;
+    };
+
+    while Some(&marker) == chars.peek() {
+        chars.next();
+    }
+    while let Some(' ' | '\t') = chars.peek() {
+        chars.next();
+    }
+
+    if chars.next().is_none() {
+        Some(if marker == '=' { 1 } else { 2 })
+    } else {
+        None
+    }
+}
+
 impl BlockRule for LHeadingScanner {
+    // no `MARKERS` here on purpose
     const NAMES: &'static [&'static str] = &["lheading"];
 
-    fn check(_: &mut BlockState) -> Option<()> {
+    fn check(_: &mut BlockState<'_>) -> Option<()> {
         None // can't interrupt any tags
     }
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
         if state.line_indent(state.line) >= state.md.max_indent {
             return None;
         }
@@ -66,21 +103,12 @@ impl BlockRule for LHeadingScanner {
             }
 
             //
-            // Check for underline in setext header
+            // check for underline in setext header
             //
             if state.line_indent(next_line) >= 0 {
-                let mut chars = state.get_line(next_line).chars().peekable();
-                if let Some(marker @ ('-' | '=')) = chars.next() {
-                    while Some(&marker) == chars.peek() {
-                        chars.next();
-                    }
-                    while let Some(' ' | '\t') = chars.peek() {
-                        chars.next();
-                    }
-                    if chars.next().is_none() {
-                        level = if marker == '=' { 1 } else { 2 };
-                        break 'outer;
-                    }
+                if let Some(underline_level) = scan_setext_underline(state.get_line(next_line)) {
+                    level = underline_level;
+                    break 'outer;
                 }
             }
 
@@ -92,11 +120,11 @@ impl BlockRule for LHeadingScanner {
             // Some tags can terminate paragraph without empty line.
             let old_state_line = state.line;
             state.line = next_line;
-            if state.test_rules_at_line() {
-                state.line = old_state_line;
+            let interrupted = test_paragraph_rules_at_line(state);
+            state.line = old_state_line;
+            if interrupted {
                 break 'outer;
             }
-            state.line = old_state_line;
         }
 
         if level == 0 {
@@ -106,13 +134,13 @@ impl BlockRule for LHeadingScanner {
 
         let (content, mapping) = state.get_lines(start_line, next_line, state.blk_indent, false);
 
-        let mut node = Node::new(SetextHeader {
+        let node = state.document.create_node(SetextHeader {
             level,
             marker: if level == 2 { '-' } else { '=' },
         });
-        node.children
-            .push(Node::new(InlineRoot::new(content, mapping)));
+        let pending = state.pending_inline(content, mapping);
+        state.document.push_child(node, pending);
 
-        Some((node, next_line + 1 - start_line))
+        Some((Some(node), next_line + 1 - start_line))
     }
 }

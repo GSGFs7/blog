@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use clap::{Arg, ArgAction, Command};
-use markdown_it::parser::inline::{Text, TextSpecial};
+use markdown_it::document::{Text, TextSpecial};
 
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -21,12 +21,6 @@ fn main() {
                 .long("output")
                 .help("File to write")
                 .default_value("-"),
-        )
-        .arg(
-            Arg::new("sourcepos")
-                .long("sourcepos")
-                .help("Include source mappings in HTML attributes")
-                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new("no-html")
@@ -58,6 +52,14 @@ fn main() {
             .action(ArgAction::SetTrue),
     );
 
+    #[cfg(feature = "sourcemap")]
+    let cli = cli.arg(
+        Arg::new("sourcepos")
+            .long("sourcepos")
+            .help("Include source mappings in HTML attributes")
+            .action(ArgAction::SetTrue),
+    );
+
     let matches = cli.get_matches();
     let input = matches
         .get_one::<String>("file")
@@ -69,6 +71,7 @@ fn main() {
     #[cfg(feature = "linkify")]
     let linkify = matches.get_flag("linkify");
     let typographer = matches.get_flag("typographer");
+    #[cfg(feature = "sourcemap")]
     let sourcepos = matches.get_flag("sourcepos");
     let show_tree = matches.get_flag("tree");
 
@@ -91,6 +94,7 @@ fn main() {
     if !no_html {
         markdown_it::plugins::html::add(md);
     }
+    #[cfg(feature = "sourcemap")]
     if sourcepos {
         markdown_it::plugins::sourcepos::add(md);
     }
@@ -106,21 +110,30 @@ fn main() {
     let ast = md.parse(&source);
 
     if show_tree {
-        ast.walk(|node, depth| {
-            print!("{}", "    ".repeat(depth as usize));
-            let name = &node.name()[node.name().rfind("::").map(|x| x + 2).unwrap_or_default()..];
-            if let Some(data) = node.cast::<Text>() {
-                println!("{name}: {:?}", data.content);
-            } else if let Some(data) = node.cast::<TextSpecial>() {
-                println!("{name}: {:?}", data.content);
+        let mut depth = 0usize;
+        for event in ast.events(ast.root()) {
+            if matches!(event, markdown_it::StructuralEvent::Exit(_)) {
+                depth -= 1;
+                continue;
+            }
+            let node = event.node();
+            let name = node.name().rsplit("::").next().unwrap();
+            print!("{}", "    ".repeat(depth));
+            if let Some(text) = node.cast::<Text>() {
+                println!("{name}: {:?}", text.content);
+            } else if let Some(text) = node.cast::<TextSpecial>() {
+                println!("{name}: {:?}", text.content);
             } else {
                 println!("{name}");
             }
-        });
+            if matches!(event, markdown_it::StructuralEvent::Enter(_)) {
+                depth += 1;
+            }
+        }
         return;
     }
 
-    let result = ast.render();
+    let result = md.render_html(&ast);
 
     if output == "-" {
         std::io::stdout().write_all(result.as_bytes()).unwrap();

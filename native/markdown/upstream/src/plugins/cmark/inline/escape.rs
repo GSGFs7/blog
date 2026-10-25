@@ -4,12 +4,48 @@
 //! of the line.
 //!
 //! <https://spec.commonmark.org/0.30/#backslash-escapes>
-use crate::parser::inline::{InlineRule, InlineState, TextSpecial};
+use crate::MarkdownIt;
+use crate::document::{NodeId, TextSpecial};
+use crate::parser::inline::{InlineRule, InlineState};
 use crate::plugins::cmark::inline::newline::Hardbreak;
-use crate::{MarkdownIt, Node};
 
 pub fn add(md: &mut MarkdownIt) {
     md.inline.add_rule::<EscapeScanner>();
+}
+
+#[derive(Clone, Copy)]
+enum EscapeMatch {
+    Space,
+    Hardbreak { len: usize },
+    Character { ch: char },
+}
+
+impl EscapeMatch {
+    fn len(self) -> usize {
+        match self {
+            Self::Space => 1,
+            Self::Hardbreak { len } => len,
+            Self::Character { ch } => 1 + ch.len_utf8(),
+        }
+    }
+}
+
+/// Recognize a backslash escape without creating any node.
+fn scan_escape(source: &str) -> Option<EscapeMatch> {
+    let mut chars = source.chars();
+    if chars.next()? != '\\' {
+        return None;
+    }
+    match chars.next()? {
+        '\n' => Some(EscapeMatch::Hardbreak {
+            // skip leading whitespaces from next line
+            len: 2 + chars.take_while(|ch| matches!(ch, ' ' | '\t')).count(),
+        }),
+        // Emit only the backslash; keep the space pending so newline can
+        // still recognize two trailing spaces as a hard break.
+        ' ' => Some(EscapeMatch::Space),
+        ch => Some(EscapeMatch::Character { ch }),
+    }
 }
 
 #[doc(hidden)]
@@ -18,46 +54,74 @@ impl InlineRule for EscapeScanner {
     const MARKER: char = '\\';
     const NAMES: &'static [&'static str] = &["escape"];
 
-    fn run(state: &mut InlineState) -> Option<(Node, usize)> {
-        let mut chars = state.src[state.pos..state.pos_max].chars();
-        if chars.next().unwrap() != '\\' {
-            return None;
-        }
+    fn check(context: &mut InlineState<'_>) -> Option<usize> {
+        scan_escape(context.remaining()).map(|matched| matched.len())
+    }
 
-        match chars.next() {
-            Some('\n') => {
-                // skip leading whitespaces from next line
-                let mut len = 2;
-                while let Some(' ' | '\t') = chars.next() {
-                    len += 1;
-                }
-                Some((Node::new(Hardbreak), len))
-            }
-            // A space is not escapable. Leave both characters in the pending
-            // text so the newline rule can still see two trailing spaces.
-            Some(' ') => None,
-            Some(chr) => {
-                let start = state.pos;
-                let end = state.pos + 1 + chr.len_utf8();
-
-                let mut orig_str = "\\".to_owned();
-                orig_str.push(chr);
-
-                let content_str = match chr {
-                    '\\' | '!' | '"' | '#' | '$' | '%' | '&' | '\'' | '(' | ')' | '*' | '+'
-                    | ',' | '.' | '/' | ':' | ';' | '<' | '=' | '>' | '?' | '@' | '[' | ']'
-                    | '^' | '_' | '`' | '{' | '|' | '}' | '~' | '-' => chr.into(),
-                    _ => orig_str.clone(),
-                };
-
-                let node = Node::new(TextSpecial {
-                    content: content_str,
-                    markup: orig_str,
+    fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let matched = scan_escape(state.remaining())?;
+        let len = matched.len();
+        match matched {
+            EscapeMatch::Space => Some((
+                Some(state.document.create_node(TextSpecial {
+                    content: "\\".into(),
+                    markup: "\\".into(),
                     info: "escape",
-                });
-                Some((node, end - start))
+                })),
+                len,
+            )),
+            EscapeMatch::Hardbreak { .. } => {
+                Some((Some(state.document.create_node(Hardbreak)), len))
             }
-            None => None,
+            EscapeMatch::Character { ch } => {
+                let markup = format!("\\{ch}");
+                let content = if ch.is_ascii_punctuation() {
+                    ch.to_string()
+                } else {
+                    markup.clone()
+                };
+                Some((
+                    Some(state.document.create_node(TextSpecial {
+                        content,
+                        markup,
+                        info: "escape",
+                    })),
+                    len,
+                ))
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_escape_reports_lengths_without_building_nodes() {
+        assert!(matches!(
+            scan_escape("\\\n \t"),
+            Some(EscapeMatch::Hardbreak { len: 4 })
+        ));
+        assert!(matches!(
+            scan_escape("\\\n"),
+            Some(EscapeMatch::Hardbreak { len: 2 })
+        ));
+        assert!(matches!(scan_escape("\\ "), Some(EscapeMatch::Space)));
+        assert_eq!(scan_escape("\\ ").unwrap().len(), 1);
+        assert!(scan_escape("\\").is_none());
+        assert!(scan_escape("x").is_none());
+        assert!(matches!(
+            scan_escape("\\*"),
+            Some(EscapeMatch::Character { ch: '*' })
+        ));
+        assert_eq!(scan_escape("\\*").unwrap().len(), 2);
+
+        // A non-ASCII character keeps its full UTF-8 width.
+        assert!(matches!(
+            scan_escape("\\雪"),
+            Some(EscapeMatch::Character { ch: '雪' })
+        ));
+        assert_eq!(scan_escape("\\雪").unwrap().len(), 4);
     }
 }

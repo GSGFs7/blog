@@ -16,29 +16,29 @@
 //! markdown_it::plugins::cjk_friendly::add(md);
 //!
 //! assert_eq!(
-//!     md.parse("**这是重要内容。**后面继续写").render().trim(),
+//!     md.render("**这是重要内容。**后面继续写").trim(),
 //!     "<p><strong>这是重要内容。</strong>后面继续写</p>"
 //! );
 //! ```
 
 use unicode_general_category::{GeneralCategory, get_general_category};
 
+use crate::MarkdownIt;
 use crate::common::utils::is_punct_char;
-use crate::parser::inline::{DelimiterRun, InlineState, set_delimiter_scanner};
-use crate::parser::main::MarkdownIt;
+use crate::parser::inline::helpers::delimiters::{DelimiterRun, set_delimiter_scanner};
 
 /// Enable CJK-friendly emphasis delimiter handling.
 pub fn add(md: &mut MarkdownIt) {
     set_delimiter_scanner(md, scan_delims);
 }
 
-fn scan_delims(state: &InlineState, start: usize, can_split_word: bool) -> DelimiterRun {
-    let (last_pos, last_char) = previous_char(&state.src, start).unwrap_or((0, ' '));
+fn scan_delims(src: &str, start: usize, pos_max: usize, can_split_word: bool) -> DelimiterRun {
+    let (last_pos, last_char) = previous_char(src, start).unwrap_or((0, ' '));
     let mut last_main_char = last_char;
     let mut two_previous_char = None;
 
     if is_non_emoji_general_use_variation_selector(last_char) {
-        if let Some((_, ch)) = previous_char(&state.src, last_pos) {
+        if let Some((_, ch)) = previous_char(src, last_pos) {
             two_previous_char = Some(ch);
             if get_general_category(ch) != GeneralCategory::SpaceSeparator {
                 last_main_char = ch;
@@ -46,7 +46,7 @@ fn scan_delims(state: &InlineState, start: usize, can_split_word: bool) -> Delim
         }
     }
 
-    let mut chars = state.src[start..state.pos_max].chars();
+    let mut chars = src[start..pos_max].chars();
     let marker = chars.next().unwrap();
     let mut count = 1;
     let next_char = loop {
@@ -198,11 +198,11 @@ mod tests {
     fn fixes_cjk_punctuation_next_to_strong_emphasis() {
         let source = "**这是重要内容。**后面继续写";
         assert_eq!(
-            parser(false).parse(source).render(),
+            parser(false).render(source),
             "<p>**这是重要内容。**后面继续写</p>\n"
         );
         assert_eq!(
-            parser(true).parse(source).render(),
+            parser(true).render(source),
             "<p><strong>这是重要内容。</strong>后面继续写</p>\n"
         );
     }
@@ -211,15 +211,15 @@ mod tests {
     fn handles_japanese_korean_and_non_bmp_cjk() {
         let md = parser(true);
         assert_eq!(
-            md.parse("太郎は**「こんにちは」**といった").render(),
+            md.render("太郎は**「こんにちは」**といった"),
             "<p>太郎は<strong>「こんにちは」</strong>といった</p>\n"
         );
         assert_eq!(
-            md.parse("**안녕(hello)**하세요.").render(),
+            md.render("**안녕(hello)**하세요."),
             "<p><strong>안녕(hello)</strong>하세요.</p>\n"
         );
         assert_eq!(
-            md.parse("𰻞𰻞**（ビャンビャン）**麺").render(),
+            md.render("𰻞𰻞**（ビャンビャン）**麺"),
             "<p>𰻞𰻞<strong>（ビャンビャン）</strong>麺</p>\n"
         );
     }
@@ -228,20 +228,17 @@ mod tests {
     fn handles_variation_selectors_and_pseudo_emoji() {
         let md = parser(true);
         assert_eq!(
-            md.parse("正體字。︁__Hong Kong and Taiwan.__").render(),
+            md.render("正體字。︁__Hong Kong and Taiwan.__"),
             "<p>正體字。︁<strong>Hong Kong and Taiwan.</strong></p>\n"
         );
-        assert_eq!(
-            md.parse("a**🈂**a").render(),
-            "<p>a<strong>🈂</strong>a</p>\n"
-        );
+        assert_eq!(md.render("a**🈂**a"), "<p>a<strong>🈂</strong>a</p>\n");
     }
 
     #[test]
     fn does_not_treat_non_cjk_non_bmp_punctuation_as_cjk() {
         let md = parser(true);
-        assert_eq!(md.parse("a**𐬻a**a").render(), "<p>a**𐬻a**a</p>\n");
-        assert_eq!(md.parse("a**a𝜵**a").render(), "<p>a**a𝜵**a</p>\n");
+        assert_eq!(md.render("a**𐬻a**a"), "<p>a**𐬻a**a</p>\n");
+        assert_eq!(md.render("a**a𝜵**a"), "<p>a**a𝜵**a</p>\n");
     }
 
     #[test]
@@ -258,7 +255,7 @@ mod tests {
         ];
 
         for source in cases {
-            assert_eq!(cjk.parse(source).render(), plain.parse(source).render());
+            assert_eq!(cjk.render(source), plain.render(source));
         }
     }
 }

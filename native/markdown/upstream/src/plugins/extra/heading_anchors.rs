@@ -6,17 +6,19 @@
 //! markdown_it::plugins::extra::heading_anchors::add(md);
 //!
 //! assert_eq!(
-//!     md.parse("## An example heading").render(),
+//!     md.render("## An example heading"),
 //!     "<h2 id=\"an-example-heading\">An example heading</h2>\n",
 //! );
 //! ```
 use std::collections::{HashMap, HashSet};
 
-use crate::parser::core::CoreRule;
-use crate::parser::inline::builtin::InlineParserRule;
+use crate::document::edit::EditBatch;
+use crate::document::{Document, NodeRef, Text, TextSpecial};
+use crate::parser::core::{CoreRule, CoreState};
 use crate::plugins::cmark::block::heading::ATXHeading;
 use crate::plugins::cmark::block::lheading::SetextHeader;
-use crate::{MarkdownIt, Node};
+use crate::plugins::cmark::inline::newline::Softbreak;
+use crate::{MarkdownIt, StructuralEvent};
 
 // --- pub method ---
 
@@ -24,10 +26,11 @@ pub fn add(md: &mut MarkdownIt) {
     add_with_options(md, HeadingAnchorsOptions::default());
 }
 
+/// Register heading anchors with per-parser configuration.
 pub fn add_with_options(md: &mut MarkdownIt, options: HeadingAnchorsOptions) {
-    md.ext.insert(options);
-    md.add_rule::<AddHeadingAnchors>()
-        .after::<InlineParserRule>();
+    md.add_rule_instance(HeadingAnchorsRule::new(options))
+        .after_named("inline")
+        .after_named("footnote_tail");
 }
 
 // --- config ---
@@ -141,9 +144,7 @@ pub fn github_slugify_fn(s: &str) -> String {
     result
 }
 
-// --- helper method ---
-
-pub fn is_heading(node: &Node) -> bool {
+pub fn is_heading(node: NodeRef<'_>) -> bool {
     node.is::<ATXHeading>() || node.is::<SetextHeader>()
 }
 
@@ -167,83 +168,231 @@ pub fn unique_slug(
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum HeadingIdEdit {
+    Keep,
+    Remove,
+    Set(String),
+}
+
+struct HeadingAnchorState<'a> {
+    options: &'a HeadingAnchorsOptions,
+    used_ids: HashSet<String>,
+    next_suffix: HashMap<String, usize>,
+}
+
+impl<'a> HeadingAnchorState<'a> {
+    fn new(options: &'a HeadingAnchorsOptions) -> Self {
+        Self {
+            options,
+            used_ids: HashSet::new(),
+            next_suffix: HashMap::new(),
+        }
+    }
+
+    // Reserve IDs already assigned by earlier rules. IDs on headings are
+    // excluded when they are going to be overridden.
+    fn reserve_ids<'b>(
+        &mut self,
+        is_heading: bool,
+        attrs: impl IntoIterator<Item = &'b (String, String)>,
+    ) {
+        if is_heading && matches!(self.options.existing_id, ExistingIdPolicy::Override) {
+            return;
+        }
+        self.used_ids.extend(
+            attrs
+                .into_iter()
+                .filter(|(name, _)| name == "id")
+                .map(|(_, value)| value.clone()),
+        );
+    }
+
+    fn edit_for_heading(&mut self, has_id: bool, text: &str) -> HeadingIdEdit {
+        if has_id && matches!(self.options.existing_id, ExistingIdPolicy::Keep) {
+            return HeadingIdEdit::Keep;
+        }
+
+        let mut slug = self.options.strategy.slugify(text);
+        if slug.is_empty() {
+            match &self.options.empty_slug {
+                EmptySlugPolicy::Skip => {
+                    return if has_id {
+                        HeadingIdEdit::Remove
+                    } else {
+                        HeadingIdEdit::Keep
+                    };
+                }
+                EmptySlugPolicy::Use(fallback) => slug.clone_from(fallback),
+            }
+        }
+        if slug.is_empty() {
+            // if fallback is also empty
+            return if has_id {
+                HeadingIdEdit::Remove
+            } else {
+                HeadingIdEdit::Keep
+            };
+        }
+        if let Some(prefix) = &self.options.prefix {
+            slug.insert_str(0, prefix);
+        }
+
+        HeadingIdEdit::Set(unique_slug(slug, &mut self.used_ids, &mut self.next_suffix))
+    }
+}
+
 // --- rule ---
 
-pub struct AddHeadingAnchors;
-impl CoreRule for AddHeadingAnchors {
-    const NAMES: &'static [&'static str] = &["heading_anchors", "heading-anchors"];
+/// Heading anchors with owned runtime configuration.
+#[derive(Debug, Default)]
+pub struct HeadingAnchorsRule {
+    options: HeadingAnchorsOptions,
+}
 
-    fn run(root: &mut Node, md: &MarkdownIt) {
-        let options = md
-            .ext
-            .get::<HeadingAnchorsOptions>()
-            .expect("heading anchor options must be registered with the rule");
+impl HeadingAnchorsRule {
+    pub fn new(options: HeadingAnchorsOptions) -> Self {
+        Self { options }
+    }
 
-        // Reserve IDs already assigned by earlier rules. IDs on headings are
-        // excluded when they are going to be overridden.
-        let mut used_ids = HashSet::new();
-        root.walk(|node, _| {
-            if is_heading(node) && matches!(options.existing_id, ExistingIdPolicy::Override) {
-                return;
+    pub fn options(&self) -> &HeadingAnchorsOptions {
+        &self.options
+    }
+}
+
+impl CoreRule for HeadingAnchorsRule {
+    const NAMES: &'static [&'static str] = &["extra::heading_anchors"];
+
+    fn run(&self, state: &mut CoreState<'_>) {
+        let document = &mut *state.document;
+        let edits = edits(document, &self.options);
+        edits.commit(document);
+    }
+}
+
+fn edits(document: &Document, options: &HeadingAnchorsOptions) -> EditBatch {
+    let mut state = HeadingAnchorState::new(options);
+    let mut headings = Vec::<Heading>::new(); // regustration list
+    let mut active_headings = Vec::<usize>::new(); // stack
+    // Enter(heading)             -> preemption id
+    //   Enter(inlineRoot)        -> `append_text` do none thing
+    //     Leaf(Text "Hello ")    -> append "Hello " to active heading
+    //     Enter(emphasis)        -> preemption id
+    //       Leaf(Text "world")   -> append "world" (headings[0].text = "Hello world")
+    //     Exit(emphasis)
+    //   Exit(inlineRoot)
+    // Exit(heading)              -> pop active heading
+    for event in document.events(document.root()) {
+        let node = event.node();
+        match event {
+            StructuralEvent::Enter(node) => {
+                state.reserve_ids(is_heading(node), node.attrs());
+                if is_heading(node) {
+                    active_headings.push(headings.len());
+                    headings.push(Heading::new(node));
+                }
+                append_text(node, &active_headings, &mut headings);
             }
-
-            used_ids.extend(
-                node.attrs
-                    .iter()
-                    .filter(|(name, _)| *name == "id")
-                    .map(|(_, value)| value.clone()),
-            );
-        });
-        let mut next_suffix = HashMap::new();
-
-        root.walk_mut(|node, _| {
-            if !is_heading(node) {
-                return;
-            }
-
-            if node.attrs.iter().any(|(name, _)| *name == "id") {
-                match options.existing_id {
-                    ExistingIdPolicy::Keep => return,
-                    ExistingIdPolicy::Override => {
-                        node.attrs.retain(|(name, _)| *name != "id");
-                    }
+            StructuralEvent::Leaf(node) => {
+                state.reserve_ids(is_heading(node), node.attrs());
+                if is_heading(node) {
+                    headings.push(Heading::new(node));
+                } else {
+                    append_text(node, &active_headings, &mut headings);
                 }
             }
-
-            let text = node.collect_text();
-            let mut slug = options.strategy.slugify(&text);
-            if slug.is_empty() {
-                match &options.empty_slug {
-                    EmptySlugPolicy::Skip => return,
-                    EmptySlugPolicy::Use(fallback) => slug.clone_from(fallback),
+            StructuralEvent::Exit(_) => {
+                if is_heading(node) {
+                    let heading = active_headings
+                        .pop()
+                        .expect("balanced heading events have an active heading");
+                    debug_assert_eq!(headings[heading].id, node.id());
                 }
             }
-            if slug.is_empty() {
-                return;
-            }
-            if let Some(prefix) = &options.prefix {
-                slug.insert_str(0, prefix);
-            }
+        }
+    }
 
-            let slug = unique_slug(slug, &mut used_ids, &mut next_suffix);
-            node.attrs.push(("id".into(), slug));
-        });
+    let mut edits = EditBatch::new();
+    for heading in headings {
+        match state.edit_for_heading(heading.has_id, &heading.text) {
+            HeadingIdEdit::Keep => {}
+            HeadingIdEdit::Remove => edits.remove_attribute(heading.id, "id"),
+            HeadingIdEdit::Set(slug) => edits.set_attribute(heading.id, "id", slug),
+        }
+    }
+    edits
+}
+
+struct Heading {
+    id: crate::NodeId,
+    has_id: bool,
+    text: String,
+}
+
+impl Heading {
+    fn new(node: NodeRef<'_>) -> Self {
+        Self {
+            id: node.id(),
+            has_id: node.attrs().iter().any(|(name, _)| name == "id"),
+            text: String::new(),
+        }
+    }
+}
+
+fn append_text(node: NodeRef<'_>, active_headings: &[usize], headings: &mut [Heading]) {
+    let content = if let Some(text) = node.cast::<Text>() {
+        Some(text.content.as_str())
+    } else if let Some(text) = node.cast::<TextSpecial>() {
+        Some(text.content.as_str())
+    } else if node.is::<Softbreak>() {
+        Some("\n")
+    } else {
+        None
+    };
+    if let Some(content) = content {
+        for &heading in active_headings {
+            headings[heading].text.push_str(content);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::core::{CoreRule, CoreState};
+    use crate::parser::inline::InlineParserRule;
 
+    #[derive(Default)]
     struct AddExistingHeadingId;
     impl CoreRule for AddExistingHeadingId {
-        fn run(root: &mut Node, _: &MarkdownIt) {
-            root.walk_mut(|node, _| {
-                if is_heading(node) && node.collect_text() == "Existing" {
-                    node.attrs.push(("id".into(), "generated".into()));
+        fn run(&self, state: &mut CoreState<'_>) {
+            let root = &mut *state.document;
+            let mut stack = vec![root.root()];
+            while let Some(node) = stack.pop() {
+                if (root.node(node).is::<ATXHeading>() || root.node(node).is::<SetextHeader>())
+                    && root.children(node).iter().any(|&child| {
+                        root.node(child)
+                            .cast::<Text>()
+                            .is_some_and(|text| text.content == "Existing")
+                    })
+                {
+                    root.node_mut(node)
+                        .attrs_mut()
+                        .push(("id".into(), "generated".into()));
                 }
-            });
+                stack.extend_from_slice(root.children(node));
+            }
         }
+    }
+
+    fn parser(add_existing_id: bool) -> MarkdownIt {
+        let mut md = MarkdownIt::empty();
+        crate::plugins::cmark::add(&mut md);
+        if add_existing_id {
+            md.add_rule::<AddExistingHeadingId>()
+                .after::<InlineParserRule>();
+        }
+        md
     }
 
     #[test]
@@ -278,7 +427,7 @@ mod tests {
         add(md);
 
         assert_eq!(
-            md.parse("# Test\n# Test\n\nTest\n====").render(),
+            md.render("# Test\n# Test\n\nTest\n===="),
             "<h1 id=\"test\">Test</h1>\n\
              <h1 id=\"test-1\">Test</h1>\n\
              <h1 id=\"test-2\">Test</h1>\n"
@@ -292,8 +441,7 @@ mod tests {
         add(md);
 
         assert_eq!(
-            md.parse("# Test\n# Test\n# Test\n# Test-1\n# Test-2\n# Test-1-1")
-                .render(),
+            md.render("# Test\n# Test\n# Test\n# Test-1\n# Test-2\n# Test-1-1"),
             "<h1 id=\"test\">Test</h1>\n\
              <h1 id=\"test-1\">Test</h1>\n\
              <h1 id=\"test-2\">Test</h1>\n\
@@ -317,7 +465,7 @@ mod tests {
         );
 
         assert_eq!(
-            md.parse("# !!!\n# ???").render(),
+            md.render("# !!!\n# ???"),
             "<h1 id=\"doc-section\">!!!</h1>\n\
              <h1 id=\"doc-section-1\">???</h1>\n"
         );
@@ -329,7 +477,7 @@ mod tests {
         crate::plugins::cmark::add(md);
         add(md);
 
-        assert_eq!(md.parse("# !!!").render(), "<h1>!!!</h1>\n");
+        assert_eq!(md.render("# !!!"), "<h1>!!!</h1>\n");
     }
 
     #[test]
@@ -349,7 +497,7 @@ mod tests {
         );
 
         assert_eq!(
-            md.parse("# A&amp;B").render(),
+            md.render("# A&amp;B"),
             "<h1 id=\"custom-a&amp;b\">A&amp;B</h1>\n"
         );
     }
@@ -363,7 +511,7 @@ mod tests {
         add(md);
 
         assert_eq!(
-            md.parse("# Generated\n# Existing").render(),
+            md.render("# Generated\n# Existing"),
             "<h1 id=\"generated-1\">Generated</h1>\n\
              <h1 id=\"generated\">Existing</h1>\n"
         );
@@ -384,8 +532,116 @@ mod tests {
         );
 
         assert_eq!(
-            md.parse("# Existing").render(),
+            md.render("# Existing"),
             "<h1 id=\"existing\">Existing</h1>\n"
         );
+    }
+
+    #[test]
+    fn transform_matches_expected_output_options_and_text_semantics() {
+        fn custom(text: &str) -> String {
+            format!("custom-{}", text.to_lowercase())
+        }
+
+        let cases = [
+            (
+                "# Test\n# Test\n\nTest\n====\n# Test-1",
+                HeadingAnchorsOptions::default(),
+                false,
+                "<h1 id=\"test\">Test</h1>\n<h1 id=\"test-1\">Test</h1>\n<h1 id=\"test-2\">Test</h1>\n<h1 id=\"test-1-1\">Test-1</h1>\n",
+            ),
+            (
+                "# !!!\n# ???",
+                HeadingAnchorsOptions {
+                    empty_slug: EmptySlugPolicy::Use("section".into()),
+                    prefix: Some("doc-".into()),
+                    ..HeadingAnchorsOptions::default()
+                },
+                false,
+                "<h1 id=\"doc-section\">!!!</h1>\n<h1 id=\"doc-section-1\">???</h1>\n",
+            ),
+            (
+                "# !!!",
+                HeadingAnchorsOptions::default(),
+                false,
+                "<h1>!!!</h1>\n",
+            ),
+            (
+                "# A&amp;B",
+                HeadingAnchorsOptions {
+                    strategy: SlugStrategy::Custom(custom),
+                    ..HeadingAnchorsOptions::default()
+                },
+                false,
+                "<h1 id=\"custom-a&amp;b\">A&amp;B</h1>\n",
+            ),
+            (
+                "A&amp;B\ncontinued\n---",
+                HeadingAnchorsOptions::default(),
+                false,
+                "<h2 id=\"a-b-continued\">A&amp;B\ncontinued</h2>\n",
+            ),
+            (
+                "# Generated\n# Existing",
+                HeadingAnchorsOptions::default(),
+                true,
+                "<h1 id=\"generated-1\">Generated</h1>\n<h1 id=\"generated\">Existing</h1>\n",
+            ),
+            (
+                "# Existing",
+                HeadingAnchorsOptions {
+                    existing_id: ExistingIdPolicy::Override,
+                    ..HeadingAnchorsOptions::default()
+                },
+                true,
+                "<h1 id=\"existing\">Existing</h1>\n",
+            ),
+        ];
+
+        // Expected HTML captured from the pre-migration legacy parser.
+        for (input, options, add_existing_id, expected) in cases {
+            let mut md = parser(add_existing_id);
+            add_with_options(&mut md, options);
+            assert_eq!(md.render(input), expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn configuration_is_isolated_per_parser() {
+        let mut first = parser(false);
+        add_with_options(
+            &mut first,
+            HeadingAnchorsOptions {
+                prefix: Some("first-".into()),
+                ..HeadingAnchorsOptions::default()
+            },
+        );
+        let mut second = parser(false);
+        add_with_options(
+            &mut second,
+            HeadingAnchorsOptions {
+                prefix: Some("second-".into()),
+                ..HeadingAnchorsOptions::default()
+            },
+        );
+        let first_document = first.parse("# Heading");
+        let second_document = second.parse("# Heading");
+
+        assert_eq!(
+            first.render_html(&first_document),
+            "<h1 id=\"first-heading\">Heading</h1>\n"
+        );
+        assert_eq!(
+            second.render_html(&second_document),
+            "<h1 id=\"second-heading\">Heading</h1>\n"
+        );
+    }
+
+    #[test]
+    fn registration_populates_core_rules() {
+        let mut md = MarkdownIt::empty();
+        add(&mut md);
+
+        assert!(md.has_rule::<HeadingAnchorsRule>());
     }
 }

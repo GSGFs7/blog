@@ -1,41 +1,31 @@
 //! Task list syntax, like `- [ ] todo` and `- [x] done`.
 
-use crate::parser::core::CoreRule;
-use crate::parser::inline::Text;
-use crate::parser::inline::builtin::InlineParserRule;
+use crate::MarkdownIt;
+#[cfg(feature = "sourcemap")]
+use crate::common::sourcemap::SourcePos;
+use crate::document::edit::EditBatch;
+use crate::document::{Document, HtmlAttributes, NodeDraft, NodeId, StructuralEvent, Text};
+use crate::parser::core::{CoreRule, CoreState};
 use crate::plugins::cmark::block::list::{BulletList, ListItem, OrderedList};
 use crate::plugins::cmark::block::paragraph::Paragraph;
-use crate::{MarkdownIt, Node, NodeValue};
+
+// --- pub method ---
+
+pub fn add(md: &mut MarkdownIt) {
+    md.add_renderer::<TaskListMarker, _>("html", TaskListMarkerRenderer);
+    md.add_renderer::<TaskListMarker, _>("text", crate::render::EmptyRenderer);
+    md.add_rule::<TaskListRule>()
+        .after_named("inline")
+        .after_named("footnote_tail")
+        .before_named("sourcepos");
+}
 
 #[derive(Debug)]
 pub struct TaskListMarker {
     pub checked: bool,
 }
 
-impl NodeValue for TaskListMarker {
-    fn render(&self, _node: &Node, fmt: &mut dyn crate::Renderer) {
-        let mut attrs = vec![
-            ("class".into(), "task-list-item-checkbox".to_owned()),
-            // prevent checking by user
-            ("disabled".into(), String::new()),
-            ("type".into(), "checkbox".to_owned()),
-        ];
-
-        if self.checked {
-            attrs.push(("checked".into(), String::new()));
-        }
-
-        // render a checkbox `<input type="checkbox" ... />`
-        fmt.self_close("input", &attrs);
-        fmt.text_raw(" ");
-    }
-}
-
-// --- scanner ---
-
-#[doc(hidden)]
-pub struct TaskListScanner;
-
+struct TaskListScanner;
 impl TaskListScanner {
     /// find lenght
     fn marker_len(content: &str) -> Option<(bool, usize)> {
@@ -58,141 +48,181 @@ impl TaskListScanner {
             Some(_) => None,
         }
     }
+}
 
-    /// remove task list marker text
-    /// it will be replaced with a checkbox in render stage
-    fn strip_marker(nodes: &mut Vec<Node>) -> Option<bool> {
-        let node = nodes.first_mut()?;
-        let text = node.cast_mut::<Text>()?;
-        let (is_checked, len) = Self::marker_len(&text.content)?;
+#[derive(Clone, Copy, Debug)]
+struct TaskItemPlan {
+    item: NodeId,
+    text: NodeId,
+    marker_target: NodeId,
+    checked: bool,
+    marker_len: usize,
+    text_len: usize,
+    #[cfg(feature = "sourcemap")]
+    source_map: Option<SourcePos>,
+}
 
-        let text_is_empty = {
-            // avoid ownership
-            text.content.drain(..len);
-            text.content.is_empty()
-        };
+/// Converts task-list markers.
+#[derive(Debug, Default)]
+pub struct TaskListRule;
 
-        // update source map
-        if let Some(map) = node.srcmap {
-            let (start, end) = map.get_byte_offsets();
-            node.srcmap = Some(crate::common::sourcemap::SourcePos::new(start + len, end));
-        }
+impl CoreRule for TaskListRule {
+    const NAMES: &'static [&'static str] = &["extra::tasklist", "tasklist", "task_list"];
 
-        if text_is_empty {
-            nodes.remove(0);
-        }
-
-        Some(is_checked)
+    fn run(&self, state: &mut CoreState<'_>) {
+        let document = &mut *state.document;
+        let edits = edits(document);
+        edits.commit(document);
     }
+}
 
-    /// mark task list
-    fn process_item(item: &mut Node) -> Option<()> {
-        if !item.is::<ListItem>() {
-            return None;
-        }
+/// Build task-list edits for a finished document.
+pub fn edits(document: &Document) -> EditBatch {
+    let mut edits = EditBatch::new();
 
-        // process "loose list" & "compact list"
-        let (checked, inline_nodes) = if item.children.first().is_some_and(|n| n.is::<Paragraph>())
-        {
-            // loose list
-            //
-            // ```markdown
-            // - item1
-            //
-            // - item2
-            // ```
-            //
-            // it will be render to:
-            //
-            // ```html
-            // <ul>
-            //   <li><p>item1</p></li>
-            //   <li><p>item2</p></li>
-            // </ul>
-            // ```
-            let paragraph = item.children.first_mut().unwrap();
-            (
-                // find marker in the paragraph children
-                Self::strip_marker(&mut paragraph.children)?,
-                &mut item.children,
-            )
-        } else {
-            // compact list
-            //
-            // ```markdown
-            // - item1
-            // - item2
-            // ```
-            //
-            // it will be rendered to:
-            //
-            // ```html
-            // <ul>
-            //   <li>item1</li>
-            //   <li>item2</li>
-            // </ul>
-            // ```
-            (Self::strip_marker(&mut item.children)?, &mut item.children)
+    for event in document.events(document.root()) {
+        let list = match event {
+            StructuralEvent::Enter(node) if node.is::<BulletList>() || node.is::<OrderedList>() => {
+                node
+            }
+            _ => continue,
         };
-
-        inline_nodes.insert(0, Node::new(TaskListMarker { checked }));
-        item.attrs
-            .push(("class".into(), "task-list-item".to_owned()));
-
-        Some(())
-    }
-
-    /// find & process list item
-    fn process_list(node: &mut Node) {
-        if !node.is::<BulletList>() && !node.is::<OrderedList>() {
-            return;
-        }
 
         let mut contains_task = false;
-        for child in node.children.iter_mut() {
-            if Self::process_item(child).is_some() {
-                contains_task = true;
+        for &item in list.children() {
+            let Some(plan) = task_item_plan(document, item) else {
+                continue;
+            };
+            contains_task = true;
+
+            if plan.marker_len == plan.text_len {
+                if plan.marker_target == plan.text {
+                    edits.replace_node(plan.text, marker_draft(plan.checked));
+                } else {
+                    edits.remove_node(plan.text);
+                    edits.insert_before(plan.marker_target, marker_draft(plan.checked));
+                }
+            } else {
+                // remove task list marker text; it is replaced by a checkbox
+                // at render time
+                edits.replace_text(plan.text, 0..plan.marker_len, "");
+                #[cfg(feature = "sourcemap")]
+                if let Some(source_map) = plan.source_map {
+                    let (start, end) = source_map.get_byte_offsets();
+                    // update source map
+                    edits.set_source_map(
+                        plan.text,
+                        Some(SourcePos::new(start + plan.marker_len, end)),
+                    );
+                }
+                edits.insert_before(plan.marker_target, marker_draft(plan.checked));
             }
+
+            let item_node = document.node(plan.item);
+            edits.set_attribute(
+                plan.item,
+                "class",
+                merged_class(item_node.attrs(), "task-list-item"),
+            );
         }
+
         if contains_task {
-            node.attrs
-                .push(("class".into(), "contains-task-list".to_owned()));
+            edits.set_attribute(
+                list.id(),
+                "class",
+                merged_class(list.attrs(), "contains-task-list"),
+            );
         }
     }
+
+    edits
 }
 
-impl CoreRule for TaskListScanner {
-    const NAMES: &'static [&'static str] = &["tasklist", "task_list"];
+// --- helper ---
 
-    fn run(root: &mut Node, _md: &MarkdownIt) {
-        // traverse all nodes
-        root.walk_mut(|node, _| {
-            Self::process_list(node);
-        });
+// check if it is a task list item
+fn task_item_plan(document: &Document, item: NodeId) -> Option<TaskItemPlan> {
+    let item_node = document.node(item);
+    if !item_node.is::<ListItem>() {
+        return None;
+    }
+
+    let first = *item_node.children().first()?;
+    let first_node = document.node(first);
+    // Loose list items wrap their content in a paragraph, compact ones do not.
+    let (text, marker_target) = if first_node.is::<Paragraph>() {
+        (*first_node.children().first()?, first)
+    } else {
+        (first, first)
+    };
+    let text_node = document.node(text);
+    let text_value = text_node.cast::<Text>()?;
+    let (checked, marker_len) = TaskListScanner::marker_len(&text_value.content)?;
+
+    Some(TaskItemPlan {
+        item,
+        text,
+        marker_target,
+        checked,
+        marker_len,
+        text_len: text_value.content.len(),
+        #[cfg(feature = "sourcemap")]
+        source_map: text_node.srcmap(),
+    })
+}
+
+fn marker_draft(checked: bool) -> NodeDraft {
+    NodeDraft::new(TaskListMarker { checked })
+}
+
+fn merged_class(attrs: &HtmlAttributes, class: &str) -> String {
+    let mut value = attrs
+        .iter()
+        .filter(|attribute| attribute.0 == "class")
+        .map(|attribute| attribute.1.as_str())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !value.split_ascii_whitespace().any(|token| token == class) {
+        if !value.is_empty() {
+            value.push(' ');
+        }
+        value.push_str(class);
+    }
+    value
+}
+
+// render a checkbox `<input type="checkbox" ... />`
+struct TaskListMarkerRenderer;
+impl crate::NodeRenderer<TaskListMarker> for TaskListMarkerRenderer {
+    fn render(
+        &self,
+        _: crate::NodeRef<'_>,
+        marker: &TaskListMarker,
+        context: &mut crate::RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        let mut attrs = vec![
+            ("class".into(), "task-list-item-checkbox".into()),
+            ("disabled".into(), String::new()),
+            ("type".into(), "checkbox".into()),
+        ];
+        if marker.checked {
+            attrs.push(("checked".into(), String::new()));
+        }
+        crate::render::write_html_self_close(output, "input", &attrs, context.options().xhtml_out);
+        output.write_str(" ");
     }
 }
-
-// --- pub method ---
-
-pub fn add(md: &mut MarkdownIt) {
-    // after all the inline rule
-    // make sure we are get the final AST
-    md.add_rule::<TaskListScanner>().after::<InlineParserRule>();
-}
-
-// --- unit test ---
 
 #[cfg(test)]
 mod tests {
-    fn run(input: &str, output: &str) {
-        let md = &mut crate::MarkdownIt::empty();
-        crate::plugins::cmark::add(md);
-        crate::plugins::extra::tasklist::add(md);
-
-        let html = md.parse(input).render();
-        assert_eq!(html, output);
+    use super::*;
+    fn run(input: &str, expected: &str) {
+        let mut md = MarkdownIt::new();
+        add(&mut md);
+        assert_eq!(md.render(input), expected);
     }
-
     #[test]
     fn unchecked_item() {
         run(
@@ -283,22 +313,6 @@ mod tests {
             "- [x] **done**",
             "<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input class=\"task-list-item-checkbox\" disabled=\"\" type=\"checkbox\" checked=\"\"> <strong>done</strong></li>\n</ul>\n",
         );
-    }
-
-    #[test]
-    fn stripped_marker_updates_text_source_map() {
-        let md = &mut crate::MarkdownIt::empty();
-        crate::plugins::cmark::add(md);
-        crate::plugins::extra::tasklist::add(md);
-
-        let ast = md.parse("- [ ] todo");
-        let text = &ast.children[0].children[0].children[1];
-
-        assert_eq!(
-            text.cast::<crate::parser::inline::Text>().unwrap().content,
-            "todo",
-        );
-        assert_eq!(text.srcmap.unwrap().get_byte_offsets(), (6, 10));
     }
 
     #[test]

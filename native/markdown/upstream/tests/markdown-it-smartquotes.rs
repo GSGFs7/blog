@@ -9,13 +9,25 @@ fn run(input: &str, output: &str) {
     markdown_it::plugins::html::add(md);
     markdown_it::plugins::extra::typographer::add(md);
     markdown_it::plugins::extra::smartquotes::add(md);
-    let node = md.parse(&(input.to_owned() + "\n"));
+    let source = input.to_owned() + "\n";
+    let node = md.parse(&source);
 
     // make sure we have sourcemaps for everything
-    node.walk(|node, _| assert!(node.srcmap.is_some()));
+    #[cfg(feature = "sourcemap")]
+    for event in node.events(node.root()) {
+        assert!(event.node().srcmap().is_some());
+    }
 
-    let result = node.render();
+    let result = md.render_html(&node);
     assert_eq!(result, output);
+
+    let registry_md = &mut markdown_it::MarkdownIt::empty();
+    markdown_it::plugins::cmark::add(registry_md);
+    markdown_it::plugins::html::add(registry_md);
+    markdown_it::plugins::extra::typographer::add(registry_md);
+    markdown_it::plugins::extra::smartquotes::add(registry_md);
+    let registry_document = registry_md.parse(&source);
+    assert_eq!(registry_md.render_html(&registry_document), output);
 
     // make sure it doesn't crash without trailing \n
     let _ = md.parse(input.trim_end());

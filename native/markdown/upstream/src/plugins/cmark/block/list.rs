@@ -6,11 +6,19 @@
 //!
 //!  - <https://spec.commonmark.org/0.30/#lists>
 //!  - <https://spec.commonmark.org/0.30/#list-items>
-use crate::common::utils::find_indent_of;
+use crate::MarkdownIt;
+use crate::common::utils::find_indent_of_from_column;
+use crate::document::{Document, NodeId, NodeRef};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::plugins::cmark::block::hr::HrScanner;
-use crate::plugins::cmark::block::paragraph::Paragraph;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::plugins::cmark::block::paragraph::{Paragraph, ParagraphInterrupt};
+use crate::render::{
+    NodeRenderer,
+    PlainTextBlockRenderer,
+    RenderContext,
+    write_html_close,
+    write_html_open,
+};
 
 #[derive(Debug)]
 pub struct OrderedList {
@@ -18,21 +26,21 @@ pub struct OrderedList {
     pub marker: char,
 }
 
-impl NodeValue for OrderedList {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        let mut attrs = node.attrs.clone();
-        let start;
-        if self.start != 1 {
-            start = self.start.to_string();
-            attrs.push(("start".into(), start));
+struct OrderedListRenderer;
+
+impl NodeRenderer<OrderedList> for OrderedListRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        list: &OrderedList,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        let mut attrs = node.attrs().clone();
+        if list.start != 1 {
+            attrs.push(("start".into(), list.start.to_string()));
         }
-        fmt.cr();
-        fmt.open("ol", &attrs);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("ol");
-        fmt.cr();
+        render_list_container(node, context, output, "ol", &attrs);
     }
 }
 
@@ -41,32 +49,79 @@ pub struct BulletList {
     pub marker: char,
 }
 
-impl NodeValue for BulletList {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.cr();
-        fmt.open("ul", &node.attrs);
-        fmt.cr();
-        fmt.contents(&node.children);
-        fmt.cr();
-        fmt.close("ul");
-        fmt.cr();
+struct BulletListRenderer;
+
+impl NodeRenderer<BulletList> for BulletListRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &BulletList,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        render_list_container(node, context, output, "ul", node.attrs());
     }
 }
 
 #[derive(Debug)]
 pub struct ListItem;
 
-impl NodeValue for ListItem {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.open("li", &node.attrs);
-        fmt.contents(&node.children);
-        fmt.close("li");
-        fmt.cr();
+struct ListItemRenderer;
+
+impl NodeRenderer<ListItem> for ListItemRenderer {
+    fn render(
+        &self,
+        node: NodeRef<'_>,
+        _: &ListItem,
+        context: &mut RenderContext<'_>,
+        output: &mut crate::Writer,
+    ) {
+        write_html_open(output, "li", node.attrs());
+        // A fence writes no leading newline: the list item's opening tag
+        // supplies it only when the fence is its first visible block.
+        let first_visible = node.children().iter().find(|&&child| {
+            !context
+                .document()
+                .node(child)
+                .is::<super::reference::Definition>()
+        });
+        if first_visible.is_some_and(|&child| {
+            let node = context.document().node(child);
+            node.is::<super::fence::CodeFence>()
+                || node.is::<crate::plugins::html::html_block::HtmlBlock>()
+        }) {
+            context.cr(output);
+        }
+        context.render_children(node.id(), output);
+        write_html_close(output, "li");
+        context.cr(output);
     }
+}
+
+fn render_list_container(
+    node: NodeRef<'_>,
+    context: &mut RenderContext<'_>,
+    output: &mut crate::Writer,
+    tag: &str,
+    attrs: &[crate::HtmlAttribute],
+) {
+    context.cr(output);
+    write_html_open(output, tag, attrs);
+    context.cr(output);
+    context.render_children(node.id(), output);
+    context.cr(output);
+    write_html_close(output, tag);
+    context.cr(output);
 }
 
 pub fn add(md: &mut MarkdownIt) {
     md.block.add_rule::<ListScanner>().after::<HrScanner>();
+    md.add_renderer::<OrderedList, _>("html", OrderedListRenderer);
+    md.add_renderer::<BulletList, _>("html", BulletListRenderer);
+    md.add_renderer::<ListItem, _>("html", ListItemRenderer);
+    md.add_renderer::<OrderedList, _>("text", PlainTextBlockRenderer);
+    md.add_renderer::<BulletList, _>("text", PlainTextBlockRenderer);
+    md.add_renderer::<ListItem, _>("text", PlainTextBlockRenderer);
 }
 
 #[doc(hidden)]
@@ -123,121 +178,147 @@ impl ListScanner {
         }
     }
 
-    fn mark_tight_paragraphs(nodes: &mut Vec<Node>) {
-        let mut idx = 0;
-        while idx < nodes.len() {
-            if nodes[idx].is::<Paragraph>() {
-                let children = std::mem::take(&mut nodes[idx].children);
-                let len = children.len();
-                nodes.splice(idx..idx + 1, children);
-                idx += len;
-            } else {
-                idx += 1;
-            }
-        }
-    }
-
-    fn find_marker(state: &mut BlockState, silent: bool) -> Option<(usize, Option<u32>, char)> {
-        if state.line_indent(state.line) >= state.md.max_indent {
-            return None;
-        }
-
-        // Special case:
-        //  - item 1
-        //   - item 2
-        //    - item 3
-        //     - item 4
-        //      - this one is a paragraph continuation
-        if let Some(list_indent) = state.list_indent {
-            let indent_nonspace = state.line_offsets[state.line].indent_nonspace;
-            if indent_nonspace - list_indent as i32 >= state.md.max_indent
-                && indent_nonspace < state.blk_indent as i32
-            {
-                return None;
-            }
-        }
-
-        let mut is_terminating_paragraph = false;
-
-        // limit conditions when list can interrupt
-        // a paragraph (validation mode only)
-        if silent {
-            // Next list item should still terminate previous list item;
-            //
-            // This code can fail if plugins use blkIndent as well as lists,
-            // but I hope the spec gets fixed long before that happens.
-            //
-            if state.line_indent(state.line) >= 0 {
-                is_terminating_paragraph = true;
-            }
-        }
-
-        let current_line = state.get_line(state.line);
-
-        let marker_value;
-        let pos_after_marker;
-
-        // Detect list type and position after marker
-        if let Some(p) = Self::skip_ordered_list_marker(current_line) {
-            pos_after_marker = p;
-            let int = str::parse(&current_line[..pos_after_marker - 1]).unwrap();
-            marker_value = Some(int);
-
-            // If we're starting a new ordered list right after
-            // a paragraph, it should start with 1.
-            if is_terminating_paragraph && int != 1 {
-                return None;
-            }
-        } else {
-            let p = Self::skip_bullet_list_marker(current_line)?;
-            pos_after_marker = p;
-            marker_value = None;
-        }
-
-        // If we're starting a new unordered list right after
-        // a paragraph, first line should not be empty.
-        if is_terminating_paragraph {
-            let mut chars = current_line[pos_after_marker..].chars();
-            loop {
-                match chars.next() {
-                    Some(' ' | '\t') => {}
-                    Some(_) => break,
-                    None => return None,
+    fn mark_tight_paragraphs(document: &mut Document, item: NodeId) {
+        document.rewrite_children(item, |document, nodes| {
+            let mut index = 0;
+            while index < nodes.len() {
+                let node = nodes[index];
+                if document.node(node).is::<Paragraph>() {
+                    let children = document.take_children(node);
+                    let count = children.len();
+                    nodes.splice(index..index + 1, children);
+                    document.discard_node(node);
+                    index += count;
+                } else {
+                    index += 1;
                 }
             }
-        }
-
-        // We should terminate list on style change. Remember first one to compare.
-        let marker_char = current_line[..pos_after_marker]
-            .chars()
-            .next_back()
-            .unwrap();
-
-        Some((pos_after_marker, marker_value, marker_char))
+        });
     }
 }
 
+fn scan_list_marker(
+    current_line: &str,
+    line_indent: i32,
+    list_indent: Option<u32>,
+    indent_nonspace: i32,
+    blk_indent: usize,
+    max_indent: i32,
+    paragraph_interrupt: bool,
+) -> Option<(usize, Option<u32>, char)> {
+    if line_indent >= max_indent {
+        return None;
+    }
+
+    // Special case:
+    //  - item 1
+    //   - item 2
+    //    - item 3
+    //     - item 4
+    //      - this one is a paragraph continuation
+    if let Some(list_indent) = list_indent {
+        if indent_nonspace - list_indent as i32 >= max_indent && indent_nonspace < blk_indent as i32
+        {
+            return None;
+        }
+    }
+
+    let mut is_terminating_paragraph = false;
+
+    // limit conditions when list can interrupt
+    // a paragraph (validation mode only)
+    if paragraph_interrupt {
+        // Next list item should still terminate previous list item;
+        //
+        // This code can fail if plugins use blkIndent as well as lists,
+        // but I hope the spec gets fixed long before that happens.
+        //
+        if line_indent >= 0 {
+            is_terminating_paragraph = true;
+        }
+    }
+
+    let marker_value;
+    let pos_after_marker;
+
+    // Detect list type and position after marker
+    if let Some(p) = ListScanner::skip_ordered_list_marker(current_line) {
+        pos_after_marker = p;
+        let int = str::parse(&current_line[..pos_after_marker - 1]).unwrap();
+        marker_value = Some(int);
+
+        // If we're starting a new ordered list right after
+        // a paragraph, it should start with 1.
+        if is_terminating_paragraph && int != 1 {
+            return None;
+        }
+    } else {
+        let p = ListScanner::skip_bullet_list_marker(current_line)?;
+        pos_after_marker = p;
+        marker_value = None;
+    }
+
+    // If we're starting a new unordered list right after
+    // a paragraph, first line should not be empty.
+    if is_terminating_paragraph {
+        let mut chars = current_line[pos_after_marker..].chars();
+        loop {
+            match chars.next() {
+                Some(' ' | '\t') => {}
+                Some(_) => break,
+                None => return None,
+            }
+        }
+    }
+
+    // We should terminate list on style change. Remember first one to compare.
+    let marker_char = current_line[..pos_after_marker]
+        .chars()
+        .next_back()
+        .unwrap();
+
+    Some((pos_after_marker, marker_value, marker_char))
+}
+
+fn find_marker(state: &mut BlockState<'_>, silent: bool) -> Option<(usize, Option<u32>, char)> {
+    let line = state.line;
+    scan_list_marker(
+        state.get_line(line),
+        state.line_indent(line),
+        state.list_indent,
+        state.line_offsets[line].indent_nonspace,
+        state.blk_indent,
+        state.md.max_indent,
+        silent && state.root_ext.contains::<ParagraphInterrupt>(),
+    )
+}
+
 impl BlockRule for ListScanner {
+    const MARKERS: &'static [char] = &[
+        '*', '+', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+    ];
     const NAMES: &'static [&'static str] = &["list"];
 
-    fn check(state: &mut BlockState) -> Option<()> {
-        if state.node.is::<BulletList>() || state.node.is::<OrderedList>() {
+    fn check(state: &mut BlockState<'_>) -> Option<()> {
+        if state.document.node(state.node).is::<BulletList>()
+            || state.document.node(state.node).is::<OrderedList>()
+        {
             return None;
         }
 
-        Self::find_marker(state, true).map(|_| ())
+        find_marker(state, true).map(|_| ())
     }
 
-    fn run(state: &mut BlockState) -> Option<(Node, usize)> {
-        let (mut pos_after_marker, marker_value, marker_char) = Self::find_marker(state, false)?;
+    fn run(state: &mut BlockState<'_>) -> Option<(Option<NodeId>, usize)> {
+        let (mut pos_after_marker, marker_value, marker_char) = find_marker(state, false)?;
 
         let new_node = if let Some(int) = marker_value {
-            Node::new(OrderedList {
+            state.document.create_node(OrderedList {
                 start: int,
                 marker: marker_char,
             })
         } else {
-            Node::new(BulletList {
+            state.document.create_node(BulletList {
                 marker: marker_char,
             })
         };
@@ -258,9 +339,11 @@ impl BlockRule for ListScanner {
             let offsets = &state.line_offsets[next_line];
             let initial = offsets.indent_nonspace as usize + pos_after_marker;
 
-            let (mut indent_after_marker, first_nonspace) = find_indent_of(
+            let column = (initial as i32 + offsets.tab_offset).max(0) as usize;
+            let (mut indent_after_marker, first_nonspace) = find_indent_of_from_column(
                 &state.src[offsets.line_start..offsets.line_end],
                 pos_after_marker + offsets.first_nonspace - offsets.line_start,
+                column,
             );
 
             let reached_end_of_line = first_nonspace == offsets.line_end - offsets.line_start;
@@ -281,7 +364,7 @@ impl BlockRule for ListScanner {
             let indent = initial + indent_after_marker;
 
             // Run subparser & write tokens
-            let old_node = std::mem::replace(&mut state.node, Node::new(ListItem));
+            let old_node = std::mem::replace(&mut state.node, state.document.create_node(ListItem));
 
             // change current state, then restore it after parser subcall
             let old_tight = state.tight;
@@ -315,7 +398,11 @@ impl BlockRule for ListScanner {
                 }
             } else {
                 state.line = next_line;
-                state.md.block.tokenize_nested(state);
+                // markdown-it counts both the list and its item as containers.
+                let old_level = state.level;
+                state.level = state.level.saturating_add(1);
+                state.tokenize_nested();
+                state.level = old_level;
             }
 
             // If any of list item is tight, mark list as tight
@@ -332,10 +419,14 @@ impl BlockRule for ListScanner {
             state.line_offsets[next_line] = old_lineoffset;
             state.tight = old_tight;
 
-            let end_line = state.line;
-            let mut node = std::mem::replace(&mut state.node, old_node);
-            node.srcmap = state.get_map(next_line, end_line - 1);
-            state.node.children.push(node);
+            let node = std::mem::replace(&mut state.node, old_node);
+            #[cfg(feature = "sourcemap")]
+            {
+                let end_line = state.line;
+                let srcmap = state.get_map(next_line, end_line - 1);
+                state.document.node_mut(node).set_srcmap(srcmap);
+            }
+            state.document.push_child(state.node, node);
             next_line = state.line;
 
             if next_line >= state.line_max {
@@ -387,21 +478,47 @@ impl BlockRule for ListScanner {
 
         // mark paragraphs tight if needed
         if tight {
-            for child in state.node.children.iter_mut() {
-                debug_assert!(child.is::<ListItem>());
-                Self::mark_tight_paragraphs(&mut child.children);
+            let items = state.document.children(state.node).to_vec();
+            for child in items {
+                debug_assert!(state.document.node(child).is::<ListItem>());
+                Self::mark_tight_paragraphs(state.document, child);
             }
         }
 
         // Finalize list
         state.line = start_line;
         let node = std::mem::replace(&mut state.node, old_node);
-        Some((node, next_line - state.line))
+        Some((Some(node), next_line - state.line))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn paragraph_and_setext_content_keep_list_interrupt_restrictions() {
+        for preset in [crate::Preset::MarkdownItDefault, crate::Preset::CommonMark] {
+            let md = crate::MarkdownIt::with_preset(preset);
+            for marker in ["+", "*", "1.", "2. bar", "0) bar"] {
+                assert_eq!(
+                    md.render(&format!("foo\n{marker}")),
+                    format!("<p>foo\n{marker}</p>\n")
+                );
+                assert_eq!(
+                    md.render(&format!("foo\n{marker}\n===")),
+                    format!("<h1>foo\n{marker}</h1>\n")
+                );
+            }
+            assert_eq!(
+                md.render("foo\n1. bar"),
+                "<p>foo</p>\n<ol>\n<li>bar</li>\n</ol>\n"
+            );
+            assert_eq!(
+                md.render("plain\n\n> foo\n-\n\nplain\n2. bar"),
+                "<p>plain</p>\n<blockquote>\n<p>foo</p>\n</blockquote>\n<ul>\n<li></li>\n</ul>\n<p>plain\n2. bar</p>\n"
+            );
+        }
+    }
+
     #[test]
     fn respects_max_nesting() {
         let mut md = crate::MarkdownIt::empty();
@@ -410,6 +527,39 @@ mod tests {
 
         let html = md.render(&format!("{}x", "- ".repeat(100)));
 
-        assert_eq!(html.matches("<ul>").count(), 10);
+        assert_eq!(html.matches("<ul>").count(), 5);
+    }
+
+    #[test]
+    fn nested_list_content_respects_container_depth() {
+        let mut md = crate::MarkdownIt::empty();
+        crate::plugins::cmark::add(&mut md);
+        let source = "- one\n  - two\n\n    continuation";
+
+        for limit in [3, 4] {
+            md.max_nesting = limit;
+            assert_eq!(
+                md.render(source),
+                "<ul>\n<li>one\n<ul>\n<li></li>\n</ul>\n</li>\n</ul>\n"
+            );
+        }
+
+        md.max_nesting = 5;
+        assert_eq!(
+            md.render(source),
+            "<ul>\n<li>one\n<ul>\n<li>\n<p>two</p>\n<p>continuation</p>\n</li>\n</ul>\n</li>\n</ul>\n"
+        );
+    }
+
+    #[test]
+    fn list_depth_is_restored_for_siblings_and_following_blocks() {
+        let mut md = crate::MarkdownIt::empty();
+        crate::plugins::cmark::add(&mut md);
+        md.max_nesting = 3;
+
+        assert_eq!(
+            md.render("1. one\n2. two\n\nafter\n\n> quote"),
+            "<ol>\n<li>one</li>\n<li>two</li>\n</ol>\n<p>after</p>\n<blockquote>\n<p>quote</p>\n</blockquote>\n"
+        );
     }
 }

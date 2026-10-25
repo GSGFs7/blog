@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 
-use markdown_it::MarkdownIt;
-use markdown_it::parser::core::Root;
 use markdown_it::plugins::extra::front_matter::FrontMatter;
+use markdown_it::{MarkdownIt, Root};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -85,7 +84,7 @@ impl PyMarkdownIt {
     fn render(&self, py: Python<'_>, src: &str) -> PyResult<String> {
         let ast = self.parse(py, src)?;
         let ast_ref = ast.borrow(py);
-        let html = ast_ref.root.borrow().render();
+        let html = self.inner.render_html(&ast_ref.root.borrow());
         self.run_postprocessors(py, html)
     }
 
@@ -94,6 +93,8 @@ impl PyMarkdownIt {
             py,
             PyAst {
                 root: RefCell::new(self.inner.parse(src)),
+                renderers: self.inner.renderers.clone(),
+                options: self.inner.render_options.clone(),
             },
         )?;
 
@@ -108,7 +109,7 @@ impl PyMarkdownIt {
 
     fn parse_frontmatter(&self, src: &str) -> Option<PyFrontMatter> {
         let ast = self.inner.parse(src);
-        let root = ast.cast::<Root>()?;
+        let root = ast.node(ast.root()).cast::<Root>()?;
         root.ext.get::<FrontMatter>().map(PyFrontMatter::from)
     }
 
@@ -117,10 +118,11 @@ impl PyMarkdownIt {
         let ast_ref = ast.borrow(py);
         let root = ast_ref.root.borrow();
         let frontmatter = root
+            .node(root.root())
             .cast::<Root>()
             .and_then(|root| root.ext.get::<FrontMatter>())
             .map(PyFrontMatter::from);
-        let html = root.render();
+        let html = self.inner.render_html(&root);
         let html = self.run_postprocessors(py, html)?;
 
         Ok(PyMarkdownOutput { html, frontmatter })
@@ -195,7 +197,7 @@ impl PyMarkdownIt {
             py,
             PyNode {
                 ast: ast.clone_ref(py),
-                path: Vec::new(),
+                id: ast.borrow(py).root.borrow().root(),
             },
         )?;
         for rule in &self.core_rules {

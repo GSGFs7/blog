@@ -1,21 +1,16 @@
 //! Highlight syntax (like `==this==`)
 
-use crate::generics::inline::emph_pair;
-use crate::{MarkdownIt, Node, NodeValue, Renderer};
+use crate::MarkdownIt;
+use crate::parser::inline::helpers::emph_pair;
+use crate::render::{HtmlInlineElementRenderer, TransparentRenderer};
 
 #[derive(Debug)]
 pub struct Mark;
 
-impl NodeValue for Mark {
-    fn render(&self, node: &Node, fmt: &mut dyn Renderer) {
-        fmt.open("mark", &node.attrs);
-        fmt.contents(&node.children);
-        fmt.close("mark");
-    }
-}
-
 pub fn add(md: &mut MarkdownIt) {
-    emph_pair::add_with::<'=', 2, true>(md, || Node::new(Mark));
+    emph_pair::add_with::<'=', 2, true>(md, |document| document.create_node(Mark));
+    md.add_renderer::<Mark, _>("html", HtmlInlineElementRenderer("mark"));
+    md.add_renderer::<Mark, _>("text", TransparentRenderer);
 }
 
 #[cfg(test)]
@@ -29,7 +24,7 @@ mod tests {
         markdown_it::plugins::cmark::add(md);
         markdown_it::plugins::extra::mark::add(md);
         markdown_it::plugins::extra::strikethrough::add(md);
-        let html = md.parse(input).render();
+        let html = md.render(input);
         assert_eq!(html.trim(), output);
     }
 

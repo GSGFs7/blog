@@ -1,95 +1,69 @@
-use crate::authority::split_authority;
 use crate::elide::fit_to_length;
 use crate::host::display_host;
-use crate::parse::{
-    MailtoUrl,
-    split_authority_suffix,
-    split_authority_url,
-    split_mailto_url,
-    strip_ascii_prefix,
-};
+use crate::parse::ParsedUrl;
 use crate::percent::decode_for_display;
 
 pub fn decode_url_for_display(input: &str) -> String {
-    if let Some(url) = split_authority_url(input) {
-        let mut result = String::with_capacity(input.len());
-        result.push_str(url.prefix);
-        result.push_str(&display_authority(url.authority));
-        result.push_str(&decode_for_display(url.suffix));
-        return result;
-    }
-
-    if let Some(mailto) = split_mailto_url(input) {
-        let prefix_len = input.len() - mailto.body.len();
-        let mut result = String::with_capacity(input.len());
-        result.push_str(&input[..prefix_len]);
-        result.push_str(&display_mailto_url(mailto));
-        return result;
-    }
-
-    decode_for_display(input)
-}
-
-// provide a human read url
-pub fn format_url_for_humans(input: &str, max_length: usize) -> String {
-    fit_to_length(display_url(input), max_length)
-}
-
-// --- helper method ---
-
-fn display_url(input: &str) -> String {
-    if let Some(rest) = strip_ascii_prefix(input, "http://")
-        .or_else(|| strip_ascii_prefix(input, "https://"))
-        .or_else(|| input.strip_prefix("//"))
+    let mut url = ParsedUrl::parse(input);
+    if url.recodes_hostname()
+        && let Some(host) = &mut url.hostname
     {
-        // delete protocol
-        return display_authority_url(rest);
+        *host = display_host(host).into();
     }
-
-    if let Some(mailto) = split_mailto_url(input) {
-        return display_mailto_url(mailto);
-    }
-
-    decode_for_display(input)
+    // Decode once after formatting, including escapes in the recoded hostname.
+    decode_for_display(&url.format())
 }
 
-fn display_authority_url(input: &str) -> String {
-    // authority: domain, port, userinfo
-    let (authority, suffix) = split_authority_suffix(input);
-    let authority = display_authority(authority);
-
-    if suffix == "/" {
-        authority
-    } else {
-        authority + &decode_for_display(suffix)
+/// Shorten a URL for display by removing common prefixes and a sole root slash.
+pub fn format_url_for_humans(input: &str, max_length: usize) -> String {
+    let mut url = ParsedUrl::parse(input);
+    let common_prefix = url.slashes
+        && url.protocol.is_none_or(|protocol| {
+            protocol.eq_ignore_ascii_case("http:") || protocol.eq_ignore_ascii_case("https:")
+        });
+    let mailto = url
+        .protocol
+        .is_some_and(|protocol| protocol.eq_ignore_ascii_case("mailto:"));
+    if common_prefix || mailto {
+        if let Some(host) = &mut url.hostname {
+            *host = display_host(host).into();
+        }
+        url.protocol = None;
+        url.slashes = false;
+        if common_prefix
+            && url.pathname.as_deref() == Some("/")
+            && url.search.is_none()
+            && url.hash.is_none()
+        {
+            url.pathname = None;
+        }
     }
-}
-
-fn display_mailto_url(mailto: MailtoUrl<'_>) -> String {
-    let Some((local, domain)) = mailto.address.rsplit_once('@') else {
-        return decode_for_display(mailto.body);
-    };
-
-    decode_for_display(local) + "@" + &display_host(domain) + &decode_for_display(mailto.query)
-}
-
-fn display_authority(authority: &str) -> String {
-    let parts = split_authority(authority);
-
-    let mut result = String::with_capacity(authority.len());
-    if let Some(userinfo) = parts.userinfo {
-        result.push_str(&decode_for_display(userinfo));
-        result.push('@');
-    }
-
-    result.push_str(&display_host(parts.host));
-    result.push_str(parts.port);
-    result
+    fit_to_length(decode_for_display(&url.format()), max_length)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recodes_display_hostnames_only_for_markdown_it_protocols() {
+        for (prefix, host) in [
+            ("http://", "☃.net"),
+            ("https://", "☃.net"),
+            ("//", "☃.net"),
+            ("httttp://", "xn--n3h.net"),
+            ("ftp://", "xn--n3h.net"),
+            ("HTTP://", "xn--n3h.net"),
+            ("mailto:user@", "☃.net"),
+            ("MAILTO:user@", "xn--n3h.net"),
+        ] {
+            let source = format!("{prefix}xn--n3h.net?x=%CE%B1");
+            assert_eq!(
+                decode_url_for_display(&source),
+                format!("{prefix}{host}?x=α")
+            );
+        }
+    }
 
     #[test]
     fn strips_common_prefixes() {
@@ -121,6 +95,29 @@ mod tests {
             decode_url_for_display("mailto:user@xn--n3h.net"),
             "mailto:user@☃.net"
         );
+    }
+
+    #[test]
+    fn display_decode_replaces_invalid_utf8_bytes() {
+        for (source, expected) in [
+            ("%Ccom", "�om"),
+            ("%CC", "�"),
+            ("%80%FF", "��"),
+            ("%E2%82", "��"),
+            ("%E2%28%A1", "�(�"),
+            ("%C0%AF", "��"),
+            ("%E0%80%AF", "���"),
+            ("%ED%A0%80", "���"),
+            ("%F4%90%80%80", "����"),
+            ("%F0%80%80%AF", "����"),
+            ("%F0%9F%98%80", "😀"),
+            ("%CC%2f%41", "�%2FA"),
+            ("%2E%252E", ".%252E"),
+            ("%CC%CE%B1", "�α"),
+            ("%GG%1%", "%GG%1%"),
+        ] {
+            assert_eq!(decode_url_for_display(source), expected, "{source}");
+        }
     }
 
     #[test]
