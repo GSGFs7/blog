@@ -46,6 +46,16 @@ class MarkdownItTests(unittest.TestCase):
 
         self.assertEqual(plan.image_checksums, ())
 
+    def test_prepare_collects_images_with_and_without_alt_children(self):
+        first = "a" * 64
+        second = "b" * 64
+        plan = MarkdownIt().prepare(
+            f"![]({first})\n\n:::spoiler\n![*caption*]({second})\n"
+            f"![duplicate]({first})\n:::"
+        )
+
+        self.assertEqual(plan.image_checksums, (first, second))
+
     def test_prepare_accepts_picture_source_prefixes(self):
         plan = MarkdownIt().prepare(
             "hello",
@@ -142,6 +152,37 @@ class MarkdownItTests(unittest.TestCase):
             html = executor.submit(plan.finish).result()
 
         self.assertEqual(html, '<h1 id="heading">Heading</h1>\n')
+
+    def test_plan_retains_renderers_after_parser_is_deleted(self):
+        markdown = MarkdownIt()
+        plan = markdown.prepare(
+            ':::spoiler{title="A & B"}\n**content**\n:::\n\n# Heading',
+            include_toc=True,
+        )
+        del markdown
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            html = executor.submit(plan.finish).result()
+
+        self.assertEqual(
+            html,
+            '<details class="spoiler"><summary>A &amp; B</summary>\n'
+            "<p><strong>content</strong></p>\n</details>\n"
+            '<h1 id="heading">Heading</h1>\n',
+        )
+        self.assertEqual(plan.toc, [{"level": 1, "slug": "heading", "text": "Heading"}])
+
+    def test_nul_is_normalized_in_document_and_toc(self):
+        plan = MarkdownIt().prepare("# A\0B", include_toc=True)
+
+        self.assertEqual(plan.toc, [{"level": 1, "slug": "a-b", "text": "A�B"}])
+        self.assertEqual(plan.finish(), '<h1 id="a-b">A�B</h1>\n')
+
+    def test_raw_html_block_preserves_source_trailing_newline(self):
+        for ending in ("", "\n"):
+            with self.subTest(ending=ending):
+                source = f"<div>raw</div>{ending}"
+                self.assertEqual(MarkdownIt().prepare(source).finish(), source)
 
 
 if __name__ == "__main__":

@@ -158,11 +158,9 @@ mod tests {
 
     #[test]
     fn music_directive_preserves_only_src_through_sanitization() {
-        let rendered = crate::builder::build()
-            .parse(
-                r#"::music{src="https://example.com/a.mp3?x=1&y=2" url="ignored" onclick="bad"}"#,
-            )
-            .render();
+        let rendered = crate::builder::build().render(
+            r#"::music{src="https://example.com/a.mp3?x=1&y=2" url="ignored" onclick="bad"}"#,
+        );
         let cleaned = sanitize(&rewrite(&rendered).unwrap());
         assert!(cleaned.contains("data-solid-island=\"MusicTrack\""));
         assert!(cleaned.contains("https://example.com/a.mp3?x=1&amp;y=2"));
@@ -184,8 +182,7 @@ mod tests {
     #[test]
     fn model_placeholder_survives_sanitization() {
         let rendered = crate::builder::build()
-            .parse(r#"::model{src="https://example.com/model.glb" alt="3D model" onclick="bad"}"#)
-            .render();
+            .render(r#"::model{src="https://example.com/model.glb" alt="3D model" onclick="bad"}"#);
         let cleaned = sanitize(&rewrite(&rendered).unwrap());
         assert!(cleaned.contains("data-solid-island=\"ModelViewer\""));
         assert!(

@@ -14,13 +14,13 @@ fn main() {
     let iterations = args[2].parse::<usize>().expect("invalid iteration count");
     let repeats = args[3].parse::<usize>().expect("invalid repeat count");
 
-    let mut markdown = markdown_it::MarkdownIt::new();
+    let mut markdown = markdown_it::MarkdownIt::empty();
     markdown_it::plugins::cmark::add(&mut markdown);
     markdown_it::plugins::html::add(&mut markdown);
 
     let mut output_bytes = 0;
     for _ in 0..warmups {
-        let output = markdown.parse(&source).render();
+        let output = markdown.render(&source);
         output_bytes = output.len();
         black_box(output);
     }
@@ -30,7 +30,7 @@ fn main() {
     for _ in 0..repeats {
         let started_at = Instant::now();
         for _ in 0..iterations {
-            let output = markdown.parse(&source).render();
+            let output = markdown.render(&source);
             output_bytes = output.len();
             checksum += output_bytes;
             black_box(output);

@@ -1,13 +1,13 @@
-use markdown_it::plugins::directives::DirectiveKind;
-use markdown_it::{MarkdownIt, Node, Renderer};
+use markdown_it::MarkdownIt;
+use markdown_it::plugins::directives::{DirectiveKind, DirectiveNode, DirectiveRenderer};
 
 // REFAC: move this to somewhere else
 fn render_spoiler(
     _kind: DirectiveKind,
     _name: &str,
     attrs: &[(String, String)],
-    node: &Node,
-    fmt: &mut dyn Renderer,
+    node: DirectiveNode<'_>,
+    fmt: &mut DirectiveRenderer<'_, '_>,
 ) {
     let title = attrs
         .iter()
@@ -24,7 +24,7 @@ fn render_spoiler(
 
     fmt.cr();
 
-    fmt.contents(&node.children);
+    fmt.contents(node.children());
 
     fmt.close("details");
     fmt.cr();

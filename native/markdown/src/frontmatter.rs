@@ -1,8 +1,7 @@
 use std::sync::LazyLock;
 
-use markdown_it::Node;
-use markdown_it::parser::core::Root;
 use markdown_it::plugins::extra::front_matter::{FrontMatter, FrontMatterKind};
+use markdown_it::{Document, Root};
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -27,9 +26,9 @@ pub(crate) enum FrontMatterValue {
     Object(Vec<(String, Self)>),
 }
 
-pub(crate) fn parse(root: &Node) -> Result<Option<FrontMatterValue>, MarkdownError> {
-    let Some(frontmatter) = root
-        .cast::<Root>()
+pub(crate) fn parse(document: &Document) -> Result<Option<FrontMatterValue>, MarkdownError> {
+    let Some(frontmatter) = document
+        .value::<Root>(document.root())
         .and_then(|root| root.ext.get::<FrontMatter>())
     else {
         return Ok(None);

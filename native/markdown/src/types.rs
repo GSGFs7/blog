@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use markdown_it::Node;
+use markdown_it::{Document, MarkdownIt};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping, PyTuple};
@@ -24,7 +25,8 @@ type ResolvedImages = HashMap<String, ImageMetadata>;
 #[pyclass(name = "RenderPlan")]
 pub(crate) struct PyRenderPlan {
     // one-time consumption
-    root: Option<Node>,
+    document: Option<Document>,
+    parser: Arc<MarkdownIt>,
     pub(crate) image_checksums: Vec<String>,
     pub(crate) image_picture_source_prefixes: Vec<String>,
     #[pyo3(get)]
@@ -47,19 +49,22 @@ impl PyRenderPlan {
         images: Option<&Bound<'_, PyMapping>>,
         music_placeholder: Option<String>,
     ) -> PyResult<String> {
-        if self.root.is_none() {
+        if self.document.is_none() {
             return Err(PyRuntimeError::new_err("render plan already finished"));
         }
 
         let images = self.parse_images(images)?;
 
-        let root = self.root.take().expect("checked above");
+        let document = self.document.take().expect("checked above");
         let image_picture_source_prefixes = std::mem::take(&mut self.image_picture_source_prefixes);
+
+        let parser = Arc::clone(&self.parser);
 
         // release GIL
         py.detach(move || {
             Self::render_and_rewrite(
-                root,
+                document,
+                &parser,
                 images,
                 &image_picture_source_prefixes,
                 music_placeholder.as_deref(),
@@ -71,14 +76,16 @@ impl PyRenderPlan {
 
 impl PyRenderPlan {
     pub(crate) fn new(
-        root: Node,
+        document: Document,
+        parser: Arc<MarkdownIt>,
         image_checksums: Vec<String>,
         image_picture_source_prefixes: Vec<String>,
         toc: Vec<Py<PyDict>>,
         frontmatter: Option<Py<PyDict>>,
     ) -> Self {
         Self {
-            root: Some(root),
+            document: Some(document),
+            parser,
             image_checksums,
             image_picture_source_prefixes,
             toc,
@@ -105,13 +112,14 @@ impl PyRenderPlan {
     }
 
     fn render_and_rewrite(
-        root: Node,
+        document: Document,
+        parser: &MarkdownIt,
         images: ResolvedImages,
         image_picture_source_prefixes: &[String],
         music_placeholder: Option<&str>,
     ) -> Result<String, MarkdownError> {
         suffix::rewrite(
-            &root.render(),
+            &parser.render_html(&document),
             &images,
             image_picture_source_prefixes,
             music_placeholder,
@@ -128,8 +136,10 @@ mod tests {
     use crate::builder::build;
 
     fn plan_with_checksum(checksum: String) -> PyRenderPlan {
+        let parser = Arc::new(build());
         PyRenderPlan::new(
-            build().parse("hello"),
+            parser.parse("hello"),
+            parser,
             vec![checksum],
             Vec::new(),
             Vec::new(),
@@ -232,8 +242,10 @@ mod tests {
 
     #[test]
     fn keeps_picture_source_prefixes_owned_by_plan() {
+        let parser = Arc::new(build());
         let plan = PyRenderPlan::new(
-            build().parse("hello"),
+            parser.parse("hello"),
+            parser,
             Vec::new(),
             vec!["https://uploads.example/raw/".to_owned()],
             Vec::new(),

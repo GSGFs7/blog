@@ -231,11 +231,14 @@ class TestMarkdownPostProcess(SimpleTestCase):
         self.assertNotIn("style=", html)
 
     def test_sanitizer_handles_malformed_html(self):
-        html = self.md.render(
-            '<script><p>hidden</p></script><div><span onclick="alert(1)">safe'
-        )
+        for ending in ("", "\n"):
+            with self.subTest(ending=ending):
+                html = self.md.render(
+                    '<script><p>hidden</p></script><div><span onclick="alert(1)">'
+                    f"safe{ending}"
+                )
 
-        self.assertEqual(html, "<div><span>safe\n</span></div>")
+                self.assertEqual(html, f"<div><span>safe{ending}</span></div>")
 
     def test_task_list_survives_sanitizer(self):
         html = self.md.render("- [x] done\n- [ ] todo")

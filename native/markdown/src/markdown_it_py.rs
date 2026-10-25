@@ -1,9 +1,11 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
-use markdown_it::MarkdownIt;
 use markdown_it::plugins::cmark::block::heading::ATXHeading;
 use markdown_it::plugins::cmark::block::lheading::SetextHeader;
 use markdown_it::plugins::cmark::inline::image::Image;
+use markdown_it::plugins::cmark::inline::newline::Softbreak;
+use markdown_it::{Document, MarkdownIt, NodeId, StructuralEvent, Text, TextSpecial};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -14,14 +16,16 @@ use crate::types::PyRenderPlan;
 
 #[pyclass(name = "MarkdownIt")]
 pub(crate) struct PyMarkdownIt {
-    inner: MarkdownIt,
+    inner: Arc<MarkdownIt>,
 }
 
 #[pymethods]
 impl PyMarkdownIt {
     #[new]
     fn new() -> Self {
-        Self { inner: build() }
+        Self {
+            inner: Arc::new(build()),
+        }
     }
 
     #[pyo3(signature = (src, *, include_toc = false, include_frontmatter = false, image_picture_source_prefixes = Vec::new()))]
@@ -35,28 +39,29 @@ impl PyMarkdownIt {
     ) -> PyResult<PyRenderPlan> {
         let src = src.to_owned();
         // release GIL
-        let (root, frontmatter) = py.detach(|| {
-            let root = self.inner.parse(&src);
+        let (document, frontmatter) = py.detach(|| {
+            let document = self.inner.parse(&src);
             let frontmatter = include_frontmatter
-                .then(|| frontmatter::parse(&root))
+                .then(|| frontmatter::parse(&document))
                 .transpose()
                 .map(|value| value.flatten());
-            (root, frontmatter)
+            (document, frontmatter)
         });
         let frontmatter = frontmatter
             .map_err(|error| error.into_pyerr())
             .and_then(|value| frontmatter::into_python(py, value))?;
 
         let toc = if include_toc {
-            extract_toc(py, &root)?
+            extract_toc(py, &document)?
         } else {
             Vec::new()
         };
 
-        let image_checksums = collect_image_checksums(&root);
+        let image_checksums = collect_image_checksums(&document);
 
         Ok(PyRenderPlan::new(
-            root,
+            document,
+            Arc::clone(&self.inner),
             image_checksums,
             image_picture_source_prefixes,
             toc,
@@ -66,26 +71,31 @@ impl PyMarkdownIt {
 }
 
 // HTML blocks are not considered for the time being.
-fn collect_image_checksums(root: &markdown_it::Node) -> Vec<String> {
+fn collect_image_checksums(document: &Document) -> Vec<String> {
     let mut checksums = Vec::new();
     let mut seen = HashSet::new();
-    root.walk(|node, _| {
+    for event in document.events(document.root()) {
+        let node = match event {
+            StructuralEvent::Enter(node) | StructuralEvent::Leaf(node) => node,
+            StructuralEvent::Exit(_) => continue,
+        };
         let Some(image) = node.cast::<Image>() else {
-            return;
+            continue;
         };
         let Some(checksum) = extract_checksum(&image.url) else {
-            return;
+            continue;
         };
         if seen.insert(checksum.clone()) {
             checksums.push(checksum);
         }
-    });
+    }
     checksums
 }
 
-fn extract_toc(py: Python<'_>, root: &markdown_it::Node) -> PyResult<Vec<Py<PyDict>>> {
+fn extract_toc(py: Python<'_>, document: &Document) -> PyResult<Vec<Py<PyDict>>> {
     let mut toc = Vec::new();
-    for node in &root.children {
+    for &id in document.children(document.root()) {
+        let node = document.node(id);
         let level = node
             .cast::<ATXHeading>()
             .map(|heading| heading.level)
@@ -94,10 +104,10 @@ fn extract_toc(py: Python<'_>, root: &markdown_it::Node) -> PyResult<Vec<Py<PyDi
             continue;
         };
         let Some(slug) = node
-            .attrs
+            .attrs()
             .iter()
             // must have a id attr
-            .find(|(name, _)| *name == "id")
+            .find(|(name, _)| name == "id")
             .map(|(_, value)| value.clone())
         else {
             continue;
@@ -109,9 +119,28 @@ fn extract_toc(py: Python<'_>, root: &markdown_it::Node) -> PyResult<Vec<Py<PyDi
         let item = PyDict::new(py);
         item.set_item("level", level)?;
         item.set_item("slug", slug)?;
-        item.set_item("text", node.collect_text())?;
+        item.set_item("text", collect_text(document, id))?;
         toc.push(item.unbind());
     }
 
     Ok(toc)
+}
+
+fn collect_text(document: &Document, root: NodeId) -> String {
+    let mut text = String::new();
+    for event in document.events(root) {
+        let node = match event {
+            StructuralEvent::Enter(node) | StructuralEvent::Leaf(node) => node,
+            StructuralEvent::Exit(_) => continue,
+        };
+
+        if let Some(value) = node.cast::<Text>() {
+            text.push_str(&value.content);
+        } else if let Some(value) = node.cast::<TextSpecial>() {
+            text.push_str(&value.content);
+        } else if node.is::<Softbreak>() {
+            text.push('\n');
+        }
+    }
+    text
 }

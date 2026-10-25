@@ -228,7 +228,7 @@ mod tests {
         let line = Regex::new(r#"<span class="(?:frac-line|overline-line|underline-line)" style="border-bottom-width:[^";]+"#).unwrap();
         for expression in [r"\frac{x}{y}", r"\overline{x}", r"\underline{x}"] {
             for markdown in [format!("${expression}$"), format!("$$\n{expression}\n$$")] {
-                let rendered = parser.parse(&markdown).render();
+                let rendered = parser.render(&markdown);
                 let expected = line.find(&rendered).expect("rendered math line with width");
                 assert!(
                     sanitize(&rendered).contains(expected.as_str()),
@@ -288,7 +288,7 @@ mod tests {
             ),
         ] {
             for markdown in [format!("${expression}$"), format!("$$\n{expression}\n$$")] {
-                let rendered = parser.parse(&markdown).render();
+                let rendered = parser.render(&markdown);
                 let cleaned = sanitize(&rendered);
                 for fragment in &expected {
                     assert!(
@@ -306,9 +306,8 @@ mod tests {
 
     #[test]
     fn preserves_table_alignment() {
-        let rendered = crate::builder::build()
-            .parse("| L | C | R |\n| :--- | :---: | ---: |\n| a | b | c |")
-            .render();
+        let rendered =
+            crate::builder::build().render("| L | C | R |\n| :--- | :---: | ---: |\n| a | b | c |");
         let cleaned = sanitize(&rendered);
         for tag in ["th", "td"] {
             for alignment in ["left", "center", "right"] {
