@@ -93,6 +93,38 @@ describe("ChartCanvas", () => {
     expect(onViewport).not.toHaveBeenCalled();
   });
 
+  it("disables dragging and wheel zoom while keeping tooltips", () => {
+    const onViewport = vi.fn();
+    const onTooltip = vi.fn();
+    const capture = vi.spyOn(canvas, "setPointerCapture");
+    const viewport = makeViewport();
+    chart = new ChartCanvas(canvas, { ...viewport }, onViewport, onTooltip, true);
+    chart.setData([[0, 0]]);
+
+    canvas.dispatchEvent(
+      new PointerEvent("pointerdown", { clientX: 390, clientY: 290, pointerId: 1 }),
+    );
+    canvas.dispatchEvent(new PointerEvent("pointermove", { clientX: 400, clientY: 300 }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { clientX: 400, clientY: 300 }));
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(onViewport).not.toHaveBeenCalled();
+    expect(chart.getViewport()).toEqual(viewport);
+    expect(onTooltip).toHaveBeenCalledWith({ x: 0, y: 0, canvasX: 400, canvasY: 300 });
+
+    const wheel = new WheelEvent("wheel", {
+      deltaY: 100,
+      clientX: 400,
+      clientY: 300,
+      cancelable: true,
+    });
+    canvas.dispatchEvent(wheel);
+
+    expect(onViewport).not.toHaveBeenCalled();
+    expect(chart.getViewport()).toEqual(viewport);
+    expect(wheel.defaultPrevented).toBe(false);
+  });
+
   it("shows tooltip when cursor is near curve data", () => {
     const onTooltip = vi.fn();
     chart = new ChartCanvas(canvas, makeViewport(), undefined, onTooltip);

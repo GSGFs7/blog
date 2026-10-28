@@ -13,9 +13,9 @@
   },
   {
     "name": "chart_props_order",
-    "input": "<div class=\"directive chart\" y-max=\"2\" ignored=\"x\" formula=\"x^2\" x-min=\"-1\"></div>",
-    "rewritten": "<div data-solid-island=\"Chart\" data-props=\"{&quot;y-max&quot;:&quot;2&quot;,&quot;formula&quot;:&quot;x^2&quot;,&quot;x-min&quot;:&quot;-1&quot;}\"></div>",
-    "sanitized": "<div data-solid-island=\"Chart\" data-props=\"{&quot;y-max&quot;:&quot;2&quot;,&quot;formula&quot;:&quot;x^2&quot;,&quot;x-min&quot;:&quot;-1&quot;}\"></div>"
+    "input": "<div class=\"directive chart\" title=\"O(N²)\" hide-input=\"true\" disable-drag=\"true\" y-max=\"2\" ignored=\"x\" formula=\"x^2\" x-min=\"-1\"></div>",
+    "rewritten": "<div data-solid-island=\"Chart\" data-props=\"{&quot;title&quot;:&quot;O(N²)&quot;,&quot;hide-input&quot;:&quot;true&quot;,&quot;disable-drag&quot;:&quot;true&quot;,&quot;y-max&quot;:&quot;2&quot;,&quot;formula&quot;:&quot;x^2&quot;,&quot;x-min&quot;:&quot;-1&quot;}\"></div>",
+    "sanitized": "<div data-solid-island=\"Chart\" data-props=\"{&quot;title&quot;:&quot;O(N²)&quot;,&quot;hide-input&quot;:&quot;true&quot;,&quot;disable-drag&quot;:&quot;true&quot;,&quot;y-max&quot;:&quot;2&quot;,&quot;formula&quot;:&quot;x^2&quot;,&quot;x-min&quot;:&quot;-1&quot;}\"></div>"
   },
   {
     "name": "unknown_and_plain",

@@ -43,7 +43,17 @@ impl Component {
             Self::Counter => name == "initial",
             Self::PythonRepl => false,
             Self::PythonPlayground => name == "source",
-            Self::Chart => matches!(name, "formula" | "x-min" | "x-max" | "y-min" | "y-max"),
+            Self::Chart => matches!(
+                name,
+                "title"
+                    | "formula"
+                    | "hide-input"
+                    | "disable-drag"
+                    | "x-min"
+                    | "x-max"
+                    | "y-min"
+                    | "y-max"
+            ),
             Self::ModelViewer => matches!(name, "src" | "alt"),
         }
     }

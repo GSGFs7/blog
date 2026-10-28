@@ -276,8 +276,8 @@ class TestMarkdownPostProcess(SimpleTestCase):
     def test_directives_only_forward_allowed_component_props(self):
         html = self.md.render(
             '<div class="directive counter" initial="1024" onclick="alert(1)"></div>'
-            '<div class="directive chart" formula="x^2" x-min="-1" '
-            'y-max="2" ignored="value"></div>'
+            '<div class="directive chart" title="O(N²)" formula="x^2" x-min="-1" '
+            'y-max="2" hide-input="true" disable-drag="true" ignored="value"></div>'
         )
 
         self.assertIn(
@@ -287,8 +287,9 @@ class TestMarkdownPostProcess(SimpleTestCase):
         )
         self.assertIn(
             'data-solid-island="Chart" '
-            'data-props="{&quot;formula&quot;:&quot;x^2&quot;,'
-            '&quot;x-min&quot;:&quot;-1&quot;,&quot;y-max&quot;:&quot;2&quot;}"',
+            'data-props="{&quot;title&quot;:&quot;O(N²)&quot;,&quot;formula&quot;:&quot;x^2&quot;,'
+            "&quot;x-min&quot;:&quot;-1&quot;,&quot;y-max&quot;:&quot;2&quot;,"
+            '&quot;hide-input&quot;:&quot;true&quot;,&quot;disable-drag&quot;:&quot;true&quot;}"',
             html,
         )
         self.assertNotIn("onclick", html)

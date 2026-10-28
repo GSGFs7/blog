@@ -5,12 +5,14 @@ const mockCanvas = vi.hoisted(() => ({
   setDataCalls: [] as Array<Array<[number, number | null]>>,
   disposeCount: 0,
   viewport: undefined as unknown,
+  disablePanAndZoom: false,
   viewportCallback: undefined as ((viewport: unknown) => void) | undefined,
   tooltipCallback: undefined as ((point: unknown) => void) | undefined,
   reset() {
     this.setDataCalls = [];
     this.disposeCount = 0;
     this.viewport = undefined;
+    this.disablePanAndZoom = false;
     this.viewportCallback = undefined;
     this.tooltipCallback = undefined;
   },
@@ -32,8 +34,10 @@ vi.mock("./chart-canvas", () => ({
       viewport: unknown,
       onViewportChange?: (vp: unknown) => void,
       onTooltipChange?: (point: unknown) => void,
+      disablePanAndZoom = false,
     ) {
       mockCanvas.viewport = viewport;
+      mockCanvas.disablePanAndZoom = disablePanAndZoom;
       mockCanvas.viewportCallback = onViewportChange;
       mockCanvas.tooltipCallback = onTooltipChange;
     }
@@ -78,6 +82,45 @@ test("renders formula input and canvas", () => {
   expect(screen.getByRole("textbox")).toHaveValue("sin(x)");
   expect(screen.getByText("f(x)=")).toBeInTheDocument();
   expect(document.querySelector("canvas")).toBeInTheDocument();
+  expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+});
+
+test("provides the optional title for the caption pseudo-element", () => {
+  const { container } = render(() => <ECharts title="O(N²) <script>" />);
+  expect(container.querySelector(".md-chart")).toHaveAttribute("data-caption", "O(N²) <script>");
+  expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  expect(document.querySelector("script")).not.toBeInTheDocument();
+});
+
+test.each([true, "true", false, "false", undefined])(
+  "passes the pan and zoom setting to the canvas: %s",
+  (disablePanAndZoom) => {
+    render(() => <ECharts disable-drag={disablePanAndZoom} />);
+    expect(mockCanvas.disablePanAndZoom).toBe(
+      disablePanAndZoom === true || disablePanAndZoom === "true",
+    );
+    expect(document.querySelector("canvas")!.style.cursor).toBe(
+      mockCanvas.disablePanAndZoom ? "default" : "crosshair",
+    );
+  },
+);
+
+test.each([true, "true"])("hides the formula editor when hide-input is %s", (hideInput) => {
+  render(() => <ECharts formula="x^2" hide-input={hideInput} />);
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  expect(screen.queryByText("f(x)=")).not.toBeInTheDocument();
+  expect(document.querySelector("canvas")).toBeInTheDocument();
+  expect(mockCanvas.setDataCalls.length).toBeGreaterThanOrEqual(1);
+});
+
+test.each([false, "false"])("shows the formula editor when hide-input is %s", (hideInput) => {
+  render(() => <ECharts formula="x^2" hide-input={hideInput} />);
+  expect(screen.getByRole("textbox")).toHaveValue("x^2");
+});
+
+test.each(["", "   ", 42, null])("omits an empty or invalid title: %s", (title) => {
+  const { container } = render(() => <ECharts title={title} />);
+  expect(container.querySelector(".md-chart")).toHaveAttribute("data-caption", "");
 });
 
 test("renders no error on valid initial formula", () => {

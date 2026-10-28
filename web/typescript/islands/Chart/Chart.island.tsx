@@ -3,8 +3,13 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { ChartCanvas, type TooltipPoint, type Viewport } from "./chart-canvas";
 import { compileExpression, sampleExpression } from "./math-parser";
 
+import "./chart.css";
+
 interface Props {
+  title?: unknown;
   formula?: unknown;
+  "hide-input"?: unknown;
+  "disable-drag"?: unknown;
   "x-min"?: unknown;
   "x-max"?: unknown;
   "y-min"?: unknown;
@@ -32,6 +37,17 @@ export function ECharts(props: Readonly<Props>) {
   const [error, setError] = createSignal("");
   let container!: HTMLCanvasElement;
   let canvas: ChartCanvas;
+
+  const title = () => (typeof props.title === "string" ? props.title.trim() : "");
+  const disablePanAndZoom = () => {
+    const value = props["disable-drag"];
+    if (typeof value === "string") {
+      return value.toLowerCase() === "true";
+    } else if (typeof value === "boolean") {
+      return value;
+    }
+    return false;
+  };
 
   const showError = (reason: unknown) => {
     canvas.setData([]);
@@ -86,6 +102,7 @@ export function ECharts(props: Readonly<Props>) {
       },
       updateCurve,
       setTooltip,
+      disablePanAndZoom(),
     );
   });
 
@@ -107,22 +124,29 @@ export function ECharts(props: Readonly<Props>) {
 
   // TODO: reset button
   return (
-    <section>
-      <label>
-        <span>f(x)=</span>
-        <input
-          value={source()}
-          onInput={(e) => setSource(e.currentTarget.value)}
-          spellcheck={false}
-        />
-      </label>
+    <section class="md-chart" data-caption={title()}>
+      <Show when={props["hide-input"] !== true && props["hide-input"] !== "true"}>
+        <label>
+          <span>f(x)=</span>
+          <input
+            value={source()}
+            onInput={(e) => setSource(e.currentTarget.value)}
+            spellcheck={false}
+          />
+        </label>
+      </Show>
 
       {error() && <p role="alert">{error()}</p>}
 
       <div style={{ position: "relative" }}>
         <canvas
           ref={(e) => (container = e)}
-          style={{ width: "100%", height: "28rem", cursor: "crosshair", display: "block" }}
+          style={{
+            width: "100%",
+            height: "28rem",
+            cursor: disablePanAndZoom() ? "default" : "crosshair",
+            display: "block",
+          }}
         />
 
         <Show when={tooltip()}>

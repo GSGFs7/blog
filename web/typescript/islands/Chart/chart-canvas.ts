@@ -49,6 +49,7 @@ export class ChartCanvas {
     viewport: Viewport,
     private readonly onViewportChange?: ViewportChangeCallback,
     private readonly onTooltipChange?: TooltipChangeCallback,
+    private readonly disablePanAndZoom = false,
   ) {
     const ctx = canvaRef.getContext("2d");
     if (!ctx) {
@@ -346,6 +347,10 @@ export class ChartCanvas {
   }
 
   private handlePointerDown(event: PointerEvent): void {
+    if (this.disablePanAndZoom) {
+      return;
+    }
+
     this.dragging = true;
     this.lastPointerX = event.clientX;
     this.lastPointerY = event.clientY;
@@ -362,6 +367,10 @@ export class ChartCanvas {
   }
 
   private handleWheel(event: WheelEvent): void {
+    if (this.disablePanAndZoom) {
+      return;
+    }
+
     event.preventDefault();
 
     // clean tooltip

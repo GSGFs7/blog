@@ -1,0 +1,17 @@
+.markdown-body .md-chart::after {
+  content: attr(data-caption);
+  display: block;
+  margin-top: 0.5em;
+  font-size: 0.85em;
+  color: var(--md-blockquote-fg);
+  /* simulate `font-style: italic` */
+  /* it has some problem in Firefox when display emoji */
+  font-style: normal;
+  transform: skewX(-8deg);
+  transform-origin: center;
+  text-align: center;
+}
+
+.markdown-body .md-chart[data-caption=""]::after {
+  display: none;
+}
