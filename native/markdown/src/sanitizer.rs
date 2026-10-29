@@ -258,7 +258,14 @@ mod tests {
                 r"\cancel{x}",
                 vec!["<line", "stroke-width=", "notation=\"updiagonalstrike\""],
             ),
-            (r"\boxed{x}", vec!["border-width:", "border-style:solid"]),
+            (
+                r"\boxed{O(V^2+EV)}",
+                vec![
+                    "class=\"katex-stretchy fbox\"",
+                    "border-width:",
+                    "border-style:solid",
+                ],
+            ),
             (r"\color{red}{x}", vec!["color:red", "mathcolor=\"red\""]),
             (
                 r"\colorbox{yellow}{x}",
