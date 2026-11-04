@@ -125,7 +125,7 @@ metadata:
   name: blog-celery-worker-image-hpa
 spec:
   minReplicas: 1
-  maxReplicas: 3
+  maxReplicas: 2
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
