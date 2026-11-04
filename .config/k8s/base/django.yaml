@@ -6,11 +6,12 @@ metadata:
   labels:
     app: blog-django
 spec:
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: blog-django
@@ -79,11 +80,18 @@ spec:
             - blog.asgi:application
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: "768Mi"
+              cpu: "750m"
             limits:
               memory: "1Gi"
-              cpu: "500m"
+              cpu: "1500m"
+          readinessProbe:
+            httpGet:
+              port: 8000
+              path: /api/health
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               port: 8000
@@ -147,32 +155,6 @@ spec:
       port: 8080
       targetPort: static
   type: ClusterIP
-
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: blog-django-hpa
-spec:
-  minReplicas: 2
-  maxReplicas: 3
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: blog-django
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 80
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
 
 ---
 apiVersion: v1

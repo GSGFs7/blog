@@ -80,8 +80,8 @@ spec:
               value: "0"
           resources:
             requests:
-              memory: "1800Mi"
-              cpu: "300m"
+              memory: "1Gi"
+              cpu: "200m"
             limits:
               memory: "2Gi"
               cpu: "500m"

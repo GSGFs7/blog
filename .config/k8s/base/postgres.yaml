@@ -54,11 +54,11 @@ spec:
               subPath: postgresql.conf
           resources:
             requests:
-              memory: "768Mi"
-              cpu: "250m" # 1000m == 1 cpu core
+              memory: "2Gi"
+              cpu: "500m" # 1000m = 1 cpu core
             limits:
-              memory: "1Gi"
-              cpu: "1000m"
+              memory: "4Gi"
+              cpu: "1500m"
           args:
             - postgres
             - -c
@@ -126,16 +126,16 @@ metadata:
     argocd.argoproj.io/sync-wave: "-2"
 data:
   postgresql.conf: |
-    shared_buffers = 256MB
+    shared_buffers = 1GB
     max_connections = 200
-    maintenance_work_mem = 64MB
+    maintenance_work_mem = 128MB
     checkpoint_completion_target = 0.9
-    effective_cache_size = 768MB
+    effective_cache_size = 3GB
     wal_buffers = 7864kB
     default_statistics_target = 100
     random_page_cost = 1.1
     effective_io_concurrency = 200
-    work_mem = 1260kB
+    work_mem = 4MB
     huge_pages = off
     min_wal_size = 1GB
     max_wal_size = 4GB
