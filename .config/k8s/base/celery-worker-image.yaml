@@ -6,6 +6,7 @@ metadata:
   labels:
     app: blog-celery-worker-image
 spec:
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -117,29 +118,3 @@ spec:
         - name: model-cache
           persistentVolumeClaim:
             claimName: blog-model-pvc
-
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: blog-celery-worker-image-hpa
-spec:
-  minReplicas: 1
-  maxReplicas: 2
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: blog-celery-worker-image
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 85
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 95
