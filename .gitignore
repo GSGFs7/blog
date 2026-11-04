@@ -1,24 +1,34 @@
+# Python / native builds
 __pycache__
 .venv/
 *.pyc
+*.so
+*.egg-info/
+target/
+
+# Frontend assets
 node_modules
 web/static/dist/
 web/static/ssr/
 web/static/katex/
+bundle-report.html
+
+# Test reports / artifacts
 coverage/
 .coverage
 coverage.xml
-bundle-report.html
 test-results/
 .vitest-attachments/
 __screenshots__/
 __traces__/
-target/
 artifacts/
 
+# Local development tools
 .vscode/
 .idea/
+*.http
 
+# Environment / credentials
 .env*
 !.env.example
 .ssh/
@@ -26,19 +36,16 @@ hf_token.txt
 .config/k8s/secret.yaml
 keys/
 
+# Backups / local data
 backups/
 *.dump
 *.sql.gz
-*.so
-*.egg-info/
-
 db.sqlite3
+sentence_transformers_models/
+media/
+
+# Generated project files
 django.tar.zst
 openapi.json
-sentence_transformers_models/
 staticfiles/
-media/
 testapp/
-.gemini/
-*.http
-.codex
