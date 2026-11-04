@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: blog
+
+resources:
+  - cronjob.yaml
+
+configMapGenerator:
+  - name: blog-k6-script
+    files:
+      - read.js
