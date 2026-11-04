@@ -35,6 +35,13 @@ async def get_all_posts(request):
     return (
         Post.objects.select_related("category")
         .prefetch_related("tags")
+        .defer(
+            "content",
+            "content_html",
+            "toc",
+            "tokenized_content",
+            "pg_gin_search_vector",
+        )
         .filter(status="published")
     )
 
