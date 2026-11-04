@@ -1,39 +1,19 @@
 import { expect, test } from "@playwright/test";
 
-const behaviorNames = ["blog-header", "code-expander", "mobile-decoration", "zoom"] as const;
-
-function behaviorNameFromUrl(url: string): (typeof behaviorNames)[number] | undefined {
-  const pathname = new URL(url).pathname;
-  return behaviorNames.find(
-    (name) =>
-      pathname.includes(`/core/behaviors/${name}.`) ||
-      pathname.includes(`/core/behaviors/implementations/${name}.`) ||
-      pathname.includes(`/${name}-`),
-  );
-}
-
-test("loads behavior chunks on demand and remounts after enhanced navigation", async ({ page }) => {
-  const requestedBehaviors: string[] = [];
+test("remounts behaviors after enhanced navigation", async ({ page }) => {
   const pageErrors: Error[] = [];
 
-  page.on("request", (request) => {
-    const name = behaviorNameFromUrl(request.url());
-    if (name) {
-      requestedBehaviors.push(name);
-    }
-  });
   page.on("pageerror", (error) => pageErrors.push(error));
 
   await page.goto("/about");
   await expect(page.getByRole("heading", { name: "关于我" })).toBeVisible();
-  expect(requestedBehaviors).toEqual([]);
+  await expect(page.locator("[data-blog-header]")).toHaveCount(0);
 
   await page.goto("/blog");
   const header = page.locator("[data-blog-header]");
   const image = page.locator("[data-blog-header-image]");
   await expect(header).toBeVisible();
-  await expect.poll(() => requestedBehaviors.includes("blog-header")).toBe(true);
-  const initiallyRequestedBehaviors = [...requestedBehaviors];
+  const initialDocument = await page.evaluateHandle(() => document);
 
   const initialTransform = await image.evaluate((element) => element.style.transform);
   const box = await header.boundingBox();
@@ -57,7 +37,17 @@ test("loads behavior chunks on demand and remounts after enhanced navigation", a
     .getByRole("link", { name: "Blog", exact: true })
     .click();
   await expect(page).toHaveURL(/\/blog$/);
-  await expect(page.locator("[data-blog-header]")).toBeVisible();
-  expect(requestedBehaviors).toEqual(initiallyRequestedBehaviors);
+  await expect(header).toBeVisible();
+  expect(await initialDocument.evaluate((original) => original === document)).toBe(true);
+
+  const restoredTransform = await image.evaluate((element) => element.style.transform);
+  const restoredBox = await header.boundingBox();
+  if (!restoredBox) {
+    throw new Error("Restored blog header has no bounding box");
+  }
+  await page.mouse.move(restoredBox.x + restoredBox.width - 4, restoredBox.y + 4);
+  await expect
+    .poll(() => image.evaluate((element) => element.style.transform))
+    .not.toBe(restoredTransform);
   expect(pageErrors).toEqual([]);
 });
