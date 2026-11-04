@@ -32,18 +32,20 @@ steps:
       - git config user.name "Woodpecker CI"
       - git remote remove gitops 2>/dev/null || true
       - git remote add gitops "$GITOPS_REPO_URL"
-      # update kustomization
-      - cd .config/k8s/overlays/prod
-      - kustomize edit set image blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}
-      - kustomize edit set image blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}
-      - kustomize edit set image blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}
-      - kustomize edit set image blog-pgbouncer=$REGISTRY_DOMAIN/blog-pgbouncer:${CI_COMMIT_SHA}
-      # push
-      - git add kustomization.yaml
+      # update kustomization & push
       - |
+        set -eu
+        git fetch --no-tags gitops "refs/heads/${CI_COMMIT_BRANCH}"
+        git checkout --detach FETCH_HEAD
+        cd .config/k8s/overlays/prod
+        kustomize edit set image "blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}"
+        kustomize edit set image "blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}"
+        kustomize edit set image "blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}"
+        kustomize edit set image "blog-pgbouncer=$REGISTRY_DOMAIN/blog-pgbouncer:${CI_COMMIT_SHA}"
+        git add kustomization.yaml
         if ! git diff --cached --quiet; then
           git commit -m "chore(gitops): update image tags to ${CI_COMMIT_SHA:0:7} [skip ci]"
-          git push gitops HEAD:${CI_COMMIT_BRANCH}
+          git push gitops "HEAD:refs/heads/${CI_COMMIT_BRANCH}"
         else
           echo "No changes to commit"
         fi
