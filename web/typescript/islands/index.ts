@@ -9,7 +9,7 @@ export const COMPONENTS: Record<string, () => Promise<SolidComponent<ComponentPr
   PythonPlayground: async () => (await import("./PythonREPL/PythonPlayground.island")).default,
   Chart: async () => (await import("./Chart")).default,
   WIP: async () => (await import("./WIP")).default,
-  MusicTrack: async () => (await import("./MusicPlayer/MusicTrack.island")).default,
-  MusicDock: async () => (await import("./MusicPlayer/MusicDock.island")).default,
+  MusicTrack: async () => (await import("./MusicPlayer")).MusicTrack,
+  MusicDock: async () => (await import("./MusicPlayer")).MusicDock,
   ModelViewer: async () => (await import("./ModelViewer")).default,
 } as const;

@@ -2,7 +2,7 @@
 
 import { setupBehaviors } from "./core/behaviors";
 import { setupLazyIsland } from "./core/lazy-islands";
-import { setupNavigation } from "./core/navigation";
+import { setupNavigation } from "./core/navigation/setup"; // import from sub-dir avoid share dependencies with other chunk
 
 setupBehaviors();
 await setupNavigation();

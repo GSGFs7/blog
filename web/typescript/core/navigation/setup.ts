@@ -1,3 +1,6 @@
+// make it as a inline dependency (reduce js chunks)
+import { setupNativePageNavigation } from "./adapters/native";
+
 const hasNavigationAPI = () =>
   "navigation" in window &&
   "NavigateEvent" in window &&
@@ -12,7 +15,6 @@ export async function setupNavigation() {
   // auto mode
   if (requestedMode === "auto") {
     if (hasNavigationAPI()) {
-      const { setupNativePageNavigation } = await import("./adapters/native");
       setupNativePageNavigation(document);
     } else {
       await import("./adapters/htmx/bootstrap");
@@ -21,7 +23,6 @@ export async function setupNavigation() {
 
   // native mode
   if (requestedMode === "native" && hasNavigationAPI()) {
-    const { setupNativePageNavigation } = await import("./adapters/native");
     setupNativePageNavigation(document);
   }
 

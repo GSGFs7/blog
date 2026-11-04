@@ -1,19 +1,24 @@
+import { createArticleLinkBehavior } from "./implementations/article-links";
+import { createBlogHeaderBehavior } from "./implementations/blog-header";
+import { createCodeExpanderBehavior } from "./implementations/code-expander";
 import { createImagePlaceholderBehavior } from "./implementations/image-placeholder";
+import { createItalicEmojiBehavior } from "./implementations/italic-emoji";
+import { createMobileDecorationBehavior } from "./implementations/mobile-decoration";
+import { createZoomBehavior } from "./implementations/zoom";
 import type { BehaviorDefinition } from "./types";
 
 export const behaviorRegistry = [
   {
     selector: "[data-blog-header]",
-    load: async () => (await import("./implementations/blog-header")).createBlogHeaderBehavior,
+    inline: createBlogHeaderBehavior,
   },
   {
     selector: ".markdown-body pre, .markdown-body .terminal",
-    load: async () => (await import("./implementations/code-expander")).createCodeExpanderBehavior,
+    inline: createCodeExpanderBehavior,
   },
   {
     selector: "[data-mobile-undecorated]",
-    load: async () =>
-      (await import("./implementations/mobile-decoration")).createMobileDecorationBehavior,
+    inline: createMobileDecorationBehavior,
   },
   {
     selector: "img.image-placeholder",
@@ -21,14 +26,14 @@ export const behaviorRegistry = [
   },
   {
     selector: ".markdown-body img",
-    load: async () => (await import("./implementations/zoom")).createZoomBehavior,
+    inline: createZoomBehavior,
   },
   {
     selector: ".markdown-body a[href]",
-    load: async () => (await import("./implementations/article-links")).createArticleLinkBehavior,
+    inline: createArticleLinkBehavior,
   },
   {
     selector: ".markdown-body em, .markdown-body i",
-    load: async () => (await import("./implementations/italic-emoji")).createItalicEmojiBehavior,
+    inline: createItalicEmojiBehavior,
   },
 ] satisfies readonly BehaviorDefinition[];

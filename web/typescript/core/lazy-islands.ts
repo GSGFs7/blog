@@ -1,3 +1,4 @@
+import { COMPONENTS } from "../islands";
 import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation";
 
 const ISLAND_SELECTOR = "[data-solid-island]";
@@ -13,8 +14,8 @@ function containsIsland(root: ParentNode): boolean {
 }
 
 function loadRuntime(): Promise<void> {
-  setupPromise ??= Promise.all([import("./bootstrap"), import("../islands")])
-    .then(([{ setupIslands }, { COMPONENTS }]) => {
+  setupPromise ??= import("./bootstrap")
+    .then(({ setupIslands }) => {
       setupIslands(COMPONENTS);
     })
     .catch((error: unknown) => {
