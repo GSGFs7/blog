@@ -18,16 +18,14 @@ from time import monotonic, sleep
 from typing import TypedDict
 from urllib.parse import quote, urlsplit
 
-import boto3
 import httpx2
 from blake3 import blake3
-from botocore.config import Config
-from botocore.exceptions import ClientError
+
+from core.r2 import ObjectMetadata, PreconditionFailed, SignatureMismatch, SyncR2Client
 
 IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 RELEASE_CACHE_CONTROL = "no-store"
 MAX_WORKERS = 16
-S3_REGION = "auto"
 VERIFY_INITIAL_RPS = 8.0
 VERIFY_MIN_RPS = 1.0
 VERIFY_MAX_RPS = 32.0
@@ -254,24 +252,8 @@ def public_asset_url(base_url: str, relative_path: str) -> str:
     return f"{base_url.rstrip('/')}/{quote(relative, safe='/')}"
 
 
-def _is_precondition_failed(error: ClientError) -> bool:
-    response = error.response
-    status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-    code = response.get("Error", {}).get("Code")
-    return status == 412 or code == "PreconditionFailed"
-
-
-def _raise_upload_error(error: ClientError) -> None:
-    if error.response.get("Error", {}).get("Code") == "SignatureDoesNotMatch":
-        raise RuntimeError(
-            "R2 rejected the S3 signature. Verify the R2 S3 endpoint and the "
-            "Access Key ID/Secret Access Key configured in CI."
-        ) from error
-    raise error
-
-
 def _validate_stored_object(
-    response,
+    response: ObjectMetadata,
     *,
     key: str,
     digest: str,
@@ -279,15 +261,14 @@ def _validate_stored_object(
     content_type: str,
     cache_control: str,
 ) -> None:
-    metadata = response.get("Metadata", {})
-    if metadata.get("blake3") != digest:
+    if response.metadata.get("blake3") != digest:
         raise RuntimeError(f"Immutable asset collision: {key}")
-    if response.get("ContentLength") != size:
+    if response.size != size:
         raise RuntimeError(f"Static asset size mismatch: {key}")
-    if response.get("CacheControl") != cache_control:
+    if response.cache_control != cache_control:
         raise RuntimeError(f"Static asset cache policy mismatch: {key}")
 
-    actual_content_type = response.get("ContentType", "").split(";", 1)[0].lower()
+    actual_content_type = (response.content_type or "").split(";", 1)[0].lower()
     expected_content_type = content_type.split(";", 1)[0].lower()
     if actual_content_type != expected_content_type:
         raise RuntimeError(f"Static asset content type mismatch: {key}")
@@ -296,7 +277,6 @@ def _validate_stored_object(
 def upload_asset(
     client,
     *,
-    bucket: str,
     key: str,
     path: Path,
     relative_path: str,
@@ -308,21 +288,24 @@ def upload_asset(
 
     try:
         with path.open("rb") as body:
-            client.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=body,
-                IfNoneMatch="*",
-                ContentType=content_type,
-                CacheControl=IMMUTABLE_CACHE_CONTROL,
-                Metadata={"blake3": digest},
+            client.put(
+                key,
+                body,
+                content_length=size,
+                if_none_match="*",
+                content_type=content_type,
+                cache_control=IMMUTABLE_CACHE_CONTROL,
+                metadata={"blake3": digest},
             )
-    except ClientError as error:
-        if not _is_precondition_failed(error):
-            _raise_upload_error(error)
+    except PreconditionFailed:
         uploaded = False
+    except SignatureMismatch as error:
+        raise RuntimeError(
+            "R2 rejected the S3 signature. Verify the R2 S3 endpoint and the "
+            "Access Key ID/Secret Access Key configured in CI."
+        ) from error
 
-    stored = client.head_object(Bucket=bucket, Key=key)
+    stored = client.stat(key)
     _validate_stored_object(
         stored,
         key=key,
@@ -445,7 +428,6 @@ def check_asset(
 def upload_release_manifest(
     client,
     *,
-    bucket: str,
     prefix: str,
     manifest: ReleaseManifest,
 ) -> tuple[str, bool]:
@@ -460,21 +442,23 @@ def upload_release_manifest(
     uploaded = True
 
     try:
-        client.put_object(
-            Bucket=bucket,
-            Key=key,
-            Body=body,
-            IfNoneMatch="*",
-            ContentType="application/json",
-            CacheControl=RELEASE_CACHE_CONTROL,
-            Metadata={"blake3": digest},
+        client.put(
+            key,
+            body,
+            if_none_match="*",
+            content_type="application/json",
+            cache_control=RELEASE_CACHE_CONTROL,
+            metadata={"blake3": digest},
         )
-    except ClientError as error:
-        if not _is_precondition_failed(error):
-            _raise_upload_error(error)
+    except PreconditionFailed:
         uploaded = False
+    except SignatureMismatch as error:
+        raise RuntimeError(
+            "R2 rejected the S3 signature. Verify the R2 S3 endpoint and the "
+            "Access Key ID/Secret Access Key configured in CI."
+        ) from error
 
-    stored = client.head_object(Bucket=bucket, Key=key)
+    stored = client.stat(key)
     _validate_stored_object(
         stored,
         key=key,
@@ -491,7 +475,6 @@ def publish_static_assets(
     http_client: httpx2.Client,
     *,
     root: Path,
-    bucket: str,
     prefix: str,
     public_url: str,
     allowed_origin: str,
@@ -524,7 +507,6 @@ def publish_static_assets(
         relative = path.relative_to(root).as_posix()
         return upload_asset(
             s3_client,
-            bucket=bucket,
             key=object_key(prefix, relative),
             path=path,
             relative_path=relative,
@@ -561,7 +543,6 @@ def publish_static_assets(
     }
     release_key, release_uploaded = upload_release_manifest(
         s3_client,
-        bucket=bucket,
         prefix=prefix,
         manifest=manifest,
     )
@@ -608,22 +589,6 @@ def _positive_int_environment(name: str, default: int) -> int:
     return value
 
 
-def create_s3_client(
-    *,
-    endpoint_url: str,
-    access_key_id: str,
-    secret_access_key: str,
-):
-    return boto3.client(
-        "s3",
-        endpoint_url=endpoint_url,
-        aws_access_key_id=access_key_id,
-        aws_secret_access_key=secret_access_key,
-        region_name=S3_REGION,
-        config=Config(signature_version="s3v4"),
-    )
-
-
 def main() -> int:
     root = Path(__file__).resolve().parent.parent / "staticfiles"
 
@@ -657,17 +622,19 @@ def main() -> int:
         VERIFY_SUCCESS_STEP,
     )
 
-    s3_client = create_s3_client(
-        endpoint_url=endpoint_url,
-        access_key_id=access_key_id,
-        secret_access_key=secret_access_key,
-    )
-    with httpx2.Client(timeout=10) as http_client:
+    with (
+        SyncR2Client(
+            endpoint=endpoint_url,
+            access_key=access_key_id,
+            secret_key=secret_access_key,
+            bucket=bucket,
+        ) as s3_client,
+        httpx2.Client(timeout=10) as http_client,
+    ):
         publish_static_assets(
             s3_client,
             http_client,
             root=root,
-            bucket=bucket,
             prefix=prefix,
             public_url=public_url,
             allowed_origin=allowed_origin,

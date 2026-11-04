@@ -17,7 +17,7 @@ COPY scripts/upload.py /app/
 
 # Install Python dependencies (from pypi)
 # Using --break-system-packages because Arch Linux is an externally managed environment
-RUN pip install --no-cache-dir boto3 boto3-stubs[s3] python-dotenv --break-system-packages
+RUN pip install --no-cache-dir boto3 python-dotenv --break-system-packages
 
 ENV PYTHONUNBUFFERED=1
 

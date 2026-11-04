@@ -6,11 +6,9 @@ from email.utils import format_datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from botocore.exceptions import ClientError
-
+from core.r2 import ObjectMetadata, PreconditionFailed, SignatureMismatch
 from scripts.publish_static_assets import (
     IMMUTABLE_CACHE_CONTROL,
-    S3_REGION,
     VERIFY_USER_AGENT,
     AdaptiveRateLimiter,
     _content_type,
@@ -20,7 +18,7 @@ from scripts.publish_static_assets import (
     _retry_after_seconds,
     check_asset,
     collect_asset_paths,
-    create_s3_client,
+    main,
     object_key,
     public_asset_url,
     publish_static_assets,
@@ -41,39 +39,33 @@ class FakeClock:
         self.value += seconds
 
 
-class FakeS3Client:
+class FakeR2Client:
     def __init__(self):
         self.objects = {}
 
-    def put_object(self, **kwargs):
-        key = kwargs["Key"]
-        if key in self.objects:
-            raise ClientError(
-                {
-                    "Error": {"Code": "PreconditionFailed"},
-                    "ResponseMetadata": {"HTTPStatusCode": 412},
-                },
-                "PutObject",
-            )
+    def put(self, key, body, **kwargs):
+        if kwargs["if_none_match"] == "*" and key in self.objects:
+            raise PreconditionFailed("Object already exists", status_code=412)
 
-        body = kwargs["Body"]
         data = body.read() if hasattr(body, "read") else body
+        if "content_length" in kwargs:
+            assert kwargs["content_length"] == len(data)
         self.objects[key] = {
             "body": data,
-            "metadata": kwargs["Metadata"],
-            "content_type": kwargs["ContentType"],
-            "cache_control": kwargs["CacheControl"],
+            "metadata": kwargs["metadata"],
+            "content_type": kwargs["content_type"],
+            "cache_control": kwargs["cache_control"],
         }
 
-    def head_object(self, *, Bucket, Key):
-        del Bucket
-        stored = self.objects[Key]
-        return {
-            "Metadata": stored["metadata"],
-            "ContentLength": len(stored["body"]),
-            "ContentType": stored["content_type"],
-            "CacheControl": stored["cache_control"],
-        }
+    def stat(self, key):
+        stored = self.objects[key]
+        return ObjectMetadata(
+            key=key,
+            metadata=stored["metadata"],
+            size=len(stored["body"]),
+            content_type=stored["content_type"],
+            cache_control=stored["cache_control"],
+        )
 
 
 class AdaptiveRateLimiterTest(unittest.TestCase):
@@ -347,23 +339,46 @@ class StaticAssetLocationTest(unittest.TestCase):
 
 
 class StaticAssetConfigurationTest(unittest.TestCase):
-    @patch("scripts.publish_static_assets.boto3.client")
-    def test_uses_r2_signature_configuration(self, boto_client):
-        expected_client = Mock()
-        boto_client.return_value = expected_client
-
-        actual = create_s3_client(
-            endpoint_url="https://account.r2.cloudflarestorage.com",
-            access_key_id="access-key",
-            secret_access_key="secret-key",
-        )
-
-        self.assertIs(actual, expected_client)
-        boto_client.assert_called_once()
-        args, kwargs = boto_client.call_args
-        self.assertEqual(args, ("s3",))
-        self.assertEqual(kwargs["region_name"], S3_REGION)
-        self.assertEqual(kwargs["config"].signature_version, "s3v4")
+    @patch("scripts.publish_static_assets.publish_static_assets")
+    @patch("scripts.publish_static_assets.httpx2.Client")
+    @patch("scripts.publish_static_assets.SyncR2Client")
+    def test_main_configures_and_closes_clients(self, r2_client, http_client, publish):
+        environment = {
+            "STATIC_ASSET_ENDPOINT_URL": "https://account.r2.cloudflarestorage.com",
+            "STATIC_ASSET_ACCESS_KEY_ID": "access-key",
+            "STATIC_ASSET_SECRET_ACCESS_KEY": "secret-key",
+            "STATIC_ASSET_BUCKET": "static-bucket",
+            "STATIC_ASSET_PREFIX": "static",
+            "STATIC_ASSET_PUBLIC_URL": "https://static.example.com",
+            "STATIC_ASSET_ALLOWED_ORIGIN": "https://example.com",
+            "CI_COMMIT_SHA": "a" * 40,
+        }
+        for error in (None, RuntimeError("publish failed")):
+            with self.subTest(error=error):
+                r2_client.reset_mock()
+                http_client.reset_mock()
+                publish.side_effect = error
+                with patch.dict("os.environ", environment, clear=True):
+                    if error is None:
+                        self.assertEqual(main(), 0)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "publish failed"):
+                            main()
+                r2_client.assert_called_once_with(
+                    endpoint=environment["STATIC_ASSET_ENDPOINT_URL"],
+                    access_key="access-key",
+                    secret_key="secret-key",
+                    bucket="static-bucket",
+                )
+                self.assertEqual(
+                    publish.call_args.args,
+                    (
+                        r2_client.return_value.__enter__.return_value,
+                        http_client.return_value.__enter__.return_value,
+                    ),
+                )
+                r2_client.return_value.__exit__.assert_called_once()
+                http_client.return_value.__exit__.assert_called_once()
 
     @patch(
         "scripts.publish_static_assets.os.getenv",
@@ -448,7 +463,7 @@ class StaticAssetPublicationTest(unittest.TestCase):
             encoding="utf-8",
         )
         (self.root / "dist" / "manifest.json").write_text("{}", encoding="utf-8")
-        self.s3_client = FakeS3Client()
+        self.s3_client = FakeR2Client()
         self.http_client = Mock()
         response = Mock()
         response.status_code = 200
@@ -468,7 +483,6 @@ class StaticAssetPublicationTest(unittest.TestCase):
             self.s3_client,
             self.http_client,
             root=self.root,
-            bucket="static-bucket",
             prefix="/static/",
             public_url="https://static.gsgfs.moe/static/",
             allowed_origin="https://gsgfs.moe",
@@ -519,7 +533,6 @@ class StaticAssetPublicationTest(unittest.TestCase):
         path = self.root / "asset.abc.css"
         upload_asset(
             self.s3_client,
-            bucket="static-bucket",
             key="static/asset.abc.css",
             path=path,
             relative_path="asset.abc.css",
@@ -529,21 +542,14 @@ class StaticAssetPublicationTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "collision"):
             upload_asset(
                 self.s3_client,
-                bucket="static-bucket",
                 key="static/asset.abc.css",
                 path=path,
                 relative_path="asset.abc.css",
             )
 
     def test_reports_signature_configuration_error(self):
-        self.s3_client.put_object = Mock(
-            side_effect=ClientError(
-                {
-                    "Error": {"Code": "SignatureDoesNotMatch"},
-                    "ResponseMetadata": {"HTTPStatusCode": 403},
-                },
-                "PutObject",
-            )
+        self.s3_client.put = Mock(
+            side_effect=SignatureMismatch("SignatureDoesNotMatch", status_code=403)
         )
 
         with self.assertRaisesRegex(RuntimeError, "R2 rejected the S3 signature"):
