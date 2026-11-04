@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup } from "solid-js";
 
-import { bootstrap, cleanup } from "../../core/bootstrap";
+const { bootstrap, cleanup } = await import("../../core/bootstrap");
 
 export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement }>) {
   let previewContainerRef: HTMLDivElement | undefined;

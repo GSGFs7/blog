@@ -1,6 +1,8 @@
-import { setupIslands } from "../core/bootstrap";
+import { render } from "solid-js/web";
+
 import { COMPONENTS } from "../islands";
 
+const { setupIslands } = await import("../core/bootstrap");
 setupIslands(COMPONENTS);
 
 (async function adminMount() {
@@ -9,7 +11,6 @@ setupIslands(COMPONENTS);
   ) as HTMLTextAreaElement;
   // TODO: add a switch?
   if (textareaForMarkdownEditor) {
-    const { render } = await import("solid-js/web");
     const { AdminPostEditor } = await import("./post_editor");
 
     // 1. create new element for render editor
