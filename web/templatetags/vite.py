@@ -4,6 +4,7 @@ from pathlib import Path
 
 from django import template
 from django.conf import settings
+from django.utils.html import format_html_join
 from django.utils.safestring import mark_safe
 
 register = template.Library()
@@ -24,6 +25,43 @@ def vite_asset(entry_point: str):
     try:
         manifest = _load_manifest()
         return f"{settings.STATIC_URL}dist/{manifest[entry_point]['file']}"
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "Vite manifest not found. Run `pnpm run build` first."
+        ) from exc
+    except (KeyError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Vite asset `{entry_point}` is missing from manifest.json."
+        ) from exc
+
+
+@register.simple_tag
+def vite_modulepreload(entry_point: str):
+    if settings.DEBUG:
+        return ""
+
+    try:
+        manifest = _load_manifest()
+        seen = {entry_point}
+        files = {}
+
+        # recursive collect imports
+        def collect_imports(key):
+            for dependency in manifest[key].get("imports", []):
+                if dependency in seen:
+                    continue
+                seen.add(dependency)
+                chunk = manifest[dependency]
+                if chunk["file"].endswith(".js"):
+                    files[chunk["file"]] = None
+                collect_imports(dependency)
+
+        collect_imports(entry_point)
+        return format_html_join(
+            "\n",
+            '<link rel="modulepreload" href="{}" crossorigin>',
+            ((f"{settings.STATIC_URL}dist/{file}",) for file in files),
+        )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "Vite manifest not found. Run `pnpm run build` first."

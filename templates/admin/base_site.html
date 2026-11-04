@@ -4,6 +4,7 @@
 {% block extrahead %}
   {{ block.super }}
   {% vite_hmr %}
+  {% vite_modulepreload 'web/typescript/admin/index.ts' %}
   <script type="module" src="{% vite_asset 'web/typescript/admin/index.ts' %}"></script>
 {% endblock %}
 

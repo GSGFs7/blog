@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.template import Context, Template
 from django.test import SimpleTestCase, override_settings
@@ -76,3 +77,65 @@ class ViteTemplateTagTests(SimpleTestCase):
                     Template(
                         "{% load vite %}{% vite_asset 'web/typescript/index.tsx' %}"
                     ).render(Context())
+
+    @override_settings(DEBUG=True)
+    @patch.object(vite, "_load_manifest")
+    def test_modulepreload_skips_manifest_in_development(self, load_manifest):
+        rendered = Template(
+            "{% load vite %}{% vite_modulepreload 'entry.ts' %}"
+        ).render(Context())
+        self.assertEqual(rendered, "")
+        load_manifest.assert_not_called()
+
+    @override_settings(DEBUG=False, STATIC_URL="https://cdn.example.com/static/")
+    @patch.object(vite, "_load_manifest")
+    def test_modulepreload_traverses_static_imports_once(self, load_manifest):
+        load_manifest.return_value = {
+            "entry.ts": {
+                "file": "entry.js",
+                "imports": ["_a", "_b"],
+                "dynamicImports": ["lazy.ts"],
+            },
+            "_a": {"file": "a.js", "imports": ["_shared"]},
+            "_b": {"file": "b.js", "imports": ["_shared"]},
+            "_shared": {"file": "shared.js", "imports": ["entry.ts", "_a"]},
+            "lazy.ts": {"file": "lazy.js", "imports": ["_lazy_dependency"]},
+            "_lazy_dependency": {"file": "lazy-dependency.js"},
+        }
+        rendered = Template(
+            "{% load vite %}{% vite_modulepreload 'entry.ts' %}"
+        ).render(Context())
+        self.assertEqual(
+            rendered,
+            "\n".join(
+                '<link rel="modulepreload" '
+                f'href="https://cdn.example.com/static/dist/{file}" crossorigin>'
+                for file in ["a.js", "shared.js", "b.js"]
+            ),
+        )
+
+    @override_settings(DEBUG=False)
+    @patch.object(vite, "_load_manifest")
+    def test_modulepreload_without_imports(self, load_manifest):
+        load_manifest.return_value = {"entry.ts": {"file": "entry.js"}}
+        self.assertEqual(vite.vite_modulepreload("entry.ts"), "")
+
+    @override_settings(DEBUG=False, STATIC_URL="/static/")
+    @patch.object(vite, "_load_manifest")
+    def test_modulepreload_escapes_urls_and_deduplicates_files(self, load_manifest):
+        load_manifest.return_value = {
+            "entry.ts": {"file": "entry.js", "imports": ["_a", "_alias"]},
+            "_a": {"file": 'shared-".js'},
+            "_alias": {"file": 'shared-".js'},
+        }
+        self.assertEqual(
+            vite.vite_modulepreload("entry.ts"),
+            '<link rel="modulepreload" '
+            'href="/static/dist/shared-&quot;.js" crossorigin>',
+        )
+
+    @override_settings(DEBUG=False)
+    @patch.object(vite, "_load_manifest", return_value={})
+    def test_modulepreload_rejects_missing_entry(self, load_manifest):
+        with self.assertRaisesMessage(RuntimeError, "missing from manifest.json"):
+            vite.vite_modulepreload("entry.ts")
