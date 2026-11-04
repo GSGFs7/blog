@@ -81,10 +81,10 @@ spec:
           resources:
             requests:
               memory: "512Mi"
-              cpu: "750m"
+              cpu: "512m"
             limits:
               memory: "1Gi"
-              cpu: "1500m"
+              cpu: "1024m"
           readinessProbe:
             httpGet:
               port: 8000
