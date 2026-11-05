@@ -12,6 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_NO_DEV=1 \
     DOCKER_ENV="True" \
     PATH="/app/.venv/bin:/usr/bin/vendor_perl:$PATH"
 
