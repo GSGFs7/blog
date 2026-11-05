@@ -93,12 +93,11 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
-            httpGet:
+            tcpSocket:
               port: 8000
-              path: /api/health
             initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
           startupProbe:
             httpGet:
