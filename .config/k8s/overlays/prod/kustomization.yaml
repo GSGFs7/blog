@@ -25,15 +25,13 @@ patches:
 images:
 - name: blog-app
   newName: registry.gsgfs.sh/blog-app
-  newTag: 75b8db6e2d94fd02a0014fba026b44316a3b15aa
+  newTag: b37b3e041bfe5feb5bf0a33dcae1135d32732925
 - name: blog-backup
   newName: registry.gsgfs.sh/blog-backup
-  newTag: 75b8db6e2d94fd02a0014fba026b44316a3b15aa
+  newTag: b37b3e041bfe5feb5bf0a33dcae1135d32732925
 - name: blog-model-downloader
   newName: registry.gsgfs.sh/blog-model-downloader
-  newTag: 75b8db6e2d94fd02a0014fba026b44316a3b15aa
+  newTag: b37b3e041bfe5feb5bf0a33dcae1135d32732925
 - name: blog-pgbouncer
   newName: registry.gsgfs.sh/blog-pgbouncer
-  newTag: 75b8db6e2d94fd02a0014fba026b44316a3b15aa
-
-# TODO: reduce update downtime
+  newTag: b37b3e041bfe5feb5bf0a33dcae1135d32732925
