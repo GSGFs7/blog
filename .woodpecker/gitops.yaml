@@ -37,7 +37,11 @@ steps:
       - |
         set -eu
         git cat-file -e "${CI_COMMIT_SHA}^{commit}"
-        git fetch --no-tags gitops refs/heads/main
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --no-tags --unshallow gitops refs/heads/main
+        else
+          git fetch --no-tags gitops refs/heads/main
+        fi
         if [ "$(git rev-parse FETCH_HEAD)" != "$CI_COMMIT_SHA" ]; then
           echo "Skipping superseded build: $CI_COMMIT_SHA"
           exit 0
