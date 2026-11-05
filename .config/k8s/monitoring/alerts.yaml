@@ -1,0 +1,100 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: blog-containers
+  namespace: blog
+spec:
+  groups:
+    - name: blog.containers
+      interval: 30s
+      rules:
+        - alert: BlogContainerOOMKilled
+          expr: |
+            (
+              max by (namespace, pod, container, uid) (
+                increase(kube_pod_container_status_restarts_total{namespace="blog"}[10m])
+              ) > 0
+            )
+            and on (namespace, pod, container, uid)
+            (
+              max by (namespace, pod, container, uid) (
+                kube_pod_container_status_last_terminated_reason{namespace="blog", reason="OOMKilled"}
+              ) == 1
+            )
+          labels:
+            severity: critical
+            service: blog
+          annotations:
+            summary: 'Blog container OOM killed: {{ $labels.pod }}/{{ $labels.container }}'
+            description: The container restarted within the last 10 minutes and its last termination reason is OOMKilled. Check memory usage and limits, and investigate memory growth during requests.
+        - alert: BlogContainerFrequentRestarts
+          expr: |
+            max by (namespace, pod, container, uid) (
+              increase(kube_pod_container_status_restarts_total{namespace="blog"}[10m])
+            ) >= 2
+          for: 1m
+          labels:
+            severity: warning
+            service: blog
+          annotations:
+            summary: 'Blog container restarting frequently: {{ $labels.pod }}/{{ $labels.container }}'
+            description: The container restarted at least twice within the last 10 minutes. Check termination reasons, probe failure events, and logs from the previous container.
+        - alert: BlogDjangoUnavailable
+          expr: |
+            (
+              max by (namespace, deployment) (
+                kube_deployment_status_replicas_available{namespace="blog", deployment="blog-django"}
+              ) == 0
+            )
+            and on (namespace, deployment)
+            (
+              max by (namespace, deployment) (
+                kube_deployment_spec_replicas{namespace="blog", deployment="blog-django"}
+              ) > 0
+            )
+          for: 1m
+          labels:
+            severity: critical
+            service: blog
+          annotations:
+            summary: Blog Django has no available replicas
+            description: The Django Deployment has had no available replicas for 1 minute. Check pod readiness, startup status, probes, and container restart history.
+        - alert: BlogContainerMemoryNearLimit
+          expr: |
+            max by (namespace, pod, container) (
+              container_memory_working_set_bytes{namespace="blog", container!="", image!=""}
+            )
+            /
+            on (namespace, pod, container)
+            (
+              max by (namespace, pod, container) (
+                kube_pod_container_resource_limits{namespace="blog", resource="memory", unit="byte"}
+              ) > 0
+            )
+            > 0.85
+          for: 3m
+          labels:
+            severity: warning
+            service: blog
+          annotations:
+            summary: 'Blog container memory near limit: {{ $labels.pod }}/{{ $labels.container }}'
+            description: Memory working set has exceeded 85% of the memory limit for 3 minutes. Check memory growth, request concurrency, and available node memory.
+        - alert: BlogContainerCPUThrottlingHigh
+          expr: |
+            max by (namespace, pod, container) (
+              rate(container_cpu_cfs_throttled_periods_total{namespace="blog", container!="", image!=""}[5m])
+            )
+            /
+            (
+              max by (namespace, pod, container) (
+                rate(container_cpu_cfs_periods_total{namespace="blog", container!="", image!=""}[5m])
+              ) > 0
+            )
+            > 0.25
+          for: 3m
+          labels:
+            severity: warning
+            service: blog
+          annotations:
+            summary: 'Blog container CPU throttling high: {{ $labels.pod }}/{{ $labels.container }}'
+            description: More than 25% of CPU scheduling periods were throttled over the last 5 minutes, and this condition has persisted for 3 minutes. This ratio does not represent lost CPU time; investigate CPU usage, limits, and request latency together.

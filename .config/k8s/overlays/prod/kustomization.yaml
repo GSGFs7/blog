@@ -35,3 +35,5 @@ images:
 - name: blog-pgbouncer
   newName: registry.gsgfs.sh/blog-pgbouncer
   newTag: 75b8db6e2d94fd02a0014fba026b44316a3b15aa
+
+# TODO: reduce update downtime
