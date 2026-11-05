@@ -2,6 +2,8 @@
 
 import os
 
+from prometheus_client.multiprocess import mark_process_dead
+
 
 def is_k8s_env() -> bool:
     return os.environ.get("K8S_ENV", "False").lower() in ("1", "true", "yes")
@@ -29,3 +31,9 @@ daemon = False
 # destroy it if a worker processed 10k request
 max_requests = 10000
 max_requests_jitter = 1000
+
+
+# exit hook
+def child_exit(server, worker):
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        mark_process_dead(worker.pid)

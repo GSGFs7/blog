@@ -3,12 +3,20 @@ kind: Kustomization
 
 resources:
   - alerts.yaml
+  - django-servicemonitor.yaml
 
 configMapGenerator:
   - name: blog-kubernetes-dashboard
     namespace: cattle-dashboards
     files:
       - blog-kubernetes.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+  - name: blog-django-dashboard
+    namespace: cattle-dashboards
+    files:
+      - blog-django.json
     options:
       labels:
         grafana_dashboard: "1"

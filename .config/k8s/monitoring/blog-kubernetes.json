@@ -1,11 +1,10 @@
 {
   "uid": "blog-kubernetes",
   "title": "Blog / Containers and Kubernetes",
-  "description": "Blog container capacity, restarts, probes, and autoscaling metrics from Rancher Monitoring. Django request metrics are not included because they have not been integrated yet.",
+  "description": "Blog container capacity, restarts, probes, and autoscaling metrics from Rancher Monitoring. Application request, database, and cache metrics are available in the Blog / Django dashboard.",
   "tags": [
     "blog",
-    "kubernetes",
-    "loadtest"
+    "kubernetes"
   ],
   "timezone": "browser",
   "schemaVersion": 39,

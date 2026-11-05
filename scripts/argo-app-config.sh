@@ -17,3 +17,4 @@ fi
 
 echo "apply to Argo CD..."
 envsubst < scripts/argo-app-config.template.yaml | kubectl apply -f -
+kubectl apply -f scripts/argo-monitoring-app.yaml
