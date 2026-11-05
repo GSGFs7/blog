@@ -52,4 +52,4 @@ spec:
                   python3 /app/upload.py upload "$BACKUP_FILE" "$BACKUP_BUCKET" backups/
                   echo "Backup and upload completed successfully."
           restartPolicy: OnFailure
-      ttlSecondsAfterFinished: 60 # 1min
+      ttlSecondsAfterFinished: 604800 # 1 week, may cleaned due to quantity reason
