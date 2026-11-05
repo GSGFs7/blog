@@ -44,7 +44,7 @@
 
 生产环境通过 Woodpecker CI + Argo CD 来实现自动化 CI/CD pipeline
 
-具体配置见 `.woodpecker/` 和 `scripts/argo-app-config.sh`
+具体配置见 `.woodpecker/` 和 `scripts/argo-app-config.sh`，Argo CD 跟踪 gitops 分支。
 
 `blog-secrets` 这个 K8s Secret 可以使用 `scripts/k3s-sync-secrets.sh` 自动生成
 

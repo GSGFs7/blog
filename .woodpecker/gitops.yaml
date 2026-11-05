@@ -3,7 +3,7 @@ depends_on:
 
 when:
   - event: [push, manual]
-    branch: [main, woodpecker-test]
+    branch: main
 
 concurrency: 1
 
@@ -18,6 +18,7 @@ steps:
       REGISTRY_DOMAIN:
         from_secret: REGISTRY_DOMAIN
       GITOPS_REPO_URL: ssh://git@forgejo-ssh.forgejo.svc.cluster.local/GSGFs/blog.git
+      GITOPS_BRANCH: gitops
     commands:
       # install dependencies
       - pacman -Syu kustomize git openssh --noconfirm
@@ -35,8 +36,15 @@ steps:
       # update kustomization & push
       - |
         set -eu
-        git fetch --no-tags gitops "refs/heads/${CI_COMMIT_BRANCH}"
+        git cat-file -e "${CI_COMMIT_SHA}^{commit}"
+        git fetch --no-tags gitops refs/heads/main
+        if [ "$(git rev-parse FETCH_HEAD)" != "$CI_COMMIT_SHA" ]; then
+          echo "Skipping superseded build: $CI_COMMIT_SHA"
+          exit 0
+        fi
+        git fetch --no-tags gitops "refs/heads/$GITOPS_BRANCH"
         git checkout --detach FETCH_HEAD
+        git restore --source="$CI_COMMIT_SHA" --staged --worktree -- .config/k8s
         cd .config/k8s/overlays/prod
         kustomize edit set image "blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}"
         kustomize edit set image "blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}"
@@ -45,7 +53,7 @@ steps:
         git add kustomization.yaml
         if ! git diff --cached --quiet; then
           git commit -m "chore(gitops): update image tags to ${CI_COMMIT_SHA:0:7} [skip ci]"
-          git push gitops "HEAD:refs/heads/${CI_COMMIT_BRANCH}"
+          git push gitops "HEAD:refs/heads/$GITOPS_BRANCH"
         else
           echo "No changes to commit"
         fi
