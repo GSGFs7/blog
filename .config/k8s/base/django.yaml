@@ -20,6 +20,7 @@ spec:
       labels:
         app: blog-django
     spec:
+      terminationGracePeriodSeconds: 90
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -56,6 +57,10 @@ spec:
       containers:
         - name: blog-django
           image: blog-app:latest
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           ports:
             - name: http
               containerPort: 8000
@@ -109,6 +114,10 @@ spec:
             failureThreshold: 10
         - name: staticfiles-service
           image: nginxinc/nginx-unprivileged:1.31.7-alpine-perl
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           ports:
             - name: static
               containerPort: 8080
