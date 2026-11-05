@@ -33,7 +33,7 @@ steps:
       - git config user.name "Woodpecker CI"
       - git remote remove gitops 2>/dev/null || true
       - git remote add gitops "$GITOPS_REPO_URL"
-      # update kustomization & push
+      # merge main & update kustomization & push
       - |
         set -eu
         git cat-file -e "${CI_COMMIT_SHA}^{commit}"
@@ -44,15 +44,15 @@ steps:
         fi
         git fetch --no-tags gitops "refs/heads/$GITOPS_BRANCH"
         git checkout --detach FETCH_HEAD
-        git restore --source="$CI_COMMIT_SHA" --staged --worktree -- .config/k8s
+        git merge --no-ff --no-commit -X theirs "$CI_COMMIT_SHA"
         cd .config/k8s/overlays/prod
         kustomize edit set image "blog-app=$REGISTRY_DOMAIN/blog-app:${CI_COMMIT_SHA}"
         kustomize edit set image "blog-backup=$REGISTRY_DOMAIN/blog-backup:${CI_COMMIT_SHA}"
         kustomize edit set image "blog-model-downloader=$REGISTRY_DOMAIN/blog-model-downloader:${CI_COMMIT_SHA}"
         kustomize edit set image "blog-pgbouncer=$REGISTRY_DOMAIN/blog-pgbouncer:${CI_COMMIT_SHA}"
         git add kustomization.yaml
-        if ! git diff --cached --quiet; then
-          git commit -m "chore(gitops): update image tags to ${CI_COMMIT_SHA:0:7} [skip ci]"
+        if ! git diff --cached --quiet || git rev-parse --verify -q MERGE_HEAD >/dev/null; then
+          git commit -m "chore(gitops): sync main and update image tags to ${CI_COMMIT_SHA:0:7} [skip ci]"
           git push gitops "HEAD:refs/heads/$GITOPS_BRANCH"
         else
           echo "No changes to commit"
