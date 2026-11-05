@@ -264,7 +264,11 @@ def _validate_stored_object(
     if response.metadata.get("blake3") != digest:
         raise RuntimeError(f"Immutable asset collision: {key}")
     if response.size != size:
-        raise RuntimeError(f"Static asset size mismatch: {key}")
+        raise RuntimeError(
+            f"Static asset size mismatch: {key} "
+            f"(expected={size}, stored={response.size}, "
+            f"content_encoding={response.content_encoding!r})"
+        )
     if response.cache_control != cache_control:
         raise RuntimeError(f"Static asset cache policy mismatch: {key}")
 

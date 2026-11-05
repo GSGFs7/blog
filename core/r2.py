@@ -759,6 +759,7 @@ class SyncR2Client(_BaseR2Client, SyncObjectStore):
         url = self._object_url(key)
 
         headers = {
+            "accept-encoding": "identity",
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
         }
         if if_none_match is not None:
@@ -1068,6 +1069,7 @@ class AsyncR2Client(_BaseR2Client, AsyncObjectStore):
         url = self._object_url(key)
 
         headers = {
+            "accept-encoding": "identity",
             "x-amz-content-sha256": EMPTY_PAYLOAD_HASH,
         }
         if if_none_match is not None:

@@ -74,6 +74,21 @@ class AsyncBrokenStream(httpx2.AsyncByteStream):
 
 
 class SyncReliabilityTest(SimpleTestCase):
+    def test_stat_requests_identity_encoding_to_preserve_object_size(self):
+        def handler(request):
+            self.assertEqual(request.method, "HEAD")
+            headers = (
+                {"content-length": "9185"}
+                if request.headers.get("accept-encoding") == "identity"
+                else {"content-encoding": "gzip"}
+            )
+            return httpx2.Response(200, headers=headers, stream=httpx2.ByteStream(b""))
+
+        metadata = self.make_client(handler).stat("autocomplete.css")
+
+        self.assertEqual(metadata.size, 9185)
+        self.assertIsNone(metadata.content_encoding)
+
     def make_client(self, handler, **options):
         client = SyncR2Client(
             "https://example.com",
@@ -215,6 +230,22 @@ class SyncReliabilityTest(SimpleTestCase):
 
 
 class AsyncReliabilityTest(IsolatedAsyncioTestCase):
+    async def test_stat_requests_identity_encoding_to_preserve_object_size(self):
+        async def handler(request):
+            self.assertEqual(request.method, "HEAD")
+            headers = (
+                {"content-length": "9185"}
+                if request.headers.get("accept-encoding") == "identity"
+                else {"content-encoding": "gzip"}
+            )
+            return httpx2.Response(200, headers=headers, stream=httpx2.ByteStream(b""))
+
+        client = await self.make_client(handler)
+        metadata = await client.stat("autocomplete.css")
+
+        self.assertEqual(metadata.size, 9185)
+        self.assertIsNone(metadata.content_encoding)
+
     async def make_client(self, handler, **options):
         client = AsyncR2Client(
             "https://example.com",

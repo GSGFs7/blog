@@ -555,6 +555,31 @@ class StaticAssetPublicationTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "R2 rejected the S3 signature"):
             self.publish()
 
+    def test_reports_expected_and_stored_size_without_publishing_release(self):
+        self.publish()
+        release_key = f"static/_releases/{'a' * 40}.json"
+        del self.s3_client.objects[release_key]
+        stored = self.s3_client.stat("static/asset.abc.css")
+
+        for size in (None, 3):
+            with self.subTest(size=size):
+                self.s3_client.stat = Mock(
+                    return_value=ObjectMetadata(
+                        key=stored.key,
+                        metadata=stored.metadata,
+                        size=size,
+                        content_type=stored.content_type,
+                        cache_control=stored.cache_control,
+                        content_encoding="gzip",
+                    )
+                )
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    f"expected=7, stored={size}, content_encoding='gzip'",
+                ):
+                    self.publish()
+                self.assertNotIn(release_key, self.s3_client.objects)
+
     def test_does_not_publish_release_when_public_check_fails(self):
         self.http_client.head.return_value.raise_for_status.side_effect = RuntimeError(
             "unavailable"
