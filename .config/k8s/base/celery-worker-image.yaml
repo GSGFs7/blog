@@ -96,7 +96,7 @@ spec:
                 - /app/.venv/bin/python
                 - /app/scripts/celery_healthcheck.py
             initialDelaySeconds: 60
-            periodSeconds: 30
+            periodSeconds: 60
             timeoutSeconds: 20
             failureThreshold: 10
           readinessProbe:
@@ -105,7 +105,7 @@ spec:
                 - /app/.venv/bin/python
                 - /app/scripts/celery_healthcheck.py
             initialDelaySeconds: 60
-            periodSeconds: 30
+            periodSeconds: 60
             timeoutSeconds: 20
             failureThreshold: 3
           volumeMounts:
