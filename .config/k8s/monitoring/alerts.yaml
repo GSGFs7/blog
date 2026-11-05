@@ -82,12 +82,12 @@ spec:
         - alert: BlogContainerCPUThrottlingHigh
           expr: |
             max by (namespace, pod, container) (
-              rate(container_cpu_cfs_throttled_periods_total{namespace="blog", container!="", image!=""}[5m])
+              rate(container_cpu_cfs_throttled_periods_total{namespace="blog", container!="", container!="blog-llama-cpp", image!=""}[5m])
             )
             /
             (
               max by (namespace, pod, container) (
-                rate(container_cpu_cfs_periods_total{namespace="blog", container!="", image!=""}[5m])
+                rate(container_cpu_cfs_periods_total{namespace="blog", container!="", container!="blog-llama-cpp", image!=""}[5m])
               ) > 0
             )
             > 0.25
