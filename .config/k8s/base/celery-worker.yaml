@@ -88,9 +88,8 @@ spec:
           livenessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - celery -A blog inspect ping -d "celery@$HOSTNAME" --timeout 15 || exit 1
+                - /app/.venv/bin/python
+                - /app/scripts/celery_healthcheck.py
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 20
@@ -98,9 +97,8 @@ spec:
           readinessProbe:
             exec:
               command:
-                - sh
-                - -c
-                - celery -A blog inspect ping -d "celery@$HOSTNAME" --timeout 15 || exit 1
+                - /app/.venv/bin/python
+                - /app/scripts/celery_healthcheck.py
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 20
