@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use markdown_it::{Document, MarkdownIt};
+use markdown_it::MarkdownIt;
+use markdown_it::document::Document;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyMapping, PyTuple};
@@ -119,7 +120,7 @@ impl PyRenderPlan {
         music_placeholder: Option<&str>,
     ) -> Result<String, MarkdownError> {
         suffix::rewrite(
-            &parser.render_html(&document),
+            &parser.render_document(&document, "html"),
             &images,
             image_picture_source_prefixes,
             music_placeholder,

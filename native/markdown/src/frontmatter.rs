@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
+use markdown_it::document::{Document, Root};
 use markdown_it::plugins::extra::front_matter::{FrontMatter, FrontMatterKind};
-use markdown_it::{Document, Root};
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};

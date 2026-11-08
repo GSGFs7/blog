@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use markdown_it::MarkdownIt;
+use markdown_it::document::{Document, NodeId, StructuralEvent, Text, TextSpecial};
 use markdown_it::plugins::cmark::block::heading::ATXHeading;
 use markdown_it::plugins::cmark::block::lheading::SetextHeader;
 use markdown_it::plugins::cmark::inline::image::Image;
 use markdown_it::plugins::cmark::inline::newline::Softbreak;
-use markdown_it::{Document, MarkdownIt, NodeId, StructuralEvent, Text, TextSpecial};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
