@@ -9,6 +9,7 @@ pub(crate) mod markdown_it_py;
 mod rewriter;
 mod sanitizer;
 mod solid_island;
+mod spoiler;
 mod suffix;
 mod terminal;
 #[cfg(test)]

@@ -125,7 +125,7 @@ mod tests {
         for fixture in fixtures {
             let code = rewrite(&fixture.input).unwrap();
             assert_eq!(code, fixture.code, "fixture: {}", fixture.name);
-            let solid = solid_island::rewrite(&code).unwrap();
+            let solid = solid_island::rewrite_raw_html(&code).unwrap();
             assert_eq!(solid, fixture.solid, "solid fixture: {}", fixture.name);
             assert_eq!(
                 sanitize(&solid),

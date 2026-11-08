@@ -23,7 +23,7 @@ pub(crate) fn rewrite(
     let html = image_optimizer::rewrite(&html, images, image_picture_source_prefixes)?;
     let html = image_wrapper::rewrite(&html)?;
     let html = code_language::rewrite(&html)?;
-    let html = solid_island::rewrite(&html)?;
+    let html = solid_island::rewrite_raw_html(&html)?;
     let html = sanitizer::sanitize(&html);
     let html = image_optimizer::inject_placeholders(&html, images)?;
     match music_placeholder {

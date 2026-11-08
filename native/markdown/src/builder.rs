@@ -1,45 +1,25 @@
 use markdown_it::MarkdownIt;
-use markdown_it::plugins::directives::{DirectiveKind, DirectiveNode, DirectiveRenderer};
+use markdown_it::plugins::directives::DirectiveKind;
 
+use crate::spoiler::render_spoiler;
 use crate::terminal::render_terminal;
-
-// REFAC: move this to somewhere else
-fn render_spoiler(
-    _kind: DirectiveKind,
-    _name: &str,
-    attrs: &[(String, String)],
-    node: DirectiveNode<'_>,
-    fmt: &mut DirectiveRenderer<'_, '_>,
-) {
-    let title = attrs
-        .iter()
-        .find_map(|(key, value)| (key == "title").then_some(value.as_str()))
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("spoiler");
-
-    fmt.cr();
-    fmt.open("details", &[("class".into(), "spoiler".to_owned())]);
-
-    fmt.open("summary", &[]);
-    fmt.text(title);
-    fmt.close("summary");
-
-    fmt.cr();
-
-    fmt.contents(node.children());
-
-    fmt.close("details");
-    fmt.cr();
-}
 
 pub(crate) fn build() -> MarkdownIt {
     let mut inner = MarkdownIt::empty();
-    markdown_it::plugins::extra::front_matter::add(&mut inner);
     markdown_it::plugins::cmark::add(&mut inner);
+    markdown_it::plugins::extra::front_matter::add(&mut inner);
     markdown_it::plugins::extra::tables::add(&mut inner);
     markdown_it::plugins::extra::strikethrough::add(&mut inner);
     markdown_it::plugins::extra::mark::add(&mut inner);
     markdown_it::plugins::extra::beautify_links::add(&mut inner);
+    markdown_it::plugins::extra::tasklist::add(&mut inner);
+    markdown_it::plugins::extra::footnote::add(&mut inner);
+    markdown_it::plugins::extra::heading_anchors::add(&mut inner);
+    markdown_it::plugins::extra::linkify::add(&mut inner);
+    markdown_it::plugins::extra::math::add(&mut inner);
+    markdown_it::plugins::extra::syntect::add(&mut inner);
+    markdown_it::plugins::extra::syntect::set_to_classed(&mut inner);
+    markdown_it::plugins::html::add(&mut inner);
     markdown_it::plugins::directives::add(&mut inner);
     markdown_it::plugins::directives::add_render(
         &mut inner,
@@ -59,13 +39,6 @@ pub(crate) fn build() -> MarkdownIt {
         "terminal",
         render_terminal,
     );
-    markdown_it::plugins::extra::tasklist::add(&mut inner);
-    markdown_it::plugins::extra::footnote::add(&mut inner);
-    markdown_it::plugins::extra::heading_anchors::add(&mut inner);
-    markdown_it::plugins::html::add(&mut inner);
-    markdown_it::plugins::extra::linkify::add(&mut inner);
-    markdown_it::plugins::extra::math::add(&mut inner);
-    markdown_it::plugins::extra::syntect::add(&mut inner);
-    markdown_it::plugins::extra::syntect::set_to_classed(&mut inner);
+    crate::solid_island::add(&mut inner);
     inner
 }
