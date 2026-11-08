@@ -12,13 +12,13 @@
 //! ```
 use std::collections::{HashMap, HashSet};
 
+use crate::MarkdownIt;
 use crate::document::edit::EditBatch;
-use crate::document::{Document, NodeRef, Text, TextSpecial};
+use crate::document::{Document, Node, StructuralEvent, Text, TextSpecial};
 use crate::parser::core::{CoreRule, CoreState};
 use crate::plugins::cmark::block::heading::ATXHeading;
 use crate::plugins::cmark::block::lheading::SetextHeader;
 use crate::plugins::cmark::inline::newline::Softbreak;
-use crate::{MarkdownIt, StructuralEvent};
 
 // --- pub method ---
 
@@ -144,7 +144,7 @@ pub fn github_slugify_fn(s: &str) -> String {
     result
 }
 
-pub fn is_heading(node: NodeRef<'_>) -> bool {
+pub fn is_heading(node: &Node) -> bool {
     node.is::<ATXHeading>() || node.is::<SetextHeader>()
 }
 
@@ -324,13 +324,13 @@ fn edits(document: &Document, options: &HeadingAnchorsOptions) -> EditBatch {
 }
 
 struct Heading {
-    id: crate::NodeId,
+    id: crate::document::NodeId,
     has_id: bool,
     text: String,
 }
 
 impl Heading {
-    fn new(node: NodeRef<'_>) -> Self {
+    fn new(node: &Node) -> Self {
         Self {
             id: node.id(),
             has_id: node.attrs().iter().any(|(name, _)| name == "id"),
@@ -339,7 +339,7 @@ impl Heading {
     }
 }
 
-fn append_text(node: NodeRef<'_>, active_headings: &[usize], headings: &mut [Heading]) {
+fn append_text(node: &Node, active_headings: &[usize], headings: &mut [Heading]) {
     let content = if let Some(text) = node.cast::<Text>() {
         Some(text.content.as_str())
     } else if let Some(text) = node.cast::<TextSpecial>() {
@@ -628,11 +628,11 @@ mod tests {
         let second_document = second.parse("# Heading");
 
         assert_eq!(
-            first.render_html(&first_document),
+            first.render_document(&first_document, "html"),
             "<h1 id=\"first-heading\">Heading</h1>\n"
         );
         assert_eq!(
-            second.render_html(&second_document),
+            second.render_document(&second_document, "html"),
             "<h1 id=\"second-heading\">Heading</h1>\n"
         );
     }

@@ -18,12 +18,12 @@ fn run(input: &str, output: &str) {
         assert!(event.node().srcmap().is_some());
     }
 
-    let result = md.render_html(&node);
+    let result = md.render_document(&node, "html");
     assert_eq!(result, output);
 
     let document = md.parse(&source);
-    assert_eq!(md.render_html(&document), result);
-    md.render_as(&document, "text");
+    assert_eq!(md.render_document(&document, "html"), result);
+    md.render_document(&document, "text");
 
     let mut direct_md = markdown_it::MarkdownIt::empty();
     markdown_it::plugins::cmark::add(&mut direct_md);
@@ -31,10 +31,10 @@ fn run(input: &str, output: &str) {
     markdown_it::plugins::extra::tables::add(&mut direct_md);
     markdown_it::plugins::extra::typographer::add(&mut direct_md);
     let direct = direct_md.parse(&source);
-    assert_eq!(direct_md.render_html(&direct), result);
+    assert_eq!(direct_md.render_document(&direct, "html"), result);
     assert_eq!(
-        direct_md.render_as(&direct, "text"),
-        md.render_as(&document, "text"),
+        direct_md.render_document(&direct, "text"),
+        md.render_document(&document, "text"),
     );
 
     // make sure it doesn't crash without trailing \n
@@ -60,7 +60,9 @@ fn escaped_pipe_does_not_escape_the_next_cell_separator() {
         source,
         "<table>\n<thead>\n<tr>\n<th style=\"text-align:left\">a</th>\n<th style=\"text-align:right\">b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td style=\"text-align:left\">`x|</td>\n<td style=\"text-align:right\">`x|y]aac😀!z**</td>\n</tr>\n</tbody>\n</table>",
     );
-    let md = markdown_it::MarkdownIt::with_preset(markdown_it::Preset::MarkdownItDefault);
+    let md = markdown_it::MarkdownIt::with_preset(
+        markdown_it::plugins::presets::Preset::MarkdownItDefault,
+    );
     #[cfg(feature = "sourcemap")]
     let document = md.parse(source);
     #[cfg(feature = "sourcemap")]
@@ -69,7 +71,7 @@ fn escaped_pipe_does_not_escape_the_next_cell_separator() {
             .events(document.root())
             .filter_map(|event| {
                 let node = event.node();
-                let text = node.cast::<markdown_it::Text>()?;
+                let text = node.cast::<markdown_it::document::Text>()?;
                 text.content.starts_with("`x").then(|| {
                     (
                         text.content.as_str(),
@@ -128,7 +130,9 @@ fn single_column_tables_allow_plain_dash_delimiters() {
             "<p>before</p>\n<table>\n<thead>\n<tr>\n<th>a</th>\n</tr>\n</thead>\n</table>",
         );
     }
-    let md = markdown_it::MarkdownIt::with_preset(markdown_it::Preset::MarkdownItDefault);
+    let md = markdown_it::MarkdownIt::with_preset(
+        markdown_it::plugins::presets::Preset::MarkdownItDefault,
+    );
     for delimiter in ["-", "- ", "-\t"] {
         assert!(!md.render(&format!("|a\n{delimiter}")).contains("<table>"));
     }

@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 
+use markdown_it::MarkdownIt;
+use markdown_it::document::Root;
 use markdown_it::plugins::extra::front_matter::FrontMatter;
-use markdown_it::{MarkdownIt, Root};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -84,7 +85,7 @@ impl PyMarkdownIt {
     fn render(&self, py: Python<'_>, src: &str) -> PyResult<String> {
         let ast = self.parse(py, src)?;
         let ast_ref = ast.borrow(py);
-        let html = self.inner.render_html(&ast_ref.root.borrow());
+        let html = self.inner.render_document(&ast_ref.root.borrow(), "html");
         self.run_postprocessors(py, html)
     }
 
@@ -122,7 +123,7 @@ impl PyMarkdownIt {
             .cast::<Root>()
             .and_then(|root| root.ext.get::<FrontMatter>())
             .map(PyFrontMatter::from);
-        let html = self.inner.render_html(&root);
+        let html = self.inner.render_document(&root, "html");
         let html = self.run_postprocessors(py, html)?;
 
         Ok(PyMarkdownOutput { html, frontmatter })

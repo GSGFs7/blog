@@ -4,13 +4,12 @@ use std::sync::Arc;
 use crate::common::RuleMark;
 use crate::common::extset::MarkdownItExtSet;
 use crate::common::ruler::Ruler;
-#[cfg(feature = "sourcemap")]
-use crate::common::sourcemap::SourcePos;
 use crate::document::{Document, NodeValue, Root, Text, TextSpecial};
 use crate::links::{LinkFormatter, MDLinkFormatter};
-use crate::parser::block::{self, BlockParser};
-use crate::parser::core::*;
-use crate::parser::inline::{self, InlineParser};
+use crate::parser::block::BlockParser;
+use crate::parser::core::{CoreRule, CoreRuleRunner, CoreState, RuleBuilder};
+use crate::parser::inline::InlineParser;
+use crate::plugin::MarkdownItBuilder;
 use crate::plugins::presets::{Preset, PresetConfig};
 use crate::render::{
     DebugTreeRenderer,
@@ -39,7 +38,6 @@ pub struct MarkdownIt {
     /// Maximum depth of the generated AST, exists to prevent recursion
     /// (if markdown source reaches this depth, deeply nested structures
     /// will be parsed as plain text).
-    #[doc(hidden)]
     pub max_nesting: u32,
 
     /// Maximum allowed indentation for syntax blocks
@@ -73,10 +71,48 @@ impl std::fmt::Debug for MarkdownIt {
 
 impl MarkdownIt {
     /// Create a parser using the markdown-it.js default preset.
+    ///
+    /// Equivalent to [`MarkdownIt::with_preset`]`(`[`Preset::MarkdownItDefault`]`)`
+    /// and [`MarkdownIt::default`].
+    ///
+    /// This preset enables CommonMark syntax plus tables and strikethrough.
+    /// Raw HTML, linkification and typographic replacements are disabled.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markdown_it::MarkdownIt;
+    ///
+    /// let md = MarkdownIt::new();
+    ///
+    /// assert_eq!(
+    ///     md.render("**bold** ~~strike~~"),
+    ///     "<p><strong>bold</strong> <s>strike</s></p>\n"
+    /// );
+    /// assert_eq!(
+    ///     md.render("<em>escaped</em>"),
+    ///     "<p>&lt;em&gt;escaped&lt;/em&gt;</p>\n"
+    /// );
+    /// ```
     pub fn new() -> Self {
         Self::with_preset(Preset::MarkdownItDefault)
     }
 
+    /// Create a parser with no Markdown syntax installed.
+    ///
+    /// This still registers the core block and inline parsing rules
+    /// (as infrastructure) and it's `html`, `text` and `debug` renderers.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use markdown_it::{MarkdownIt, plugins::cmark};
+    ///
+    /// let mut md = MarkdownIt::empty();
+    ///
+    /// // no heading rule installed
+    /// assert_eq!(md.render("# heading"), "# heading\n");
+    /// ```
     pub fn empty() -> Self {
         let mut renderers = RendererRegistry::new();
         renderers.add::<Root, _>("html", TransparentRenderer);
@@ -100,9 +136,17 @@ impl MarkdownIt {
         };
 
         // infrastructure
-        block::add(&mut md);
-        inline::add(&mut md);
+        crate::parser::block::add(&mut md);
+        crate::parser::inline::add(&mut md);
 
+        md
+    }
+
+    /// Create a parser configured with a preset (e.g. `Preset::CommonMark`)
+    /// or a custom closure `|md| { ... }`.
+    pub fn with_preset(preset: impl PresetConfig) -> Self {
+        let mut md = Self::empty();
+        preset.configure(&mut md);
         md
     }
 
@@ -122,9 +166,9 @@ impl MarkdownIt {
             .insert(self.render_options.clone());
 
         #[cfg(feature = "sourcemap")]
-        document
-            .node_mut(document.root())
-            .set_srcmap(Some(SourcePos::new(0, source.len())));
+        document.node_mut(document.root()).set_srcmap(Some(
+            crate::common::sourcemap::SourcePos::new(0, source.len()),
+        ));
 
         let mut state = CoreState::new(&source, self, &mut document);
         for rule in self.ruler.iter() {
@@ -144,34 +188,26 @@ impl MarkdownIt {
         self.renderers.add::<T, R>(format, renderer)
     }
 
-    /// Render a document with the renderers registered
-    /// for `format`.
+    /// Render a document using the renderers registered for `format`
+    /// (built-in: `"html"`, `"text"`, `"debug"`).
     ///
-    /// The built-in format keys are `"html"`, `"text"`, and `"debug"`.
-    /// Standard syntax plugins register HTML and plain-text behavior; plugins
-    /// that add leaf payloads must register both explicitly. The diagnostic
-    /// debug tree traverses all descendants without per-payload registration.
+    /// Plugins adding leaf payloads must register a renderer for each format.
     ///
     /// # Panics
     ///
-    /// Panics if a leaf node has no renderer registered for `format`.
-    pub fn render_as(&self, document: &Document, format: &str) -> String {
+    /// Panics if a leaf node has no renderer for `format`.
+    pub fn render_document(&self, document: &Document, format: &str) -> String {
         self.renderers
             .render(document, format, &self.render_options)
     }
 
-    /// Render a document as HTML.
+    /// Parse `src` and render it as HTML using [`MarkdownIt::render_options`].
     ///
     /// # Panics
     ///
     /// Panics if a leaf node has no `"html"` renderer.
-    pub fn render_html(&self, document: &Document) -> String {
-        self.render_as(document, "html")
-    }
-
-    /// Parse `src` and render it as HTML using [`MarkdownIt::render_options`].
     pub fn render(&self, src: &str) -> String {
-        self.render_html(&self.parse(src))
+        self.render_document(&self.parse(src), "html")
     }
 
     /// Register a new core rule for type `T`, returning a builder to position
@@ -197,6 +233,7 @@ impl MarkdownIt {
             "core rule type is already registered: {:?}",
             std::any::type_name::<T>()
         );
+
         let item = self
             .ruler
             .add(RuleMark::of::<T>(), CoreRuleRunner::new(rule));
@@ -216,20 +253,40 @@ impl MarkdownIt {
         self.ruler.remove(RuleMark::of::<T>());
     }
 
-    pub(crate) fn validate_rules(&self) {
-        let _ = self.ruler.as_slice();
+    /// Start building a parser with high-level plugins.
+    ///
+    /// Starts from the markdown-it default preset. Use
+    /// [`MarkdownItBuilder::empty`] or [`MarkdownItBuilder::preset`]
+    /// to choose a different base.
+    pub fn builder() -> MarkdownItBuilder {
+        MarkdownItBuilder::new()
     }
 
-    /// Create a parser configured with a preset (e.g. `Preset::CommonMark`)
-    /// or a custom closure `|md| { ... }`.
-    pub fn with_preset(preset: impl PresetConfig) -> Self {
-        let mut md = Self::empty();
-        preset.configure(&mut md);
-        md
+    /// Register a runtime core rule under an explicit mark. (for plugin API)
+    pub(crate) fn add_dynamic_core_rule(
+        &mut self,
+        mark: RuleMark,
+        run: impl Fn(&mut CoreState<'_>) + Send + Sync + 'static,
+    ) -> RuleBuilder<'_, CoreRuleRunner> {
+        assert!(
+            !self.ruler.contains(mark.clone()),
+            "dynamic core rule mark is already registered: {mark:?}"
+        );
+        let item = self.ruler.add(mark, CoreRuleRunner::from_fn(run));
+        RuleBuilder::new(item)
+    }
+
+    /// Force every lazy rule chain and text scanner to compile. (for plugin API)
+    pub(crate) fn compile_rules(&self) {
+        let _ = self.ruler.iter();
+        let _ = self.block.rules();
+        let _ = self.inline.rules();
+        let _ = self.inline.text_length("", 0, 0);
     }
 }
 
 impl Default for MarkdownIt {
+    /// Same as [`MarkdownIt::new`]
     fn default() -> Self {
         Self::new()
     }
@@ -246,7 +303,10 @@ fn normalize_input(src: &str) -> Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::MarkdownIt;
+    use crate::common::RuleMark;
     use crate::parser::block::BlockParserRule;
     use crate::parser::inline::TextScanner;
     use crate::plugins::cmark;
@@ -299,6 +359,37 @@ mod tests {
 
         assert_eq!(html, "<p>abc\u{FFFD}de\u{FFFD}</p>\n");
         assert!(!html.contains('\0'));
+    }
+
+    #[test]
+    fn dynamic_core_rules_register_by_mark_and_follow_ordering() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut md = MarkdownIt::empty();
+
+        let first_seen = Arc::clone(&seen);
+        md.add_dynamic_core_rule(RuleMark::named("test::first"), move |_| {
+            first_seen.lock().unwrap().push("first");
+        })
+        .after::<BlockParserRule>();
+
+        let second_seen = Arc::clone(&seen);
+        md.add_dynamic_core_rule(RuleMark::named("test::second"), move |_| {
+            second_seen.lock().unwrap().push("second");
+        })
+        .after_named("test::first");
+
+        md.parse("text");
+
+        assert_eq!(*seen.lock().unwrap(), ["first", "second"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "dynamic core rule mark is already registered")]
+    fn dynamic_core_rules_reject_duplicate_marks() {
+        let mut md = MarkdownIt::empty();
+        let mark = RuleMark::named("test::duplicate");
+        md.add_dynamic_core_rule(mark.clone(), |_| {});
+        md.add_dynamic_core_rule(mark, |_| {});
     }
 
     #[test]

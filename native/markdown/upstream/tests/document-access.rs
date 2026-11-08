@@ -1,22 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use markdown_it::{
-    Document,
-    EditBatch,
-    MarkdownIt,
-    NodeDraft,
-    NodeRef,
-    NodeRenderer,
-    RenderContext,
-    Root,
-    StructuralEvent,
-    Text,
-    TextEvent,
-    TextProjectionKind,
-    TextSpecial,
-    Writer,
-};
+use markdown_it::MarkdownIt;
+use markdown_it::document::edit::EditBatch;
+use markdown_it::document::text::{TextEvent, TextProjectionKind};
+use markdown_it::document::{Document, Node, Root, StructuralEvent, Text, TextSpecial};
+use markdown_it::render::{NodeRenderer, RenderContext, Writer};
 
 #[test]
 fn blanket_node_values_preserve_concrete_types() {
@@ -46,7 +35,7 @@ struct Badge {
     drops: Arc<AtomicUsize>,
 }
 
-fn document_projection<'a>(doc: &'a Document, node: NodeRef<'a>) -> TextProjectionKind<'a> {
+fn document_projection<'a>(doc: &'a Document, node: &'a Node) -> TextProjectionKind<'a> {
     if let Some(text) = doc.text(node.id()) {
         TextProjectionKind::Writable(text)
     } else {
@@ -99,7 +88,7 @@ fn document_projection_preserves_subtree_depth_and_edit_offsets() {
     }
     edits.commit(&mut doc);
     assert_eq!(
-        md.render_html(&doc),
+        md.render_document(&doc, "html"),
         "<p>a <em>雨</em> and <strong>b</strong></p>\n"
     );
     let chars: String = doc
@@ -118,7 +107,7 @@ fn document_projection_preserves_subtree_depth_and_edit_offsets() {
 #[derive(Debug)]
 struct SourceContext(std::ops::Range<usize>);
 
-fn source_projection<'a>(doc: &'a Document, node: NodeRef<'a>) -> TextProjectionKind<'a> {
+fn source_projection<'a>(doc: &'a Document, node: &'a Node) -> TextProjectionKind<'a> {
     if let Some(context) = doc.value::<SourceContext>(node.id()) {
         TextProjectionKind::ReadOnly(&doc.source()[context.0.clone()])
     } else {
@@ -128,12 +117,13 @@ fn source_projection<'a>(doc: &'a Document, node: NodeRef<'a>) -> TextProjection
 
 #[test]
 fn external_classifier_can_borrow_document_source_as_read_only_context() {
-    let mut root = NodeDraft::new(Root::new("前雪尾"));
-    root.push_child(NodeDraft::new(SourceContext(3..6)));
-    root.push_child(NodeDraft::new(Text {
+    let mut doc = Document::new("前雪尾", Root::new("前雪尾"));
+    let context = doc.create_node(SourceContext(3..6));
+    doc.push_child(doc.root(), context);
+    let text = doc.create_node(Text {
         content: "edited".into(),
-    }));
-    let doc = Document::from_draft("前雪尾", root);
+    });
+    doc.push_child(doc.root(), text);
     let context = doc.children(doc.root())[0];
     let text = doc.children(doc.root())[1];
     let chars: Vec<_> = doc
@@ -189,7 +179,7 @@ struct BadgeRenderer;
 impl NodeRenderer<Badge> for BadgeRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &Badge,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -212,20 +202,19 @@ fn external_payload_mutation_replacement_and_removal_preserve_ownership() {
     };
     let mut md = MarkdownIt::empty();
     md.add_renderer::<Badge, _>("html", BadgeRenderer);
-    let mut doc = Document::from_draft("", NodeDraft::new(Root::new("")));
+    let mut doc = Document::new("", Root::new(""));
     let root = doc.root();
-    let id = doc.append_child(root, NodeDraft::new(badge()));
-    let child = doc.append_child(
-        id,
-        NodeDraft::new(Text {
-            content: "!".into(),
-        }),
-    );
+    let id = doc.create_node(badge());
+    doc.push_child(root, id);
+    let child = doc.create_node(Text {
+        content: "!".into(),
+    });
+    doc.push_child(id, child);
     doc.node_mut(id)
         .attrs_mut()
         .push(("data-kind".into(), "badge".into()));
     doc.value_mut::<Badge>(id).unwrap().label = "edited".into();
-    assert_eq!(md.render_html(&doc), "edited!");
+    assert_eq!(md.render_document(&doc, "html"), "edited!");
     assert_eq!(drops.load(Ordering::SeqCst), 0);
 
     let mut edits = EditBatch::new();
@@ -235,13 +224,12 @@ fn external_payload_mutation_replacement_and_removal_preserve_ownership() {
     assert_eq!(doc.children(id), &[child]);
     assert_eq!(doc.parent(child), Some(id));
     assert_eq!(doc.node(id).attrs()[0].1, "badge");
-    assert_eq!(md.render_html(&doc), "old!");
+    assert_eq!(md.render_document(&doc, "html"), "old!");
 
-    let mut edits = EditBatch::new();
-    edits.remove_node(id);
-    edits.commit(&mut doc);
+    doc.remove_node(id);
     assert_eq!(drops.load(Ordering::SeqCst), 2);
-    let reused = doc.append_child(root, NodeDraft::new(badge()));
+    let reused = doc.create_node(badge());
+    doc.push_child(root, reused);
     assert_ne!(reused, id);
     assert!(doc.get_node(id).is_none());
     assert!(
@@ -275,30 +263,33 @@ fn borrowed_unicode_text_can_produce_edits_without_copying_the_input() {
     let srcmap = doc.node(id).srcmap();
     edits.commit(&mut doc);
     doc.materialize_text(id).unwrap().insert(0, '新');
-    assert_eq!(md.render_html(&doc), "<p>新雨 &amp; &lt;tag&gt;</p>\n");
-    assert_eq!(md.render_as(&doc, "text"), "新雨 & <tag>\n");
+    assert_eq!(
+        md.render_document(&doc, "html"),
+        "<p>新雨 &amp; &lt;tag&gt;</p>\n"
+    );
+    assert_eq!(md.render_document(&doc, "text"), "新雨 & <tag>\n");
     assert_eq!(doc.source(), source);
     #[cfg(feature = "sourcemap")]
     assert_eq!(doc.node(id).srcmap(), srcmap);
 }
 
 #[test]
-fn owned_text_snapshot_and_generated_draft_outlive_the_source_document() {
+fn owned_text_snapshot_and_generated_node_outlive_the_source_document() {
     let snapshot = {
-        let doc = Document::from_draft(
+        let doc = Document::new(
             "unrelated source",
-            NodeDraft::new(Text {
+            Text {
                 content: "decoded & edited 雪".into(),
-            }),
+            },
         );
         doc.text(doc.root()).unwrap().to_owned()
     };
-    let mut doc = Document::from_draft("", NodeDraft::new(Text { content: snapshot }));
+    let mut doc = Document::new("", Text { content: snapshot });
     let id = doc.root();
     assert_eq!(doc.text(id), Some("decoded & edited 雪"));
     let md = MarkdownIt::empty();
-    assert_eq!(md.render_html(&doc), "decoded &amp; edited 雪");
-    assert_eq!(md.render_as(&doc, "text"), "decoded & edited 雪");
+    assert_eq!(md.render_document(&doc, "html"), "decoded &amp; edited 雪");
+    assert_eq!(md.render_document(&doc, "text"), "decoded & edited 雪");
     let mut edits = EditBatch::new();
     edits.replace_value(
         id,
@@ -313,9 +304,9 @@ fn owned_text_snapshot_and_generated_draft_outlive_the_source_document() {
     assert!(doc.materialize_text(id).is_none());
     assert!(doc.value::<Text>(id).is_none());
     assert_eq!(doc.value::<TextSpecial>(id).unwrap().content, "&");
-    assert_eq!(md.render_html(&doc), "&amp;");
-    assert_eq!(md.render_as(&doc, "text"), "&");
+    assert_eq!(md.render_document(&doc, "html"), "&amp;");
+    assert_eq!(md.render_document(&doc, "text"), "&");
     doc.value_mut::<TextSpecial>(id).unwrap().content = "雪<&amp;>".into();
-    assert_eq!(md.render_html(&doc), "雪&lt;&amp;amp;&gt;");
-    assert_eq!(md.render_as(&doc, "text"), "雪<&amp;>");
+    assert_eq!(md.render_document(&doc, "html"), "雪&lt;&amp;amp;&gt;");
+    assert_eq!(md.render_document(&doc, "text"), "雪<&amp;>");
 }

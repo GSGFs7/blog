@@ -54,7 +54,7 @@ use std::sync::{Arc, Mutex};
 use crate::MarkdownIt;
 use crate::common::extset::RootExtSet;
 use crate::common::utils::normalize_reference;
-use crate::document::{Document, NodeId, NodeRef};
+use crate::document::{Document, Node, NodeId};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::parser::core::{CoreRule, CoreState};
 use crate::parser::inline::{InlineRule, InlineState};
@@ -592,7 +592,7 @@ impl InlineRule for FootnoteInlineScanner {
         if !state.remaining().starts_with("^[") {
             return None;
         }
-        let scanned = scan_inline_footnote_end(state.child_state(
+        let scanned = scan_inline_footnote_end(state.child_state_at(
             2..state.remaining().len(),
             state.depth,
             state.link_level,
@@ -622,7 +622,12 @@ impl InlineRule for FootnoteInlineScanner {
             allocate_inline(&mut env)
         };
 
-        let children = state.parse_subrange_at_current_depth(content_start..content_end)?;
+        let children = state.parse_child_at(
+            content_start..content_end,
+            state.depth,
+            state.link_level,
+            |_| {},
+        )?;
         let paragraph = state
             .document
             .create_node(crate::plugins::cmark::block::paragraph::Paragraph);
@@ -649,7 +654,7 @@ impl InlineRule for FootnoteInlineScanner {
         if !context.remaining().starts_with("^[") {
             return None;
         }
-        let scanned = scan_inline_footnote_end(context.child_state(
+        let scanned = scan_inline_footnote_end(context.child_state_at(
             2..context.remaining().len(),
             context.depth,
             context.link_level,
@@ -798,7 +803,7 @@ struct FootnoteReferenceRenderer;
 impl NodeRenderer<FootnoteReference> for FootnoteReferenceRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &FootnoteReference,
         _context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -826,7 +831,7 @@ struct FootnoteSectionRenderer;
 impl NodeRenderer<FootnoteSection> for FootnoteSectionRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _value: &FootnoteSection,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -857,7 +862,7 @@ struct FootnoteItemRenderer;
 impl NodeRenderer<FootnoteItem> for FootnoteItemRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &FootnoteItem,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -879,7 +884,7 @@ struct FootnoteBackrefRenderer;
 impl NodeRenderer<FootnoteBackref> for FootnoteBackrefRenderer {
     fn render(
         &self,
-        _node: NodeRef<'_>,
+        _node: &Node,
         value: &FootnoteBackref,
         _context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -974,7 +979,10 @@ mod tests {
             for n in [32, 128, 512] {
                 let source = format!("{}x", "^[".repeat(n));
                 let direct = md.parse(&source);
-                assert_eq!(md.render_html(&direct), format!("<p>{source}</p>\n"));
+                assert_eq!(
+                    md.render_document(&direct, "html"),
+                    format!("<p>{source}</p>\n")
+                );
                 let root = direct.node(direct.root());
                 let env = root
                     .cast::<crate::document::Root>()
@@ -1010,7 +1018,7 @@ mod tests {
             md.max_nesting = limit;
             let source = format!("{}x{}", "^[".repeat(256), "]".repeat(256));
             let direct = md.parse(&source);
-            assert!(md.render_html(&direct).contains('x'));
+            assert!(md.render_document(&direct, "html").contains('x'));
         }
     }
 

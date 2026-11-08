@@ -1,58 +1,23 @@
 //! Inline parsing state, source mapping, and nested parse sessions.
 
 use std::borrow::Cow;
-use std::cell::{RefCell, RefMut};
+use std::cell::{OnceCell, RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
-use super::{InlineRunRunner, RuleSet};
+use super::{InlineRunRunner, RuleSet, ScanHook};
 use crate::MarkdownIt;
 use crate::common::extset::{InlineRootExtSet, RootExtSet};
 use crate::document::{Document, NodeId, Text};
 
 // TODO: adjust API visibility
 
-/// Marks an inline parse that has work deferred until core postprocessing.
 #[derive(Debug, Default)]
-pub(crate) struct DeferredPostprocess;
+struct FinishCallbacks(Vec<fn(&mut InlineState<'_>)>);
 
-// TODO(inline-postprocess): replace this root list with explicit inline
-// ownership or a flat token model; marker nodes would leak internal structure
-// into the AST.
-/// Roots of inline ranges whose work was deferred to core postprocessing.
-///
-/// Ranges are appended in completion order (children before parents) and
-/// consumed by core rules after inline parsing. Keeping the grouping on the
-/// document root avoids exposing internal marker nodes in the AST.
-#[derive(Debug, Default)]
-pub(crate) struct InlinePostprocessRanges(pub(crate) Vec<Vec<NodeId>>);
-
-/// Per-inline cache shared by nested boundary scans.
-///
-/// Mirrors markdown-it's inline skip cache: once a scan at the nesting limit
-/// jumps to the end of a window, later scans over the same window see the same
-/// cutoff. The window end is part of the key so a truncated subrange does not
-/// affect a scan over a different range.
-#[derive(Debug, Default)]
-pub(crate) struct ScanLimitCache {
-    truncated: HashSet<(usize, usize)>,
-    skip_tokens: HashMap<(usize, usize, i32), (usize, bool)>,
-    pub(crate) link_bounds: Option<super::helpers::full_link::LinkLabelBounds>,
-    /// Extension caches shared by sessions over the same source.
-    ext: InlineRootExtSet,
-}
-
-impl ScanLimitCache {
-    /// Monotonic version of the truncation set, used to invalidate cached
-    /// label boundaries after a new nesting cutoff is recorded.
-    ///
-    /// Relies on `truncated` only ever growing; adding removal would make this
-    /// a non-monotonic counter and silently revive stale cache entries.
-    pub(crate) fn epoch(&self) -> usize {
-        self.truncated.len()
-    }
-}
+/// Hooks selected once per full source and shared by child sessions.
+type ScanHookCache<'a> = Cow<'a, OnceCell<Vec<ScanHook>>>;
 
 pub struct InlineState<'a> {
     /// Markdown source.
@@ -65,7 +30,7 @@ pub struct InlineState<'a> {
     pub(crate) pos_max: usize,
 
     /// Link to parser instance.
-    pub(crate) md: &'a MarkdownIt,
+    md: &'a MarkdownIt,
 
     /// For each line, it holds offset of the start of the line in original
     /// markdown source and offset of the start of the line in `src`.
@@ -88,6 +53,9 @@ pub struct InlineState<'a> {
 
     pub(crate) ruleset: &'a RuleSet,
 
+    /// Hooks selected once per full source; child sessions share the same cell.
+    scan_hooks: ScanHookCache<'a>,
+
     /// Nodes accumulated for the current inline container; rules append to it.
     nodes: Vec<NodeId>,
 
@@ -109,19 +77,33 @@ impl<'a> InlineState<'a> {
     }
 
     /// Parser instance that owns this inline rule.
-    pub fn markdown_it(&self) -> &MarkdownIt {
+    pub fn markdown_it(&self) -> &'a MarkdownIt {
         self.md
     }
 
-    /// Extension caches shared by sessions over this source.
-    pub(crate) fn shared_ext(&self) -> RefMut<'_, InlineRootExtSet> {
+    /// Extension caches shared by nested sessions over the same source.
+    ///
+    /// Keep source-wide data here; range- or link-specific state belongs in
+    /// session scratch. Drop the borrow before starting another session.
+    pub fn shared_ext(&self) -> RefMut<'_, InlineRootExtSet> {
         RefMut::map(self.scan_limit_cache.borrow_mut(), |cache| &mut cache.ext)
     }
 
-    /// Defer this session's work to core postprocessing.
-    pub(crate) fn defer_to_core(&mut self) {
+    pub(super) fn scan_hooks(&self) -> &[ScanHook] {
+        self.scan_hooks
+            .get_or_init(|| super::select_scan_hooks(self.md, &self.src))
+    }
+
+    /// Register a callback to run after this session's pending text is flushed.
+    ///
+    /// Callbacks run once, in registration order, before nodes attach to their
+    /// parent. Child sessions finish first; boundary scans never run callbacks.
+    /// Register during parsing.
+    pub fn on_finish(&mut self, callback: fn(&mut InlineState<'_>)) {
         self.inline_ext
-            .get_or_insert_default::<DeferredPostprocess>();
+            .get_or_insert_default::<FinishCallbacks>()
+            .0
+            .push(callback);
     }
 
     /// Nodes accumulated by this inline session.
@@ -129,18 +111,22 @@ impl<'a> InlineState<'a> {
         &self.nodes
     }
 
-    /// Mutate the nodes accumulated for this inline container.
+    /// Parse a byte range relative to `remaining()` as independent children.
     ///
-    /// Callers that change existing entries must keep rule-local index caches
-    /// in sync.
-    pub fn nodes_mut(&mut self) -> &mut Vec<NodeId> {
-        &mut self.nodes
+    /// Preserves whitespace and original source coordinates. Returns `None` for
+    /// reversed, out-of-bounds, or non-UTF-8-boundary ranges. An empty valid range
+    /// returns an empty vector. Parent cursor and scratch are unchanged; children
+    /// are allocated in the shared arena. Children finish local cleanup before
+    /// returning; document-level core transformations run later. At the nesting
+    /// limit, the child range is emitted as literal text without running rules.
+    pub fn parse_subrange(&mut self, range: Range<usize>) -> Option<Vec<NodeId>> {
+        self.parse_child_at(range, self.depth.saturating_add(1), self.link_level, |_| {})
     }
 
     pub(in crate::parser) fn parse(
         document: &'a mut Document,
         src: String,
-        mapping: crate::parser::InlineMapping,
+        mapping: crate::parser::inline::InlineMapping,
         md: &'a MarkdownIt,
         ruleset: &'a RuleSet,
         root_ext: Option<&'a RootExtSet>,
@@ -160,6 +146,7 @@ impl<'a> InlineState<'a> {
             root_ext,
             link_level: 0,
             ruleset,
+            scan_hooks: Cow::Owned(OnceCell::new()),
             nodes: Vec::new(),
             document,
             pending_text: None,
@@ -169,60 +156,141 @@ impl<'a> InlineState<'a> {
         state.finish()
     }
 
-    /// Parse a byte range relative to `remaining()` as independent children.
-    ///
-    /// Preserves whitespace and original source coordinates. Returns `None` for
-    /// reversed, out-of-bounds, or non-UTF-8-boundary ranges. An empty valid range
-    /// returns an empty vector. Parent cursor and scratch are unchanged; children
-    /// are allocated in the shared arena. Children finish local cleanup before
-    /// returning; document-level core transformations run later. At the nesting
-    /// limit, the child range is emitted as literal text without running rules.
-    pub fn parse_subrange(&mut self, range: Range<usize>) -> Option<Vec<NodeId>> {
-        self.parse_subrange_with_link_level(range, self.link_level)
+    /// Append a node accumulated by this inline session.
+    pub(crate) fn push_node(&mut self, node: NodeId) {
+        self.nodes.push(node);
     }
 
-    /// Parse an isolated child range with an explicit initial link level.
-    ///
-    /// This overrides only the child's link level. Source mapping, nesting
-    /// limits, whitespace preservation and scratch isolation are unchanged.
-    pub(crate) fn parse_subrange_with_link_level(
-        &mut self,
-        range: Range<usize>,
-        link_level: i32,
-    ) -> Option<Vec<NodeId>> {
-        self.parse_subrange_at_depth(range, link_level, self.depth.saturating_add(1))
+    /// Remove and return the most recently accumulated node.
+    pub(crate) fn pop_node(&mut self) -> Option<NodeId> {
+        self.nodes.pop()
     }
 
-    /// Parse an isolated range without consuming an extra nesting level.
-    pub(crate) fn parse_subrange_at_current_depth(
-        &mut self,
-        range: Range<usize>,
-    ) -> Option<Vec<NodeId>> {
-        self.parse_subrange_at_depth(range, self.link_level, self.depth)
+    /// Detach every node at or past `at`, returning them in order.
+    pub(crate) fn split_off_nodes(&mut self, at: usize) -> Vec<NodeId> {
+        self.nodes.split_off(at)
     }
 
-    fn parse_subrange_at_depth(
-        &mut self,
-        range: Range<usize>,
-        link_level: i32,
-        depth: u32,
-    ) -> Option<Vec<NodeId>> {
-        self.parse_child(range, depth, link_level, |_| {})
-    }
-
-    /// Parse `range` as a child session after applying `configure`.
+    /// Parse `range` as a child session with explicit nesting and link levels.
     ///
     /// Runs directly so extensions installed by `configure` survive.
-    pub(in crate::parser) fn parse_child(
+    pub(crate) fn parse_child_at(
         &mut self,
         range: Range<usize>,
         depth: u32,
         link_level: i32,
         configure: impl FnOnce(&mut InlineState<'_>),
     ) -> Option<Vec<NodeId>> {
-        let mut child = self.child_state(range, depth, link_level)?;
+        let mut child = self.child_state_at(range, depth, link_level)?;
         configure(&mut child);
         Some(child.run_child_session())
+    }
+
+    /// Create a child state over `range` that consumes one nesting level.
+    ///
+    /// The child starts with fresh scratch, nodes and pending text.
+    pub(crate) fn child_state(&mut self, range: Range<usize>) -> Option<InlineState<'_>> {
+        self.child_state_at(range, self.depth.saturating_add(1), self.link_level)
+    }
+
+    /// Create a child state with explicit nesting and link levels.
+    pub(crate) fn child_state_at(
+        &mut self,
+        range: Range<usize>,
+        depth: u32,
+        link_level: i32,
+    ) -> Option<InlineState<'_>> {
+        self.remaining().get(range.clone())?;
+
+        let start = self.pos + range.start;
+        let end = self.pos + range.end;
+
+        #[cfg(debug_assertions)]
+        super::validation::inline_range(self.src.as_ref(), start, end);
+
+        Some(InlineState {
+            src: Cow::Borrowed(self.src.as_ref()),
+            pos: start,
+            pos_max: end,
+            md: self.md,
+            #[cfg(feature = "sourcemap")]
+            mapping: Cow::Borrowed(self.mapping.as_ref()),
+            depth,
+            inline_ext: InlineRootExtSet::new(),
+            scan_limit_cache: Rc::clone(&self.scan_limit_cache),
+            root_ext: self.root_ext,
+            link_level,
+            ruleset: self.ruleset,
+            scan_hooks: Cow::Borrowed(self.scan_hooks.as_ref()),
+            nodes: Vec::new(),
+            document: &mut *self.document,
+            pending_text: None,
+        })
+    }
+
+    /// Advance over one checked span without emitting nodes, for boundary scans.
+    pub(crate) fn skip_token(&mut self) -> Option<usize> {
+        stacker::maybe_grow(64 * 1024, 1024 * 1024, || self.skip_token_inner())
+    }
+
+    pub(crate) fn trailing_text(&self) -> &str {
+        self.pending_text
+            .map_or("", |(start, end)| &self.src[start..end])
+    }
+
+    pub(crate) fn pop_trailing_text(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let (start, end) = self.pending_text.expect("trailing text must exist");
+        debug_assert!(count <= end - start && self.src.is_char_boundary(end - count));
+        self.pending_text = (start < end - count).then_some((start, end - count));
+    }
+
+    pub(crate) fn push_text(&mut self, start: usize, end: usize) {
+        match self.pending_text {
+            Some((pending_start, pending_end)) if pending_end == start => {
+                self.pending_text = Some((pending_start, end));
+            }
+            Some(_) => {
+                self.flush_text();
+                self.pending_text = Some((start, end));
+            }
+            None => self.pending_text = Some((start, end)),
+        }
+    }
+
+    pub(crate) fn flush_text(&mut self) {
+        let Some((start, end)) = self.pending_text.take() else {
+            return;
+        };
+        let text = self.document.create_node(Text {
+            content: self.src[start..end].to_owned(),
+        });
+        #[cfg(feature = "sourcemap")]
+        let srcmap = self.get_map(start, end);
+        #[cfg(feature = "sourcemap")]
+        self.document.node_mut(text).set_srcmap(srcmap);
+        self.nodes.push(text);
+    }
+
+    #[cfg(feature = "sourcemap")]
+    pub(crate) fn get_map(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<crate::common::sourcemap::SourcePos> {
+        let source_pos = |pos| {
+            let line = match self.mapping.binary_search_by(|entry| entry.0.cmp(&pos)) {
+                Ok(index) => index,
+                Err(index) => index - 1,
+            };
+            self.mapping[line].1 + (pos - self.mapping[line].0)
+        };
+        Some(crate::common::sourcemap::SourcePos::new(
+            source_pos(start),
+            source_pos(end),
+        ))
     }
 
     /// Run this child session to completion and return its nodes.
@@ -245,7 +313,7 @@ impl<'a> InlineState<'a> {
         }
     }
 
-    pub(super) fn tokenize(&mut self) {
+    fn tokenize(&mut self) {
         if self.depth >= self.md.max_nesting {
             if self.pos < self.pos_max {
                 self.push_text(self.pos, self.pos_max);
@@ -257,17 +325,35 @@ impl<'a> InlineState<'a> {
         while self.pos < self.pos_max {
             let marker = self.src[self.pos..self.pos_max].chars().next().unwrap();
             let mut matched = None;
-            for rule in &self.ruleset.runs {
+            for index in 0..self.ruleset.runs.len() {
+                let rule = &self.ruleset.runs[index];
                 if !rule.matches_marker(marker) {
                     continue;
                 }
 
-                let result = match &rule.run {
-                    InlineRunRunner::Static(run) => run(self),
-                    InlineRunRunner::Dynamic(run) => run(self),
+                let run = |state: &mut InlineState<'_>| match &rule.run {
+                    InlineRunRunner::Static(run) => run(state),
+                    InlineRunRunner::Dynamic(run) => run(state),
                 };
+                let start = self.pos;
+
+                // additional checks
+                #[cfg(debug_assertions)]
+                let result = super::validation::run_inline(self, index, run);
+
+                // normal, faster
+                #[cfg(not(debug_assertions))]
+                let result = run(self);
 
                 if let Some(result) = result {
+                    inline_progress(
+                        index,
+                        self.src.as_ref(),
+                        start,
+                        self.pos,
+                        self.pos_max,
+                        result.1,
+                    );
                     matched = Some(result);
                     break;
                 }
@@ -290,11 +376,6 @@ impl<'a> InlineState<'a> {
                 self.pos += len;
             }
         }
-    }
-
-    /// Advance over one checked span without emitting nodes, for boundary scans.
-    pub(crate) fn skip_token(&mut self) -> Option<usize> {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || self.skip_token_inner())
     }
 
     fn skip_token_inner(&mut self) -> Option<usize> {
@@ -347,11 +428,12 @@ impl<'a> InlineState<'a> {
             let check = |state: &mut InlineState<'_>| entry.check.call(state);
 
             #[cfg(debug_assertions)]
-            let matched = crate::parser::validation::check_inline(self, rule_index, check);
+            let matched = super::validation::check_inline(self, rule_index, check);
             #[cfg(not(debug_assertions))]
             let matched = check(self);
 
             if let Some(len) = matched {
+                check_progress(rule_index, self.remaining(), len);
                 // Extend the pending text when the match is contiguous;
                 // otherwise start an opaque token.
                 if self
@@ -381,88 +463,12 @@ impl<'a> InlineState<'a> {
         if matches!(marker, '[' | '!') || literal {
             let mut cache = self.scan_limit_cache.borrow_mut();
             if cache
-                .link_bounds
-                .as_ref()
+                .link_bounds()
                 .is_some_and(|bounds| bounds.can_memoize_labels(self.pos, self.pos_max))
             {
                 cache.skip_tokens.insert(key, (len, literal));
             }
         }
-    }
-
-    /// Create a child state over `range` with fresh scratch, nodes and pending text.
-    pub(crate) fn child_state(
-        &mut self,
-        range: Range<usize>,
-        depth: u32,
-        link_level: i32,
-    ) -> Option<InlineState<'_>> {
-        self.remaining().get(range.clone())?;
-
-        let start = self.pos + range.start;
-        let end = self.pos + range.end;
-
-        #[cfg(debug_assertions)]
-        crate::parser::validation::inline_range(self.src.as_ref(), start, end);
-
-        Some(InlineState {
-            src: Cow::Borrowed(self.src.as_ref()),
-            pos: start,
-            pos_max: end,
-            md: self.md,
-            #[cfg(feature = "sourcemap")]
-            mapping: Cow::Borrowed(self.mapping.as_ref()),
-            depth,
-            inline_ext: InlineRootExtSet::new(),
-            scan_limit_cache: Rc::clone(&self.scan_limit_cache),
-            root_ext: self.root_ext,
-            link_level,
-            ruleset: self.ruleset,
-            nodes: Vec::new(),
-            document: &mut *self.document,
-            pending_text: None,
-        })
-    }
-
-    pub(crate) fn trailing_text(&self) -> &str {
-        self.pending_text
-            .map_or("", |(start, end)| &self.src[start..end])
-    }
-
-    pub(crate) fn pop_trailing_text(&mut self, count: usize) {
-        if count == 0 {
-            return;
-        }
-        let (start, end) = self.pending_text.expect("trailing text must exist");
-        assert!(count <= end - start && self.src.is_char_boundary(end - count));
-        self.pending_text = (start < end - count).then_some((start, end - count));
-    }
-
-    pub(crate) fn push_text(&mut self, start: usize, end: usize) {
-        match self.pending_text {
-            Some((pending_start, pending_end)) if pending_end == start => {
-                self.pending_text = Some((pending_start, end));
-            }
-            Some(_) => {
-                self.flush_text();
-                self.pending_text = Some((start, end));
-            }
-            None => self.pending_text = Some((start, end)),
-        }
-    }
-
-    pub(crate) fn flush_text(&mut self) {
-        let Some((start, end)) = self.pending_text.take() else {
-            return;
-        };
-        let text = self.document.create_node(Text {
-            content: self.src[start..end].to_owned(),
-        });
-        #[cfg(feature = "sourcemap")]
-        let srcmap = self.get_map(start, end);
-        #[cfg(feature = "sourcemap")]
-        self.document.node_mut(text).set_srcmap(srcmap);
-        self.nodes.push(text);
     }
 
     fn finish(mut self) -> Vec<NodeId> {
@@ -485,45 +491,82 @@ impl<'a> InlineState<'a> {
                 self.nodes.push(text);
             }
         }
-        self.finish_nodes();
+        self.flush_text();
 
-        if self.inline_ext.contains::<DeferredPostprocess>() {
-            let root = self.document.root();
-            self.document
-                .node_mut(root)
-                .ext_mut()
-                .get_or_insert_default::<InlinePostprocessRanges>()
-                .0
-                .push(self.nodes.clone());
+        if let Some(callbacks) = self.inline_ext.remove::<FinishCallbacks>() {
+            for callback in callbacks.0 {
+                callback(&mut self);
+            }
         }
 
         self.nodes
     }
+}
 
-    pub(super) fn finish_nodes(&mut self) {
-        self.flush_text();
+/// Per-inline cache shared by nested boundary scans.
+///
+/// Mirrors markdown-it's inline skip cache: once a scan at the nesting limit
+/// jumps to the end of a window, later scans over the same window see the same
+/// cutoff. The window end is part of the key so a truncated subrange does not
+/// affect a scan over a different range.
+#[derive(Debug, Default)]
+pub(crate) struct ScanLimitCache {
+    truncated: HashSet<(usize, usize)>,
+    skip_tokens: HashMap<(usize, usize, i32), (usize, bool)>,
+    link_bounds: Option<super::helpers::full_link::LinkLabelBounds>,
+    /// Extension caches shared by sessions over the same source.
+    ext: InlineRootExtSet,
+}
+
+impl ScanLimitCache {
+    /// Monotonic version of the truncation set, used to invalidate cached
+    /// label boundaries after a new nesting cutoff is recorded.
+    ///
+    /// Relies on `truncated` only ever growing; adding removal would make this
+    /// a non-monotonic counter and silently revive stale cache entries.
+    pub(crate) fn epoch(&self) -> usize {
+        self.truncated.len()
     }
 
-    #[cfg(feature = "sourcemap")]
-    fn source_pos(&self, pos: usize) -> usize {
-        let line = match self.mapping.binary_search_by(|entry| entry.0.cmp(&pos)) {
-            Ok(index) => index,
-            Err(index) => index - 1,
-        };
-        self.mapping[line].1 + (pos - self.mapping[line].0)
+    pub(crate) fn link_bounds(&self) -> Option<&super::helpers::full_link::LinkLabelBounds> {
+        self.link_bounds.as_ref()
     }
 
-    #[cfg(feature = "sourcemap")]
-    pub(crate) fn get_map(
-        &self,
-        start: usize,
-        end: usize,
-    ) -> Option<crate::common::sourcemap::SourcePos> {
-        Some(crate::common::sourcemap::SourcePos::new(
-            self.source_pos(start),
-            self.source_pos(end),
-        ))
+    pub(crate) fn link_bounds_mut(
+        &mut self,
+    ) -> Option<&mut super::helpers::full_link::LinkLabelBounds> {
+        self.link_bounds.as_mut()
     }
+
+    pub(crate) fn link_bounds_or_insert_with(
+        &mut self,
+        f: impl FnOnce() -> super::helpers::full_link::LinkLabelBounds,
+    ) -> &mut super::helpers::full_link::LinkLabelBounds {
+        self.link_bounds.get_or_insert_with(f)
+    }
+}
+
+/// Assert that a successful rule advances from `start` and stays within the
+/// source window on a UTF-8 boundary. Also enforced in release builds, since a
+/// zero-length success would rerun the rule forever.
+#[inline]
+fn inline_progress(index: usize, src: &str, start: usize, pos: usize, pos_max: usize, len: usize) {
+    assert!(
+        len > 0
+            && pos
+                .checked_add(len)
+                .is_some_and(|end| end > start && end <= pos_max && src.get(pos..end).is_some()),
+        "inline rule {index} reported invalid run length {len} at {pos} (started at {start})"
+    );
+}
+
+/// Assert that a successful check consumes a non-empty, in-bounds UTF-8 span.
+#[inline]
+fn check_progress(index: usize, remaining: &str, len: usize) {
+    assert!(
+        len > 0 && remaining.get(..len).is_some(),
+        "inline rule {index} reported invalid check length {len}"
+    );
 }
 
 #[cfg(test)]

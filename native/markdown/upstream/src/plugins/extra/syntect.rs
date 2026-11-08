@@ -7,7 +7,7 @@
 //! This plugin use `InspiredGitHub` theme and render inline styles by default.
 //! Use [`set_theme`] to select another built-in theme (syntect defaults plus
 //! two-face extras, e.g. `Nord`, `Dracula`, `Catppuccin Mocha`, `Solarized (dark)`).
-//! It will panic when get an unknown theme.
+//! Unknown themes panic during rendering.
 //! Use [`available_themes`] to view all available themes.
 //!
 //! Use [`set_to_classed`] or [`set_to_classed_with_prefix`] to switch classed mode.
@@ -36,7 +36,7 @@
 //! markdown_it::plugins::cmark::add(&mut md);
 //! markdown_it::plugins::extra::syntect::add(&mut md);
 //! let mut document = md.parse("```rust\nfn main() {}\n```");
-//! assert!(md.render_html(&document).contains("language-rust"));
+//! assert!(md.render_document(&document, "html").contains("language-rust"));
 //! ```
 
 use std::collections::HashSet;
@@ -55,14 +55,14 @@ use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet
 use syntect::util::LinesWithEndings;
 use two_face::theme::LazyThemeSet;
 
+use crate::MarkdownIt;
 use crate::common::utils::unescape_all;
 use crate::document::edit::EditBatch;
-use crate::document::{NodeRef, StructuralEvent};
+use crate::document::{Node, StructuralEvent};
 use crate::parser::core::{CoreRule, CoreState};
 use crate::plugins::cmark::block::code::CodeBlock;
 use crate::plugins::cmark::block::fence::CodeFence;
-use crate::render::{NodeRenderer, RenderContext, write_html_close, write_html_open};
-use crate::{MarkdownIt, Writer};
+use crate::render::{NodeRenderer, RenderContext, Writer, write_html_close, write_html_open};
 
 // lazy load themes. it wast a lot of performance
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
@@ -113,7 +113,7 @@ struct SyntectHtmlRenderer;
 impl NodeRenderer<SyntectSnippet> for SyntectHtmlRenderer {
     fn render(
         &self,
-        _: NodeRef<'_>,
+        _: &Node,
         value: &SyntectSnippet,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -135,7 +135,7 @@ struct SyntectTextRenderer;
 impl NodeRenderer<SyntectSnippet> for SyntectTextRenderer {
     fn render(
         &self,
-        _: NodeRef<'_>,
+        _: &Node,
         value: &SyntectSnippet,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -376,8 +376,11 @@ pub fn available_themes() -> Vec<String> {
 
 /// Set the theme used for syntax highlighting.
 ///
-/// The names should match one of returned by [`available_themes`].
-/// If not, it will panic.
+/// The name must match one returned by [`available_themes`].
+///
+/// # Panics
+///
+/// Rendering or [`theme_css`] panics if the theme is unknown.
 pub fn set_theme(md: &mut MarkdownIt, theme: impl Into<String>) {
     update_syntect_settings(md, |settings| settings.theme = theme.into());
 }
@@ -582,7 +585,8 @@ fn push_scope_classes(html: &mut String, scope: Scope, prefix: &'static str) {
 
 #[cfg(test)]
 mod test {
-    use crate::*;
+    use crate::render::RenderOptions;
+    use crate::{MarkdownIt, plugins};
 
     fn parser() -> MarkdownIt {
         let mut md = MarkdownIt::empty();

@@ -5,15 +5,15 @@ use crate::plugins::cmark::block::paragraph::Paragraph;
 use crate::{MarkdownIt, plugins};
 
 #[test]
-fn draft_insertion_preserves_tree_and_payloads() {
-    let mut root = NodeDraft::new(Root::new("hello".to_owned()));
-    let mut paragraph = NodeDraft::new(Paragraph);
-    paragraph.push_child(NodeDraft::new(Text {
+fn arena_construction_preserves_tree_and_payloads() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let paragraph = document.create_node(Paragraph);
+    let text = document.create_node(Text {
         content: "hello".to_owned(),
-    }));
-    root.push_child(paragraph);
-
-    let document = Document::from_draft("hello", root);
+    });
+    document.push_child(paragraph, text);
+    document.push_child(root, paragraph);
     let root_id = document.root();
     let paragraph_id = document.children(root_id)[0];
     let text_id = document.children(paragraph_id)[0];
@@ -30,17 +30,18 @@ fn draft_insertion_preserves_tree_and_payloads() {
 
 #[test]
 fn structural_events_are_ordered_and_balanced() {
-    let mut root = NodeDraft::new(Root::new("hello".to_owned()));
-    let mut paragraph = NodeDraft::new(Paragraph);
-    paragraph.push_child(NodeDraft::new(Text {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let paragraph = document.create_node(Paragraph);
+    let text = document.create_node(Text {
         content: "first".to_owned(),
-    }));
-    paragraph.push_child(NodeDraft::new(Text {
+    });
+    document.push_child(paragraph, text);
+    let text = document.create_node(Text {
         content: "second".to_owned(),
-    }));
-    root.push_child(paragraph);
-
-    let document = Document::from_draft("hello", root);
+    });
+    document.push_child(paragraph, text);
+    document.push_child(root, paragraph);
     let root = document.root();
     let paragraph = document.children(root)[0];
     let children = document.children(paragraph);
@@ -68,14 +69,14 @@ fn structural_events_are_ordered_and_balanced() {
 
 #[test]
 fn structural_events_can_start_at_a_subtree_or_leaf() {
-    let mut root = NodeDraft::new(Root::new("hello".to_owned()));
-    let mut paragraph = NodeDraft::new(Paragraph);
-    paragraph.push_child(NodeDraft::new(Text {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let paragraph = document.create_node(Paragraph);
+    let text = document.create_node(Text {
         content: "hello".to_owned(),
-    }));
-    root.push_child(paragraph);
-
-    let document = Document::from_draft("hello", root);
+    });
+    document.push_child(paragraph, text);
+    document.push_child(root, paragraph);
     let paragraph = document.children(document.root())[0];
     let text = document.children(paragraph)[0];
 
@@ -91,32 +92,26 @@ fn structural_events_can_start_at_a_subtree_or_leaf() {
 
 #[test]
 fn invalid_node_access_panics_in_all_builds() {
-    fn transparent_text_projection<'a>(_: &'a Document, _: NodeRef<'a>) -> TextProjectionKind<'a> {
+    fn transparent_text_projection<'a>(_: &'a Document, _: &'a Node) -> TextProjectionKind<'a> {
         TextProjectionKind::Transparent
     }
 
-    let mut root = NodeDraft::new(Root::new(String::new()));
-    root.push_child(NodeDraft::new(Text {
-        content: "old".into(),
-    }));
-    root.push_child(NodeDraft::new(Text {
-        content: "kept".into(),
-    }));
-    let mut document = Document::from_draft("", root);
+    let mut document = Document::new("", Root::new(""));
+    let root = document.root();
+    for content in ["old", "kept"] {
+        let text = document.create_node(Text {
+            content: content.into(),
+        });
+        document.push_child(root, text);
+    }
     let old = document.children(document.root())[0];
     let kept = document.children(document.root())[1];
 
-    let mut edits = crate::EditBatch::new();
-    edits.remove_node(old);
-    edits.commit(&mut document);
-    let mut edits = crate::EditBatch::new();
-    edits.insert_before(
-        kept,
-        NodeDraft::new(Text {
-            content: "new".into(),
-        }),
-    );
-    edits.commit(&mut document);
+    document.remove_node(old);
+    let new = document.create_node(Text {
+        content: "new".into(),
+    });
+    document.insert_before(kept, new);
     let new = document.children(document.root())[0];
     assert_eq!(old.slot(), new.slot());
     assert_ne!(old.generation(), new.generation());
@@ -179,7 +174,7 @@ fn parser_facade_preserves_rendering_and_source() {
     let document = md.parse(source);
 
     assert_eq!(document.source(), source);
-    assert_eq!(md.render_html(&document), expected);
+    assert_eq!(md.render_document(&document, "html"), expected);
 }
 
 #[test]
@@ -216,24 +211,31 @@ fn parsed_document_events_visit_every_node_once() {
 }
 
 #[test]
-fn node_data_survives_draft_insertion() {
+fn node_data_is_preserved_when_attaching_children() {
     #[derive(Debug)]
     struct Payload(String);
 
     #[derive(Debug)]
     struct Metadata(String);
 
-    fn draft() -> super::NodeDraft {
-        let mut draft = super::NodeDraft::new(Payload("payload".into()));
-        #[cfg(feature = "sourcemap")]
-        draft.set_srcmap(Some(crate::common::sourcemap::SourcePos::new(0, 3)));
-        draft.attrs_mut().push(("class".into(), "kept".into()));
-        draft.ext_mut().insert(Metadata("metadata".into()));
-        draft.push_child(super::NodeDraft::new(Text {
-            content: "abc".into(),
-        }));
-        draft
-    }
+    let mut document = Document::new("abc", Payload("payload".into()));
+    let root = document.root();
+    #[cfg(feature = "sourcemap")]
+    document
+        .node_mut(root)
+        .set_srcmap(Some(crate::common::sourcemap::SourcePos::new(0, 3)));
+    document
+        .node_mut(root)
+        .attrs_mut()
+        .push(("class".into(), "kept".into()));
+    document
+        .node_mut(root)
+        .ext_mut()
+        .insert(Metadata("metadata".into()));
+    let child = document.create_node(Text {
+        content: "abc".into(),
+    });
+    document.push_child(root, child);
 
     fn assert_document(document: &Document) {
         let root = document.node(document.root());
@@ -249,9 +251,6 @@ fn node_data_survives_draft_insertion() {
         assert_eq!(child.cast::<Text>().unwrap().content, "abc");
     }
 
-    let document = Document::from_draft("abc", draft());
-    assert_document(&document);
-    let document = Document::from_draft("abc", draft());
     assert_document(&document);
 }
 
@@ -294,6 +293,7 @@ fn arena_builder_moves_ids_and_metadata_without_recreating_nodes() {
 }
 
 #[test]
+#[cfg(debug_assertions)]
 fn arena_builder_rejects_cycles_before_modifying_links() {
     let mut document = Document::new("", Root::new(""));
     let outer = document.create_node(Paragraph);
@@ -307,4 +307,98 @@ fn arena_builder_rejects_cycles_before_modifying_links() {
     assert_eq!(document.parent(outer), None);
     assert_eq!(document.parent(inner), Some(outer));
     assert!(document.children(inner).is_empty());
+}
+
+#[test]
+fn walk_visits_root_and_descendants_in_preorder() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let first = document.create_node(Paragraph);
+    let second = document.create_node(Paragraph);
+    let nested = document.create_node(Text {
+        content: "nested".to_owned(),
+    });
+    document.push_child(second, nested);
+    document.push_child(root, first);
+    document.push_child(root, second);
+
+    let mut visited = Vec::new();
+    document.walk(root, |id| visited.push(id));
+
+    assert_eq!(visited, [root, first, second, nested]);
+}
+
+#[test]
+fn wrap_children_preserves_order_and_updates_parents() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let first = document.create_node(Text {
+        content: "first".to_owned(),
+    });
+    let second = document.create_node(Text {
+        content: "second".to_owned(),
+    });
+    let third = document.create_node(Text {
+        content: "third".to_owned(),
+    });
+    document.push_child(root, first);
+    document.push_child(root, second);
+    document.push_child(root, third);
+    let wrapper = document.create_node(Paragraph);
+
+    document.wrap_children(root, 1..3, wrapper);
+
+    assert_eq!(document.children(root), &[first, wrapper]);
+    assert_eq!(document.children(wrapper), &[second, third]);
+    assert_eq!(document.parent(wrapper), Some(root));
+    assert_eq!(document.parent(second), Some(wrapper));
+    assert_eq!(document.parent(third), Some(wrapper));
+}
+
+#[test]
+fn wrap_children_supports_an_empty_range() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let first = document.create_node(Paragraph);
+    let second = document.create_node(Paragraph);
+    document.push_child(root, first);
+    document.push_child(root, second);
+    let wrapper = document.create_node(Paragraph);
+
+    document.wrap_children(root, 1..1, wrapper);
+
+    assert_eq!(document.children(root), &[first, wrapper, second]);
+    assert!(document.children(wrapper).is_empty());
+}
+
+#[test]
+#[should_panic(expected = "start must not exceed its end")]
+#[allow(clippy::reversed_empty_ranges)] // the invalid range is the test input
+fn wrap_children_rejects_a_reversed_range() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let wrapper = document.create_node(Paragraph);
+    document.wrap_children(root, 2..1, wrapper);
+}
+
+#[test]
+#[should_panic(expected = "exceeds")]
+fn wrap_children_rejects_an_out_of_bounds_range() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let wrapper = document.create_node(Paragraph);
+    document.wrap_children(root, 0..1, wrapper);
+}
+
+#[test]
+#[should_panic(expected = "child must be detached")]
+fn wrap_children_rejects_an_attached_wrapper() {
+    let mut document = Document::new("hello", Root::new("hello"));
+    let root = document.root();
+    let child = document.create_node(Paragraph);
+    let wrapper = document.create_node(Paragraph);
+    document.push_child(root, child);
+    document.push_child(root, wrapper);
+
+    document.wrap_children(root, 0..1, wrapper);
 }

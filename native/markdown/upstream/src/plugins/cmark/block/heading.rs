@@ -4,7 +4,7 @@
 //!
 //! <https://spec.commonmark.org/0.30/#atx-heading>
 use crate::MarkdownIt;
-use crate::document::{NodeId, NodeRef};
+use crate::document::{Node, NodeId};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::render::{
     HtmlBlockElementRenderer,
@@ -23,10 +23,10 @@ struct ATXHeadingRenderer;
 impl NodeRenderer<ATXHeading> for ATXHeadingRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         heading: &ATXHeading,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         static TAG: [&str; 6] = ["h1", "h2", "h3", "h4", "h5", "h6"];
         debug_assert!((1..=6).contains(&heading.level));
@@ -113,7 +113,7 @@ impl BlockRule for HeadingScanner {
         #[cfg(feature = "sourcemap")]
         let mapping = vec![(0, state.line_offsets[state.line].first_nonspace + text_pos)];
         #[cfg(not(feature = "sourcemap"))]
-        let mapping = crate::parser::InlineMapping;
+        let mapping = crate::parser::inline::InlineMapping;
 
         let node = state.document.create_node(ATXHeading { level });
         let pending = state.pending_inline(content, mapping);

@@ -2,7 +2,7 @@
 //!
 //! <https://github.github.com/gfm/#tables-extension->
 use crate::MarkdownIt;
-use crate::document::{NodeId, NodeRef};
+use crate::document::{Node, NodeId};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::plugins::cmark::block::blockquote::{BlockquoteInterrupt, BlockquoteScanner};
 use crate::plugins::cmark::block::fence::FenceScanner;
@@ -35,10 +35,10 @@ struct TableRenderer;
 impl NodeRenderer<Table> for TableRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &Table,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         let old_context = context.ext().remove::<TableRenderContext>();
         context.ext().insert(TableRenderContext {
@@ -71,10 +71,10 @@ struct TableHeadRenderer;
 impl NodeRenderer<TableHead> for TableHeadRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &TableHead,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         context
             .ext()
@@ -96,10 +96,10 @@ struct TableBodyRenderer;
 impl NodeRenderer<TableBody> for TableBodyRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &TableBody,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         render_block_container(node, context, output, "tbody");
     }
@@ -113,10 +113,10 @@ struct TableRowRenderer;
 impl NodeRenderer<TableRow> for TableRowRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &TableRow,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         context
             .ext()
@@ -131,10 +131,10 @@ struct TableRowTextRenderer;
 impl NodeRenderer<TableRow> for TableRowTextRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &TableRow,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         context.cr(output);
         for (index, &cell) in node.children().iter().enumerate() {
@@ -155,10 +155,10 @@ struct TableCellRenderer;
 impl NodeRenderer<TableCell> for TableCellRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &TableCell,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         let table_context = context.ext().get_or_insert_default::<TableRenderContext>();
         let tag = if table_context.head { "th" } else { "td" };
@@ -185,9 +185,9 @@ impl NodeRenderer<TableCell> for TableCellRenderer {
 }
 
 fn render_block_container(
-    node: NodeRef<'_>,
+    node: &Node,
     context: &mut RenderContext<'_>,
-    output: &mut crate::Writer,
+    output: &mut crate::render::Writer,
     tag: &str,
 ) {
     context.cr(output);
@@ -226,7 +226,7 @@ pub struct TableScanner;
 struct RowContent {
     str: String,
     #[cfg(feature = "sourcemap")]
-    srcmap: Vec<(usize, usize)>,
+    srcmap: crate::parser::inline::InlineMapping,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -483,7 +483,7 @@ impl BlockRule for TableScanner {
                     .map(|(dst, src)| (dst, src + start))
                     .collect();
                 #[cfg(not(feature = "sourcemap"))]
-                let mapping = crate::parser::InlineMapping;
+                let mapping = crate::parser::inline::InlineMapping;
 
                 let pending = state.pending_inline(cell, mapping);
                 state.document.push_child(cell_node, pending);

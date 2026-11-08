@@ -8,7 +8,7 @@ permissions: read-all
 
 jobs:
   quality:
-    name: Format and Clippy
+    name: Format
     runs-on: ubuntu-latest
     env:
       CARGO_NET_RETRY: "3"
@@ -17,13 +17,47 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+      - name: Check formatting
+        run: cargo +nightly fmt --all --check
+      # standalone workspace
+      - name: Check formatting of the plugin authoring crate
+        run: cargo +nightly fmt --check --manifest-path examples/plugin-authoring/Cargo.toml
+
+  clippy:
+    name: Clippy (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_NET_RETRY: "3"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default features
+            args: ""
+          - name: no default features
+            args: --no-default-features
+          - name: source maps only
+            args: --no-default-features --features sourcemap
+          - name: linkify only
+            args: --no-default-features --features linkify
+          - name: CLI only
+            args: --no-default-features --features cli
+          - name: KaTeX only
+            args: --no-default-features --features katex
+          - name: syntect only
+            args: --no-default-features --features syntect
+          - name: linkify with source maps
+            args: --no-default-features --features linkify,sourcemap
+          - name: all features
+            args: --all-features
+    steps:
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Check formatting
-        run: cargo +nightly fmt --all --check
       - name: Run Clippy
-        run: cargo +stable clippy -p markdown-it-rs --all-targets --all-features -- -D warnings
+        run: cargo clippy -p markdown-it-rs --locked --all-targets ${{ matrix.args }} -- -D warnings
 
   subcrates:
     name: Test and Clippy (${{ matrix.package }})
@@ -47,6 +81,32 @@ jobs:
       - name: Run unit, integration, and documentation tests
         if: ${{ !cancelled() }}
         run: cargo test -p ${{ matrix.package }} --locked --all-features --no-fail-fast
+
+  plugin-authoring:
+    name: Plugin authoring (standalone crate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_NET_RETRY: "3"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Run Clippy
+        run: cargo clippy --manifest-path examples/plugin-authoring/Cargo.toml --all-targets -- -D warnings
+      - name: Test with default features
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path examples/plugin-authoring/Cargo.toml
+      - name: Test without default features
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path examples/plugin-authoring/Cargo.toml --no-default-features
+      - name: Test with source maps
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path examples/plugin-authoring/Cargo.toml --no-default-features --features sourcemap
+      - name: Run plugin examples
+        if: ${{ !cancelled() }}
+        run: cargo run --manifest-path examples/plugin-authoring/Cargo.toml
 
   test:
     name: Test (${{ matrix.name }})

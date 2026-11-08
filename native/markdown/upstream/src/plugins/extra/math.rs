@@ -1,6 +1,11 @@
-// reference to exist CodeFence & CodeSpan rule in the code base
+//! Inline (`$...$`) and block (`$$`) math.
+//!
+//! With the `katex` feature, HTML rendering uses katex-rs 0.3, which tracks
+//! KaTeX 0.18.5. Pages displaying this HTML must load the matching KaTeX CSS
+//! and fonts; older stylesheets use incompatible class names.
 
-use crate::document::{NodeId, NodeRef};
+use crate::MarkdownIt;
+use crate::document::{Node, NodeId, NodeValue};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::parser::inline::{InlineRule, InlineState};
 use crate::render::{
@@ -10,7 +15,6 @@ use crate::render::{
     write_html_open,
     write_html_text,
 };
-use crate::{MarkdownIt, NodeValue};
 
 #[derive(Debug)]
 struct MathBlock {
@@ -139,10 +143,10 @@ struct MathRenderer {
 impl<T: NodeValue + AsRef<str>> NodeRenderer<T> for MathRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &T,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         if self.block {
             context.cr(output);
@@ -238,7 +242,7 @@ mod tests {
                 .into_owned()
         }
 
-        let actual = normalize_katex_attrs(&md.render_html(&node));
+        let actual = normalize_katex_attrs(&md.render_document(&node, "html"));
         let expected = normalize_katex_attrs(&output);
         assert_eq!(actual, expected);
 

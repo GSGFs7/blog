@@ -8,26 +8,34 @@ on:
   workflow_dispatch:
     inputs:
       baseline-ref:
-        description: "Baseline commit, tag, or branch (empty: previous commit)"
+        description: "Baseline ref (default: last successful branch run; PR: merge-base)"
         type: string
         default: ""
+      rounds:
+        description: "Paired rounds per benchmark (2 = ABBA)"
+        type: choice
+        options: ["2", "4", "6"]
+        default: "2"
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: benchmarks-${{ github.ref }}
-  cancel-in-progress: false
+  group: benchmarks-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   benchmark:
     name: Compare Criterion benchmarks
+    # Baseline and PR code run here; deny cache writes at the token level.
+    cache-mode: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 120
     env:
       CARGO_NET_RETRY: "3"
-      CARGO_TARGET_DIR: ${{ github.workspace }}/benchmark-target
       REPORT_DIR: ${{ github.workspace }}/benchmark-report
+      PAIRED_ROUNDS: ${{ inputs.rounds || '2' }}
       # Include this project and its internal parse benchmarks only.
       BENCHMARK_FILTER: '(/markdown-it-rs$|^parse/(lifecycle|deferred-inline-siblings)/)'
     steps:
@@ -35,24 +43,82 @@ jobs:
         with:
           path: current
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Find previous successful benchmark run
+        id: previous
+        if: ${{ inputs.baseline-ref == '' && github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/') }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: currentRun } = await github.rest.actions.getWorkflowRun({
+              ...context.repo,
+              run_id: context.runId,
+            });
+            for await (const { data } of github.paginate.iterator(
+              github.rest.actions.listWorkflowRuns,
+              {
+                ...context.repo,
+                workflow_id: currentRun.workflow_id,
+                branch: currentRun.head_branch,
+                status: 'success',
+                per_page: 100,
+              },
+            )) {
+              const previous = data.find(run =>
+                run.id < context.runId &&
+                ['push', 'schedule', 'workflow_dispatch'].includes(run.event) &&
+                run.head_repository?.full_name === context.payload.repository.full_name
+              );
+              if (previous) {
+                core.setOutput('sha', previous.head_sha);
+                core.setOutput('url', previous.html_url);
+                core.info(`Baseline: ${previous.head_sha} (${previous.html_url})`);
+                return;
+              }
+            }
+            core.notice('No previous successful benchmark run on this branch; using the fallback baseline.');
 
       - name: Resolve comparison commits
         id: refs
         working-directory: current
         env:
           BASELINE_REF: ${{ inputs.baseline-ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PREVIOUS_SHA: ${{ steps.previous.outputs.sha }}
+          PREVIOUS_URL: ${{ steps.previous.outputs.url }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
-          baseline_ref=${BASELINE_REF:-HEAD^}
-          if ! baseline=$(git rev-parse --verify --end-of-options "$baseline_ref^{commit}" 2>/dev/null); then
-            baseline=$(git rev-parse --verify --end-of-options "refs/remotes/origin/$baseline_ref^{commit}")
-          fi
           current=$(git rev-parse HEAD)
+          if [[ -n "$BASELINE_REF" ]]; then
+            source="Explicit baseline-ref"
+            if ! baseline=$(git rev-parse --verify --end-of-options "$BASELINE_REF^{commit}" 2>/dev/null); then
+              baseline=$(git rev-parse --verify --end-of-options "refs/remotes/origin/$BASELINE_REF^{commit}")
+            fi
+          elif [[ -n "$PR_BASE_SHA" ]]; then
+            baseline=$(git merge-base "$PR_BASE_SHA" "$current")
+            source="Pull request merge-base"
+          elif [[ -n "$PREVIOUS_SHA" ]]; then
+            baseline=$PREVIOUS_SHA
+            source="Previous successful benchmark run: $PREVIOUS_URL"
+          elif [[ -n "$PUSH_BEFORE_SHA" && ! "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+            baseline=$PUSH_BEFORE_SHA
+            source="No successful run found; commit before this push"
+          elif baseline=$(git rev-parse --verify HEAD^ 2>/dev/null); then
+            source="No successful run found; parent commit"
+          else
+            baseline=$current
+            source="No previous run or parent commit; initial self-comparison"
+          fi
           echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
           echo "current=$current" >> "$GITHUB_OUTPUT"
           mkdir -p "$REPORT_DIR"
           {
             printf '# Performance regression report\n\n'
             printf 'Baseline commit: %s\n\nCurrent commit: %s\n\n' "$baseline" "$current"
+            printf 'Baseline source: %s\n\n' "$source"
+            printf 'Both revisions are measured again on this runner using paired rounds.\n\n'
           } > "$REPORT_DIR/summary.md"
           {
             rustup --version
@@ -64,6 +130,7 @@ jobs:
         with:
           ref: ${{ steps.refs.outputs.baseline }}
           path: baseline
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
@@ -72,60 +139,63 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: |
-            current/benchmarks -> ../../benchmark-target
-          cache-on-failure: true
+            baseline/benchmarks -> ../../benchmark-target/baseline
+            current/benchmarks -> ../../benchmark-target/current
+          save-if: false
 
       - name: Record toolchain
         run: |
           rustc -Vv >> "$REPORT_DIR/environment.txt"
           cargo -V >> "$REPORT_DIR/environment.txt"
 
-      - name: Benchmark baseline
-        id: baseline
+      - name: Build baseline benchmarks
         working-directory: baseline
         env:
-          CRITERION_HOME: ${{ env.REPORT_DIR }}/baseline
-        run: >-
-          cargo bench --manifest-path benchmarks/Cargo.toml --locked
-          --bench throughput --bench parse --
-          "$BENCHMARK_FILTER"
-          --noplot --sample-size 30 --warm-up-time 1 --measurement-time 2
+          CARGO_TARGET_DIR: ${{ github.workspace }}/benchmark-target/baseline
+        run: |
+          cargo bench --manifest-path benchmarks/Cargo.toml --locked \
+            --bench throughput --bench parse --no-run --message-format=json \
+            > "$REPORT_DIR/build-baseline.jsonl"
 
-      - name: Benchmark current revision
-        id: current
-        if: ${{ !cancelled() && steps.refs.outcome == 'success' }}
+      - name: Build current benchmarks
         working-directory: current
         env:
-          CRITERION_HOME: ${{ env.REPORT_DIR }}/current
-        run: >-
-          cargo bench --manifest-path benchmarks/Cargo.toml --locked
-          --bench throughput --bench parse --
-          "$BENCHMARK_FILTER"
-          --noplot --sample-size 30 --warm-up-time 1 --measurement-time 2
+          CARGO_TARGET_DIR: ${{ github.workspace }}/benchmark-target/current
+        run: |
+          cargo bench --manifest-path benchmarks/Cargo.toml --locked \
+            --bench throughput --bench parse --no-run --message-format=json \
+            > "$REPORT_DIR/build-current.jsonl"
+
+      - name: Measure paired benchmarks on one CPU
+        id: measure
+        run: |
+          python current/benchmarks/scripts/benchmark.py run \
+            --baseline-build "$REPORT_DIR/build-baseline.jsonl" \
+            --current-build "$REPORT_DIR/build-current.jsonl" \
+            --baseline-root "$GITHUB_WORKSPACE/baseline" \
+            --current-root "$GITHUB_WORKSPACE/current" \
+            --report-dir "$REPORT_DIR" --filter "$BENCHMARK_FILTER" \
+            --rounds "$PAIRED_ROUNDS" \
+            --sample-size 100 --warm-up-time 3 --measurement-time 5
 
       - name: Generate reports
-        if: ${{ !cancelled() && steps.baseline.outcome == 'success' && steps.current.outcome == 'success' }}
+        id: report
         run: |
-          python current/benchmarks/scripts/compare.py \
-            --baseline-dir "$REPORT_DIR/baseline" \
-            --current-dir "$REPORT_DIR/current" >> "$REPORT_DIR/summary.md"
-          python current/benchmarks/scripts/summarize.py \
-            --criterion-dir "$REPORT_DIR/current" --output "$REPORT_DIR/current.md"
-          python current/benchmarks/scripts/summarize.py \
-            --criterion-dir "$REPORT_DIR/current" --format csv --output "$REPORT_DIR/current.csv"
+          python current/benchmarks/scripts/benchmark.py report \
+            --report-dir "$REPORT_DIR" --threshold 3 >> "$REPORT_DIR/summary.md"
 
       - name: Publish Job Summary
-        if: ${{ !cancelled() && steps.refs.outcome == 'success' }}
+        if: ${{ always() && steps.refs.outcome == 'success' }}
         env:
-          BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
-          CURRENT_OUTCOME: ${{ steps.current.outcome }}
+          MEASURE_OUTCOME: ${{ steps.measure.outcome }}
+          REPORT_OUTCOME: ${{ steps.report.outcome }}
         run: |
-          printf '\nBenchmark status: baseline=%s, current=%s.\n' \
-            "$BASELINE_OUTCOME" "$CURRENT_OUTCOME" >> "$REPORT_DIR/summary.md"
+          printf '\nBenchmark status: measurement=%s, report=%s. Partial or failed runs are not comparable.\n' \
+            "$MEASURE_OUTCOME" "$REPORT_OUTCOME" >> "$REPORT_DIR/summary.md"
           cat "$REPORT_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload reports and raw Criterion results
-        if: ${{ !cancelled() && steps.refs.outcome == 'success' }}
+        if: ${{ always() && steps.refs.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-report-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,292 +1,279 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::ops::Range;
 
-use super::{Document, NodeDraft, NodeId};
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum SiblingPosition {
-    Before,
-    After,
-}
+use super::{Document, NodeId};
 
 impl Document {
-    /// Delete a detached subtree, invalidating all of its IDs.
+    /// Delete a detached subtree, invalidating its IDs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `node` is invalid, attached, or the root.
+    #[track_caller]
     pub fn discard_node(&mut self, node: NodeId) {
         assert_ne!(node, self.root, "cannot discard the document root");
         assert!(self.node(node).parent.is_none(), "node must be detached");
 
-        if self.children(node).is_empty() {
-            self.arena.remove(node).expect("detached node must exist");
-        } else {
-            self.delete_subtrees(&[node]);
-        }
+        self.delete_subtree(node);
     }
 
-    pub(crate) fn remove_subtrees(&mut self, roots: &[NodeId]) {
-        if let [root] = roots {
-            // single root optimization
-            let parent = self
-                .arena
-                .get(*root)
-                .expect("subtree root must exist")
-                .parent
-                .expect("subtree root must not be the document root");
-            let siblings = &mut self
-                .arena
-                .get_mut(parent)
-                .expect("subtree parent must exist")
-                .children;
-            let position = siblings
-                .iter()
-                .position(|child| child == root)
-                .expect("document parent links are internally consistent");
-            siblings.remove(position);
-        } else {
-            let root_set: HashSet<_> = roots.iter().copied().collect();
-            let parents: HashSet<_> = root_set
-                .iter()
-                .map(|&root| {
-                    self.arena
-                        .get(root)
-                        .expect("subtree root must exist")
-                        .parent
-                        .expect("subtree root must not be the document root")
-                })
-                .collect();
-            for parent in parents {
-                self.arena
-                    .get_mut(parent)
-                    .expect("subtree parent must exist")
-                    .children
-                    .retain(|child| !root_set.contains(child));
+    /// Remove an attached non-root node and its subtree.
+    ///
+    /// All IDs in the subtree become stale.
+    ///
+    /// # Panics
+    ///
+    /// Panics before mutation if `node` is invalid, detached, or the root.
+    #[track_caller]
+    pub fn remove_node(&mut self, node: NodeId) {
+        let (parent, index) = self.sibling_location(node);
+        self.node_mut(parent).children.remove(index);
+        self.delete_subtree(node);
+    }
+
+    /// Insert a detached node before `target`.
+    ///
+    /// The caller must ensure attaching would not create an ancestor cycle;
+    /// this is checked only with debug assertions enabled.
+    ///
+    /// Repeated calls at the same target preserve order.
+    ///
+    /// ```
+    /// use markdown_it::{MarkdownIt, document::Text};
+    ///
+    /// let mut document = MarkdownIt::new().parse("hello");
+    /// let target = document.children(document.root())[0];
+    /// let node = document.create_node(Text { content: "prefix".into() });
+    /// document.insert_before(target, node);
+    /// assert_eq!(document.children(document.root()), &[node, target]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics before mutation if either ID is invalid, the target is detached or
+    /// the root, the node is attached or the root, or it would be attached to
+    /// itself. Ancestor cycles panic before mutation only with debug assertions
+    /// enabled.
+    #[track_caller]
+    pub fn insert_before(&mut self, target: NodeId, node: NodeId) {
+        let (parent, index) = self.sibling_location(target);
+        self.check_attachment(parent, node);
+        self.node_mut(node).parent = Some(parent);
+        self.node_mut(parent).children.insert(index, node);
+    }
+
+    /// Insert a detached node after `target`.
+    ///
+    /// The caller must ensure attaching would not create an ancestor cycle;
+    /// this is checked only with debug assertions enabled.
+    ///
+    /// Repeated calls at the same target place the latest node nearest the
+    /// target; pass the inserted node as the next target to preserve order.
+    ///
+    /// # Panics
+    ///
+    /// Panics under the same conditions as [`Document::insert_before`].
+    #[track_caller]
+    pub fn insert_after(&mut self, target: NodeId, node: NodeId) {
+        let (parent, index) = self.sibling_location(target);
+        self.check_attachment(parent, node);
+        self.node_mut(node).parent = Some(parent);
+        self.node_mut(parent).children.insert(index + 1, node);
+    }
+
+    /// Replace an attached non-root node with a detached subtree.
+    ///
+    /// The caller must ensure attaching would not create an ancestor cycle;
+    /// this is checked only with debug assertions enabled.
+    ///
+    /// The replacement keeps its IDs; all IDs in the old subtree become stale.
+    ///
+    /// # Panics
+    ///
+    /// Panics under the same conditions as [`Document::insert_before`].
+    #[track_caller]
+    pub fn replace_node(&mut self, target: NodeId, replacement: NodeId) {
+        let (parent, index) = self.sibling_location(target);
+        self.check_attachment(parent, replacement);
+        self.node_mut(replacement).parent = Some(parent);
+        self.node_mut(parent).children[index] = replacement;
+        self.delete_subtree(target);
+    }
+
+    /// Wrap a contiguous sibling range in a detached `wrapper` node.
+    ///
+    /// Children in `range` keep their relative order and become the wrapper's
+    /// children. The wrapper takes their position in `parent`; any children the
+    /// wrapper already had remain before the wrapped range.
+    ///
+    /// ```
+    /// use markdown_it::{MarkdownIt, document::Text};
+    ///
+    /// let mut document = MarkdownIt::new().parse("first *second* third");
+    /// let paragraph = document.children(document.root())[0];
+    /// let first = document.children(paragraph)[0];
+    /// let middle = document.children(paragraph)[1];
+    /// let last = document.children(paragraph)[2];
+    ///
+    /// let wrapper = document.create_node(Text { content: String::new() });
+    /// document.wrap_children(paragraph, 1..3, wrapper);
+    ///
+    /// assert_eq!(document.children(paragraph), &[first, wrapper]);
+    /// assert_eq!(document.children(wrapper), &[middle, last]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics before mutation on invalid IDs, a reversed or out-of-bounds
+    /// `range`, or an attached, root or cyclic `wrapper`.
+    #[track_caller]
+    pub fn wrap_children(&mut self, parent: NodeId, range: Range<usize>, wrapper: NodeId) {
+        let len = self.children(parent).len();
+        assert!(
+            range.start <= range.end,
+            "child range start must not exceed its end"
+        );
+        assert!(
+            range.end <= len,
+            "child range end {} exceeds {len} children",
+            range.end
+        );
+        self.check_attachment(parent, wrapper);
+
+        let mut children = self.take_children(parent);
+        for child in children.drain(range.clone()) {
+            self.push_child(wrapper, child);
+        }
+        children.insert(range.start, wrapper);
+        self.replace_children(parent, children);
+    }
+
+    /// Replace all children of `parent` in one operation.
+    ///
+    /// Children may be existing direct children (in any order) or detached
+    /// nodes. Retained nodes keep their IDs and metadata; omitted old children
+    /// are deleted with their subtrees. An empty list clears the parent.
+    /// The caller must ensure attaching would not create an ancestor cycle;
+    /// this is checked only with debug assertions enabled.
+    ///
+    /// Prefer this over repeated sibling edits for large lists: it scans the old
+    /// and new lists once, plus any removed subtrees.
+    ///
+    /// ```
+    /// use markdown_it::{MarkdownIt, document::Text};
+    ///
+    /// let mut document = MarkdownIt::new().parse("first\n\nsecond");
+    /// let root = document.root();
+    /// let kept = document.children(root)[1];
+    /// let added = document.create_node(Text { content: "prefix".into() });
+    /// document.replace_children(root, vec![added, kept]);
+    /// assert_eq!(document.children(root), &[added, kept]);
+    /// document.replace_children(root, Vec::new());
+    /// assert_eq!(document.len(), 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics before mutation if any ID is invalid, a child is duplicated or
+    /// attached to another parent, or the root or parent is used as a child.
+    /// Ancestor cycles panic before mutation only with debug assertions enabled.
+    /// On failure, detached nodes remain in the document for reuse or
+    /// discard.
+    #[track_caller]
+    pub fn replace_children(&mut self, parent: NodeId, children: Vec<NodeId>) {
+        if self.children(parent) == children.as_slice() {
+            return;
+        }
+
+        #[cfg(debug_assertions)]
+        let mut check_ancestors = false;
+
+        let mut retained = HashSet::with_capacity(children.len());
+        for &child in &children {
+            assert_ne!(child, self.root, "cannot attach the document root");
+            assert_ne!(child, parent, "cannot attach a node to itself");
+
+            let node = self.node(child);
+            assert!(
+                node.parent.is_none() || node.parent == Some(parent),
+                "child must be detached or already belong to this parent"
+            );
+            assert!(retained.insert(child), "duplicate child ID");
+
+            #[cfg(debug_assertions)]
+            {
+                check_ancestors |= node.parent.is_none() && !node.children.is_empty();
             }
         }
 
-        self.delete_subtrees(roots);
+        #[cfg(debug_assertions)]
+        if check_ancestors {
+            let mut ancestor = self.parent(parent);
+            while let Some(id) = ancestor {
+                assert!(!retained.contains(&id), "cannot create a cycle");
+                ancestor = self.parent(id);
+            }
+        }
+
+        // Validation passed; links and payloads are still unchanged.
+        for &child in &children {
+            self.node_mut(child).parent = Some(parent);
+        }
+        let mut removed = std::mem::replace(&mut self.node_mut(parent).children, children);
+        removed.retain(|child| !retained.contains(child));
+        self.delete_subtrees(removed);
     }
 
-    fn delete_subtrees(&mut self, roots: &[NodeId]) {
-        // reverse delete (post-order traversal)
-        // child nodes are always deleted before their parent nodes.
-        //
-        // e.g.
-        // root->(A->(A1,A2->(A21,A22)),B)
-        // turn     action      pending      nodes
-        // 0        pop B       [A]          [B]
-        // 1        pop A       [A1,A2]      [B,A]
-        // 2        pop A2      [A1,A21,A22] [B,A,A2]
-        // 3        pop A22     [A1,A21]     [B,A,A2,A22]
-        // 4        pop A21     [A1]         [B,A,A2,A22,A21]
-        // 5        pop A1      []           [B,A,A2,A22,A21,A1]
-        // deletion order: A1->A21->A22->A2->A->B
-        let mut pending = roots.to_vec();
+    #[track_caller]
+    fn sibling_location(&self, node: NodeId) -> (NodeId, usize) {
+        let parent = self
+            .node(node)
+            .parent
+            .expect("target must be attached and not the document root");
+        let index = self
+            .children(parent)
+            .iter()
+            .position(|&child| child == node)
+            .expect("document parent links are internally consistent");
+        (parent, index)
+    }
+
+    #[track_caller]
+    pub(super) fn check_attachment(&self, parent: NodeId, child: NodeId) {
+        self.node(parent);
+        assert_ne!(child, self.root, "cannot attach the document root");
+        assert!(self.node(child).parent.is_none(), "child must be detached");
+        assert_ne!(parent, child, "cannot attach a node to itself");
+
+        #[cfg(debug_assertions)]
+        if !self.children(child).is_empty() {
+            let mut ancestor = Some(parent);
+            while let Some(id) = ancestor {
+                assert_ne!(id, child, "cannot create a cycle");
+                ancestor = self.parent(id);
+            }
+        }
+    }
+
+    fn delete_subtree(&mut self, root: NodeId) {
+        if self.children(root).is_empty() {
+            self.arena.remove(root).expect("subtree root must exist");
+            return;
+        }
+        self.delete_subtrees(vec![root]);
+    }
+
+    fn delete_subtrees(&mut self, mut pending: Vec<NodeId>) {
+        // Collect all removed nodes, then delete children before parents.
         let mut nodes = Vec::new();
-        while let Some(node) = pending.pop() {
-            let node = self
-                .arena
-                .get(node)
-                .expect("document child links are internally valid");
-            pending.extend(node.children.iter().copied()); // push children
-            nodes.push(node.id); // push parent
+        while let Some(id) = pending.pop() {
+            pending.extend_from_slice(self.children(id));
+            nodes.push(id);
         }
         for node in nodes.into_iter().rev() {
             self.arena
                 .remove(node)
                 .expect("collected subtree node must still exist");
         }
-    }
-
-    pub(crate) fn replace_subtrees(&mut self, replacements: Vec<(NodeId, NodeDraft)>) {
-        let mut by_target = HashMap::with_capacity(replacements.len());
-        let mut affected_parents = HashSet::new();
-        let mut replaced_roots = Vec::with_capacity(replacements.len());
-        // insert new subtree
-        for (target, draft) in replacements {
-            let parent = self
-                .arena
-                .get(target)
-                .expect("replacement target must exist")
-                .parent
-                .expect("replacement target must not be the document root");
-            let replacement = self.insert_draft(parent, draft);
-            let previous = by_target.insert(target, replacement);
-            debug_assert!(previous.is_none(), "replacement targets must be unique");
-            affected_parents.insert(parent);
-            replaced_roots.push(target);
-        }
-
-        // replace old
-        for parent in affected_parents {
-            let children = &mut self
-                .arena
-                .get_mut(parent)
-                .expect("replacement parent must exist")
-                .children;
-            for child in children {
-                if let Some(&replacement) = by_target.get(child) {
-                    *child = replacement;
-                }
-            }
-        }
-
-        self.delete_subtrees(&replaced_roots);
-    }
-
-    pub(crate) fn wrap_ranges(&mut self, ranges: Vec<(NodeId, NodeId, NodeDraft)>) {
-        let mut by_first = HashMap::with_capacity(ranges.len());
-        let mut affected_parents = HashSet::new();
-        for (first, last, wrapper) in ranges {
-            let parent = self
-                .arena
-                .get(first)
-                .expect("wrap endpoint must exist")
-                .parent
-                .expect("wrap endpoint must not be the document root");
-            let wrapper = self.insert_draft(parent, wrapper);
-            let previous = by_first.insert(first, (last, wrapper));
-            debug_assert!(previous.is_none(), "wrap ranges must be disjoint");
-            affected_parents.insert(parent);
-        }
-
-        for parent in affected_parents {
-            let old_children = std::mem::take(
-                &mut self
-                    .arena
-                    .get_mut(parent)
-                    .expect("wrap parent must exist")
-                    .children,
-            );
-            let mut children = Vec::with_capacity(old_children.len());
-            let mut index = 0;
-            while index < old_children.len() {
-                let first = old_children[index];
-                let Some(&(last, wrapper)) = by_first.get(&first) else {
-                    children.push(first);
-                    index += 1;
-                    continue;
-                };
-
-                let end = old_children[index..]
-                    .iter()
-                    .position(|&node| node == last)
-                    .map(|offset| index + offset)
-                    .expect("wrap range must remain ordered");
-                let wrapped = old_children[index..=end].to_vec();
-                for &node in &wrapped {
-                    self.arena
-                        .get_mut(node)
-                        .expect("wrapped node must exist")
-                        .parent = Some(wrapper);
-                }
-                self.arena
-                    .get_mut(wrapper)
-                    .expect("new wrapper must remain present")
-                    .children = wrapped;
-                children.push(wrapper);
-                index = end + 1;
-            }
-            self.arena
-                .get_mut(parent)
-                .expect("wrap parent must exist")
-                .children = children;
-        }
-    }
-
-    pub(crate) fn insert_siblings(
-        &mut self,
-        insertions: Vec<(NodeId, SiblingPosition, NodeDraft)>,
-    ) {
-        #[derive(Default)]
-        struct InsertedSiblings {
-            before: Vec<NodeId>,
-            after: Vec<NodeId>,
-        }
-
-        // grouping
-        let mut by_target: HashMap<NodeId, InsertedSiblings> = HashMap::new();
-        let mut affected_parents = HashSet::new();
-        for (target, position, draft) in insertions {
-            let parent = self
-                .arena
-                .get(target)
-                .expect("insertion target must exist")
-                .parent
-                .expect("insertion target must not be the document root");
-            let inserted = self.insert_draft(parent, draft);
-            let siblings = by_target.entry(target).or_default();
-            match position {
-                SiblingPosition::Before => siblings.before.push(inserted),
-                SiblingPosition::After => siblings.after.push(inserted),
-            }
-            affected_parents.insert(parent);
-        }
-
-        // rebuild
-        for parent in affected_parents {
-            let old_children = std::mem::take(
-                &mut self
-                    .arena
-                    .get_mut(parent)
-                    .expect("insertion parent must exist")
-                    .children,
-            );
-            let inserted_count = old_children
-                .iter()
-                .filter_map(|child| by_target.get(child))
-                .map(|siblings| siblings.before.len() + siblings.after.len())
-                .sum::<usize>();
-            let mut children = Vec::with_capacity(old_children.len() + inserted_count);
-            for child in old_children {
-                if let Some(siblings) = by_target.get(&child) {
-                    children.extend_from_slice(&siblings.before);
-                }
-                children.push(child);
-                if let Some(siblings) = by_target.get(&child) {
-                    children.extend_from_slice(&siblings.after);
-                }
-            }
-            self.arena
-                .get_mut(parent)
-                .expect("insertion parent must exist")
-                .children = children;
-        }
-    }
-
-    // dfs
-    fn insert_draft(&mut self, parent: NodeId, draft: NodeDraft) -> NodeId {
-        self.insert_draft_with_parent(Some(parent), draft)
-    }
-
-    pub(super) fn insert_draft_with_parent(
-        &mut self,
-        root_parent: Option<NodeId>,
-        draft: NodeDraft,
-    ) -> NodeId {
-        let mut pending = vec![(root_parent, false, draft)];
-        let mut root = None;
-        while let Some((parent, link_to_parent, draft)) = pending.pop() {
-            let (children, data) = draft.into_parts();
-            let id = self.arena.insert_with(|id| super::node::Node {
-                id,
-                parent,
-                children: Vec::with_capacity(children.len()),
-                data,
-            });
-            if link_to_parent {
-                self.arena
-                    .get_mut(parent.expect("a linked draft always has a parent"))
-                    .expect("new draft parent remains present")
-                    .children
-                    .push(id);
-            } else {
-                root = Some(id);
-            }
-            pending.extend(
-                children
-                    .into_iter()
-                    .rev()
-                    .map(|child| (Some(id), true, child)),
-            );
-        }
-        root.expect("a draft always contains a root node")
     }
 }

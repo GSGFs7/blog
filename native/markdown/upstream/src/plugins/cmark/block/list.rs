@@ -8,7 +8,7 @@
 //!  - <https://spec.commonmark.org/0.30/#list-items>
 use crate::MarkdownIt;
 use crate::common::utils::find_indent_of_from_column;
-use crate::document::{Document, NodeId, NodeRef};
+use crate::document::{Document, Node, NodeId};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::plugins::cmark::block::hr::HrScanner;
 use crate::plugins::cmark::block::paragraph::{Paragraph, ParagraphInterrupt};
@@ -31,10 +31,10 @@ struct OrderedListRenderer;
 impl NodeRenderer<OrderedList> for OrderedListRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         list: &OrderedList,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         let mut attrs = node.attrs().clone();
         if list.start != 1 {
@@ -54,10 +54,10 @@ struct BulletListRenderer;
 impl NodeRenderer<BulletList> for BulletListRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &BulletList,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         render_list_container(node, context, output, "ul", node.attrs());
     }
@@ -71,10 +71,10 @@ struct ListItemRenderer;
 impl NodeRenderer<ListItem> for ListItemRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         _: &ListItem,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         write_html_open(output, "li", node.attrs());
         // A fence writes no leading newline: the list item's opening tag
@@ -99,11 +99,11 @@ impl NodeRenderer<ListItem> for ListItemRenderer {
 }
 
 fn render_list_container(
-    node: NodeRef<'_>,
+    node: &Node,
     context: &mut RenderContext<'_>,
-    output: &mut crate::Writer,
+    output: &mut crate::render::Writer,
     tag: &str,
-    attrs: &[crate::HtmlAttribute],
+    attrs: &[crate::document::HtmlAttribute],
 ) {
     context.cr(output);
     write_html_open(output, tag, attrs);
@@ -496,7 +496,10 @@ impl BlockRule for ListScanner {
 mod tests {
     #[test]
     fn paragraph_and_setext_content_keep_list_interrupt_restrictions() {
-        for preset in [crate::Preset::MarkdownItDefault, crate::Preset::CommonMark] {
+        for preset in [
+            crate::plugins::presets::Preset::MarkdownItDefault,
+            crate::plugins::presets::Preset::CommonMark,
+        ] {
             let md = crate::MarkdownIt::with_preset(preset);
             for marker in ["+", "*", "1.", "2. bar", "0) bar"] {
                 assert_eq!(

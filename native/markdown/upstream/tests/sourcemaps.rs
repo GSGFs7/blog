@@ -1,11 +1,13 @@
 #![cfg(feature = "sourcemap")]
 
 use markdown_it::common::sourcemap::SourceWithLineStarts;
-use markdown_it::{Document, NodeRef};
+use markdown_it::document::{Document, Node};
 
 #[test]
 fn text_fallback_maps_only_existing_source_bytes() {
-    use markdown_it::{EditBatch, MarkdownIt, StructuralEvent};
+    use markdown_it::MarkdownIt;
+    use markdown_it::document::StructuralEvent;
+    use markdown_it::document::edit::EditBatch;
 
     let md = MarkdownIt::empty();
     type Case = (&'static str, &'static [(usize, usize)], &'static str);
@@ -60,7 +62,7 @@ fn text_fallback_maps_only_existing_source_bytes() {
         }
         edits.commit(&mut document);
         assert_eq!(
-            md.render_html(&document),
+            md.render_document(&document, "html"),
             expected_html,
             "source={source:?}"
         );
@@ -77,7 +79,7 @@ fn run(input: &str, f: fn(&Document, SourceWithLineStarts)) {
     }
     f(&document, SourceWithLineStarts::new(input));
 }
-fn getmap(node: NodeRef<'_>, map: &SourceWithLineStarts) -> ((u32, u32), (u32, u32)) {
+fn getmap(node: &Node, map: &SourceWithLineStarts) -> ((u32, u32), (u32, u32)) {
     node.srcmap().unwrap().get_positions(map)
 }
 
