@@ -10,7 +10,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use derive_more::{Deref, DerefMut};
 use downcast_rs::{Downcast, impl_downcast};
 
 use crate::MarkdownIt;
@@ -26,7 +25,7 @@ use crate::render::EmptyRenderer;
 ///
 /// ```rust
 /// use markdown_it::parser::block::BlockParserRule;
-/// use markdown_it::Root;
+/// use markdown_it::document::Root;
 /// use markdown_it::parser::core::{CoreRule, CoreState};
 /// use markdown_it::plugins::cmark::block::reference::{ReferenceMap, DefaultReferenceMap, CustomReferenceMap};
 /// use markdown_it::{MarkdownIt};
@@ -75,7 +74,7 @@ use crate::render::EmptyRenderer;
 /// You can also view all references that user created by adding the following rule:
 ///
 /// ```rust
-/// use markdown_it::Root;
+/// use markdown_it::document::Root;
 /// use markdown_it::parser::core::{CoreRule, CoreState};
 /// use markdown_it::plugins::cmark::block::reference::{ReferenceMap, DefaultReferenceMap};
 /// use markdown_it::{MarkdownIt};
@@ -98,9 +97,7 @@ use crate::render::EmptyRenderer;
 /// assert_eq!(labels, ["hello"]);
 /// ```
 ///
-#[derive(Debug, Deref, DerefMut)]
-#[deref(forward)]
-#[deref_mut(forward)]
+#[derive(Debug)]
 pub struct ReferenceMap(Box<dyn CustomReferenceMap>);
 
 impl ReferenceMap {
@@ -112,6 +109,20 @@ impl ReferenceMap {
 impl Default for ReferenceMap {
     fn default() -> Self {
         Self::new(DefaultReferenceMap::new())
+    }
+}
+
+impl std::ops::Deref for ReferenceMap {
+    type Target = dyn CustomReferenceMap;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl std::ops::DerefMut for ReferenceMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut()
     }
 }
 
@@ -391,9 +402,8 @@ fn scan_reference(state: &mut BlockState<'_>) -> Option<(Definition, usize)> {
     // [label]:   destination   'title'
     //                          ^^^^^^^ parse this
     let mut title = None;
-    if let Some(res) = parse_reference_title(state, &mut next_line, &mut str, pos) {
-        // markdown-it also accepts adjacent multiline titles.
-        if pos != start || res.lines > 0 {
+    if pos != start {
+        if let Some(res) = parse_reference_title(state, &mut next_line, &mut str, pos) {
             title = Some(res.str);
             pos = res.pos;
         } else {

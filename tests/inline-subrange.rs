@@ -1,5 +1,6 @@
-use markdown_it::parser::inline::InlineRule;
-use markdown_it::{InlineState, MarkdownIt, NodeId};
+use markdown_it::MarkdownIt;
+use markdown_it::document::NodeId;
+use markdown_it::parser::inline::{InlineRule, InlineState};
 
 #[derive(Debug)]
 struct TestContainer;
@@ -55,7 +56,7 @@ fn custom_rule_parses_nested_children_without_losing_parent_text() {
     let md = parser();
     let document = md.parse("前{ 雪 {*x*} }尾 {}");
     assert_eq!(
-        md.render_html(&document),
+        md.render_document(&document, "html"),
         "<p>前{ 雪 {<em>x</em>} }尾 {}</p>\n"
     );
 }
@@ -78,17 +79,20 @@ fn nesting_limit_stops_recursive_container_rules() {
     let mut md = parser();
     md.max_nesting = 2;
     let document = md.parse("{ {*x*} *y* }");
-    assert_eq!(md.render_html(&document), "<p>{ {*x*} <em>y</em> }</p>\n");
+    assert_eq!(
+        md.render_document(&document, "html"),
+        "<p>{ {*x*} <em>y</em> }</p>\n"
+    );
 }
 
 struct ContainerRenderer;
-impl markdown_it::NodeRenderer<TestContainer> for ContainerRenderer {
+impl markdown_it::render::NodeRenderer<TestContainer> for ContainerRenderer {
     fn render(
         &self,
-        node: markdown_it::NodeRef<'_>,
+        node: &markdown_it::document::Node,
         _: &TestContainer,
-        ctx: &mut markdown_it::RenderContext<'_>,
-        out: &mut markdown_it::Writer,
+        ctx: &mut markdown_it::render::RenderContext<'_>,
+        out: &mut markdown_it::render::Writer,
     ) {
         out.write_str("{");
         ctx.render_children(node.id(), out);
@@ -119,7 +123,7 @@ fn core_linkify_ignores_subrange_nodes_discarded_by_the_parent_rule() {
             for child in children {
                 state.document.discard_node(child);
             }
-            let node = state.document.create_node(markdown_it::Text {
+            let node = state.document.create_node(markdown_it::document::Text {
                 content: "gone".into(),
             });
             Some((Some(node), close + 1))

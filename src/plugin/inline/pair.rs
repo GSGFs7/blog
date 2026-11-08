@@ -1,11 +1,17 @@
 use std::marker::PhantomData;
 
-use super::PluginSpec;
-use super::renderer::{Renderers, WithRenderer};
-use super::spec::{PluginInstaller, RegistrationContext};
 use crate::MarkdownIt;
 use crate::document::{Document, NodeId, NodeValue};
 use crate::parser::inline::helpers::emph_pair;
+use crate::plugin::PluginSpec;
+use crate::plugin::container_context::{ContainerHtml, ContainerText};
+use crate::plugin::renderer::{
+    ContainerHtmlRenderer,
+    ContainerTextRenderer,
+    Renderers,
+    WithRenderer,
+};
+use crate::plugin::spec::{PluginInstallContext, PluginInstaller, RegistrationContext};
 use crate::render::{NodeRenderer, RenderContext, Writer};
 
 /// Compile-time delimiter configuration for an inline pair.
@@ -16,8 +22,9 @@ pub struct PairDelimiter<const MARKER: char, const LENGTH: u8, const SPLIT: bool
 /// A pair contains parsed inline children, using the same delimiter
 /// scanner and matching algorithm as [`emph_pair`](crate::parser::inline::helpers::emph_pair).
 /// [`delimiter`](Self::delimiter), [`value`](Self::value) and
-/// a renderer ([`html_tag`](Self::html_tag) or [`render_with`](Self::render_with))
-/// are required before [`finish`](Self::finish) is available.
+/// a renderer ([`html_tag`](Self::html_tag), [`render_html`](Self::render_html),
+/// [`render_text`](Self::render_text) or [`render_with`](Self::render_with)) are
+/// required before [`finish`](Self::finish) is available.
 ///
 /// Delimiter parameters are compile-time constants; the value factory may
 /// capture runtime configuration. Installation registers the corresponding
@@ -33,7 +40,7 @@ pub struct InlinePairBuilder<T: NodeValue, D = (), V = (), R = ()> {
 }
 
 impl<T: NodeValue> InlinePairBuilder<T> {
-    pub(super) fn new(plugin: PluginSpec, rule: String) -> Self {
+    pub(in crate::plugin) fn new(plugin: PluginSpec, rule: String) -> Self {
         Self {
             plugin,
             rule,
@@ -81,17 +88,39 @@ impl<T: NodeValue, D, V, R> InlinePairBuilder<T, D, V, R> {
         }
     }
 
+    /// Register an HTML callback that can render the pair's children.
+    ///
+    /// Use [`ContainerHtml::render_children`] to render the parsed body.
+    /// Repeated registrations for the same format replace earlier ones.
+    pub fn render_html<F>(self, render: F) -> InlinePairBuilder<T, D, V, WithRenderer>
+    where
+        F: for<'a, 'b> Fn(&T, &mut ContainerHtml<'a, 'b>) + Send + Sync + 'static,
+    {
+        self.render_with("html", ContainerHtmlRenderer::<F, T, false>::new(render))
+    }
+
+    /// Register a plain-text callback that can render the pair's children.
+    ///
+    /// Use [`ContainerText::render_children`] to render the parsed body.
+    pub fn render_text<F>(self, render: F) -> InlinePairBuilder<T, D, V, WithRenderer>
+    where
+        F: for<'a, 'b> Fn(&T, &mut ContainerText<'a, 'b>) + Send + Sync + 'static,
+    {
+        self.render_with("text", ContainerTextRenderer::<F, T, false>::new(render))
+    }
+
     /// Register an HTML renderer that wraps the pair's children in `tag`.
     ///
-    /// This is a shortcut for [`render_with`](Self::render_with). The last
-    /// renderer registered for a payload type and format wins.
+    /// This is a shortcut for [`render_with`](Self::render_with). Existing node
+    /// attributes are written on the tag. The last renderer registered for a
+    /// payload type and format wins.
     ///
     /// # Panics
     ///
     /// Panics if `tag` is not a valid ASCII HTML tag name.
     pub fn html_tag(self, tag: impl Into<String>) -> InlinePairBuilder<T, D, V, WithRenderer> {
         let tag = tag.into();
-        super::html::validate_tag(&tag);
+        crate::plugin::html::validate_tag(&tag);
         self.render_with("html", InlinePairRenderer { tag })
     }
 
@@ -103,13 +132,16 @@ impl<T: NodeValue, D, V, R> InlinePairBuilder<T, D, V, R> {
     /// pair's parsed children in the active output format.
     ///
     /// ```
-    /// use markdown_it::{MarkdownIt, NodeRef, NodeRenderer, PluginSpec, RenderContext, Writer};
+    /// use markdown_it::MarkdownIt;
+    /// use markdown_it::document::Node;
+    /// use markdown_it::render::{NodeRenderer, RenderContext, Writer};
+    /// use markdown_it::plugin::PluginSpec;
     ///
     /// #[derive(Debug)]
     /// struct Spoiler;
     /// struct SpoilerRenderer;
     /// impl NodeRenderer<Spoiler> for SpoilerRenderer {
-    ///     fn render(&self, node: NodeRef<'_>, _: &Spoiler, cx: &mut RenderContext<'_>, out: &mut Writer) {
+    ///     fn render(&self, node: &Node, _: &Spoiler, cx: &mut RenderContext<'_>, out: &mut Writer) {
     ///         out.write_str("<span class=\"spoiler\">");
     ///         cx.render_children(node.id(), out);
     ///         out.write_str("</span>");
@@ -195,7 +227,7 @@ where
             .claim(MARKER, LENGTH, SPLIT);
     }
 
-    fn install(self: Box<Self>, md: &mut MarkdownIt) {
+    fn install(self: Box<Self>, md: &mut MarkdownIt, _context: &PluginInstallContext<'_>) {
         let value = self.value;
         emph_pair::add_with_factory::<MARKER, LENGTH, SPLIT>(
             md,
@@ -211,12 +243,12 @@ struct InlinePairRenderer {
 impl<T: NodeValue> NodeRenderer<T> for InlinePairRenderer {
     fn render(
         &self,
-        node: crate::NodeRef<'_>,
+        node: &crate::document::Node,
         _value: &T,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
     ) {
-        crate::render::write_html_open(output, &self.tag, &[]);
+        crate::render::write_html_open(output, &self.tag, node.attrs());
         context.render_children(node.id(), output);
         crate::render::write_html_close(output, &self.tag);
     }

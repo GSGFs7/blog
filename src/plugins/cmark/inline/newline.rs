@@ -5,7 +5,7 @@
 //!  - <https://spec.commonmark.org/0.30/#hard-line-breaks>
 //!  - <https://spec.commonmark.org/0.30/#soft-line-breaks>
 use crate::MarkdownIt;
-use crate::document::{NodeId, NodeRef};
+use crate::document::{Node, NodeId};
 use crate::parser::inline::{InlineRule, InlineState};
 use crate::render::{NodeRenderer, PlainTextBreakRenderer, RenderContext, write_html_self_close};
 
@@ -17,10 +17,10 @@ struct HardbreakRenderer;
 impl NodeRenderer<Hardbreak> for HardbreakRenderer {
     fn render(
         &self,
-        _: NodeRef<'_>,
+        _: &Node,
         _: &Hardbreak,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         write_html_self_close(output, "br", &[], context.options().xhtml_out);
         output.write_str("\n");
@@ -35,10 +35,10 @@ struct SoftbreakRenderer;
 impl NodeRenderer<Softbreak> for SoftbreakRenderer {
     fn render(
         &self,
-        _: NodeRef<'_>,
+        _: &Node,
         _: &Softbreak,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         if context.options().breaks {
             write_html_self_close(output, "br", &[], context.options().xhtml_out);
@@ -102,7 +102,8 @@ impl InlineRule for NewlineScanner {
 
 #[cfg(test)]
 mod test {
-    use crate::*;
+    use crate::render::RenderOptions;
+    use crate::{MarkdownIt, plugins};
 
     fn parser() -> MarkdownIt {
         let mut md = MarkdownIt::empty();
@@ -114,7 +115,7 @@ mod test {
     fn renders_softbreak_as_newline_by_default() {
         let md = parser();
         let ast = md.parse("hello\nworld");
-        assert_eq!(md.render_html(&ast), "<p>hello\nworld</p>\n");
+        assert_eq!(md.render_document(&ast, "html"), "<p>hello\nworld</p>\n");
     }
 
     #[test]

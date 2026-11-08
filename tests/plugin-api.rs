@@ -1,13 +1,6 @@
-use markdown_it::{
-    Html,
-    InlinePlugin,
-    InlinePluginState,
-    MarkdownIt,
-    MarkdownItBuilder,
-    NodeValue,
-    Plugin,
-    PluginSpec,
-};
+use markdown_it::MarkdownIt;
+use markdown_it::document::NodeValue;
+use markdown_it::plugin::{Html, InlinePluginState, MarkdownItBuilder, Plugin, PluginSpec};
 
 #[derive(Debug)]
 struct Emoji {
@@ -17,6 +10,46 @@ struct Emoji {
 
 const EMOJIS: &[(&str, &str, &str)] =
     &[(":rocket:", "🚀", "rocket"), (":warning:", "⚠️", "warning")];
+
+#[test]
+fn inline_container_parses_children_through_the_public_api() {
+    #[derive(Debug)]
+    struct Boxed(String);
+
+    let boxed = PluginSpec::new("boxed")
+        .inline_container::<Boxed>("boxed")
+        .marker('[')
+        .parse(|cx| {
+            let source = cx.source();
+            if !source.starts_with("[!") {
+                return None;
+            }
+            let end = source.find(']')?;
+            cx.advance(end + 1);
+            Some((Boxed("note".into()), 2..end))
+        })
+        .render_html(|value, html| {
+            let children = html.render_children();
+            html.element("span")
+                .class("box")
+                .attr("data-kind", &value.0)
+                .raw(children);
+        })
+        .render_text(|_, text| {
+            text.write_str("[");
+            text.render_children();
+            text.write_str("]");
+        })
+        .finish();
+
+    let md = MarkdownIt::builder().plugin(boxed).build();
+    let document = md.parse("[!*雪*]");
+    assert_eq!(
+        md.render_document(&document, "html"),
+        "<p><span class=\"box\" data-kind=\"note\"><em>雪</em></span></p>\n"
+    );
+    assert_eq!(md.render_document(&document, "text"), "[雪]\n");
+}
 
 #[test]
 fn inline_pair_lowers_to_low_level_rule_and_keeps_captured_values() {
@@ -37,7 +70,7 @@ fn inline_pair_lowers_to_low_level_rule_and_keeps_captured_values() {
 
     let document = md.parse("🦀🦀a **b**🦀🦀");
     assert_eq!(
-        md.render_html(&document),
+        md.render_document(&document, "html"),
         "<p><mark>a <strong>b</strong></mark></p>\n"
     );
     let paragraph = document.children(document.root())[0];
@@ -57,13 +90,13 @@ fn inline_pair_and_later_low_level_registration_share_the_scanner() {
     struct Two;
 
     struct OneRenderer;
-    impl markdown_it::NodeRenderer<One> for OneRenderer {
+    impl markdown_it::render::NodeRenderer<One> for OneRenderer {
         fn render(
             &self,
-            node: markdown_it::NodeRef<'_>,
+            node: &markdown_it::document::Node,
             _: &One,
-            context: &mut markdown_it::RenderContext<'_>,
-            output: &mut markdown_it::Writer,
+            context: &mut markdown_it::render::RenderContext<'_>,
+            output: &mut markdown_it::render::Writer,
         ) {
             output.write_str("<i>");
             context.render_children(node.id(), output);
@@ -244,9 +277,8 @@ fn failed_match_rolls_back_text() {
             if !cx.consume("@") {
                 return None;
             }
-            let rest = cx.remaining();
-            let end = rest.find('}')?;
-            let value = &rest[..end];
+            let end = cx.remaining().find('}')?;
+            let value = cx.remaining_slice(0..end)?;
             if value.is_empty() {
                 return None;
             }
@@ -423,16 +455,11 @@ fn removing_builtin_preserves_dynamic_marker_even_after_scanner_compilation() {
 
 #[test]
 fn explicit_renderer_after_install_overrides_all_payload_nodes() {
-    use markdown_it::{NodeRef, NodeRenderer, RenderContext, Writer};
+    use markdown_it::document::Node;
+    use markdown_it::render::{NodeRenderer, RenderContext, Writer};
     struct Custom;
     impl NodeRenderer<Tag> for Custom {
-        fn render(
-            &self,
-            _: NodeRef<'_>,
-            tag: &Tag,
-            _: &mut RenderContext<'_>,
-            output: &mut Writer,
-        ) {
+        fn render(&self, _: &Node, tag: &Tag, _: &mut RenderContext<'_>, output: &mut Writer) {
             output.write_str(&format!("CUSTOM({})", tag.0));
         }
     }
@@ -479,7 +506,7 @@ fn assert_panics(run: impl FnOnce()) {
 
 #[test]
 fn missing_dependencies_panic_during_build() {
-    let missing = PluginSpec::new("missing").after("absent");
+    let missing = PluginSpec::new("missing").require("absent");
     assert_panics(|| {
         MarkdownIt::builder().plugin(missing).build();
     });
@@ -518,17 +545,35 @@ fn low_level_dependency_errors_are_found_during_build() {
     impl InlineRule for Never {
         const MARKER: char = '~';
         fn run(
-            _: &mut markdown_it::InlineState<'_>,
-        ) -> Option<(Option<markdown_it::NodeId>, usize)> {
+            _: &mut markdown_it::parser::inline::InlineState<'_>,
+        ) -> Option<(Option<markdown_it::document::NodeId>, usize)> {
             None
         }
     }
     assert_panics(|| {
-        MarkdownItBuilder::with_preset(|md: &mut MarkdownIt| {
-            md.inline.add_rule::<Never>().require_named("absent");
-        })
-        .build();
+        MarkdownIt::builder()
+            .preset(|md: &mut MarkdownIt| {
+                md.inline.add_rule::<Never>().require_named("absent");
+            })
+            .build();
     });
+}
+
+#[test]
+fn direct_installation_finds_low_level_dependency_errors() {
+    use markdown_it::parser::core::{CoreRule, CoreState};
+
+    struct Never;
+    impl CoreRule for Never {
+        fn run(&self, _: &mut CoreState<'_>) {}
+    }
+
+    let plugin = PluginSpec::custom("broken", |md| {
+        md.add_rule_instance(Never).require_named("absent");
+    });
+
+    let mut md = MarkdownIt::new();
+    assert_panics(|| plugin.install(&mut md));
 }
 
 #[test]
@@ -566,169 +611,151 @@ fn unicode_markers_and_utf8_cursor_boundaries() {
     assert_eq!(md.render("中文🦀尾"), "<p>中文CRAB尾</p>\n");
 }
 
-macro_rules! static_tag {
+macro_rules! leaf_tag {
     ($name:ident, $rule:literal, $marker:literal, $output:literal) => {
         #[derive(Debug)]
         struct $name;
 
-        impl InlinePlugin for $name {
-            const NAME: &'static str = $rule;
-            const MARKER: char = $marker;
-
-            fn parse(cx: &mut InlinePluginState<'_>) -> Option<Self> {
-                (cx.consume_char()? == Self::MARKER).then_some(Self)
-            }
-
-            fn render_html(&self, html: &mut Html) {
-                html.element("b").text($output);
+        impl $name {
+            fn plugin() -> PluginSpec {
+                configured_leaf::<Self, _, _>(
+                    $rule,
+                    $marker,
+                    |cx| (cx.consume_char()? == $marker).then_some(Self),
+                    |_, html| {
+                        html.element("b").text($output);
+                    },
+                )
             }
         }
     };
 }
 
-static_tag!(A, "a", '@', "A");
-static_tag!(B, "b", '雪', "B");
-#[derive(Debug)]
-struct Todo;
-impl InlinePlugin for Todo {
-    const NAME: &'static str = "todo";
-    const MARKER: char = '\0';
-
-    fn parse(cx: &mut InlinePluginState<'_>) -> Option<Self> {
-        cx.consume("TODO").then_some(Self)
-    }
-
-    fn render_html(&self, html: &mut Html) {
-        html.element("b").text("done");
-    }
-}
-static_tag!(C, "c", '@', "C");
+leaf_tag!(A, "a", '@', "A");
+leaf_tag!(B, "b", '雪', "B");
+leaf_tag!(C, "c", '@', "C");
 
 #[test]
-fn static_leaves_use_low_level_identity_and_keep_their_renderers() {
-    use markdown_it::LeafRule;
-
-    let plugin = PluginSpec::new("static").with(A).with(B);
-    let mut md = MarkdownIt::builder()
+fn grouped_leaf_specs_keep_their_renderers_in_nested_parsing() {
+    let plugin = PluginSpec::new("group").with(A::plugin()).with(B::plugin());
+    let md = MarkdownIt::builder()
         .plugin(plugin)
-        .plugin(token_spec("dynamic", '^', "C"))
+        .plugin(token_spec("token", '^', "C"))
         .build();
-    assert!(md.inline.has_rule::<LeafRule<A>>());
-    assert!(md.inline.has_rule::<LeafRule<B>>());
     assert_eq!(md.render("x @ 雪 ^"), "<p>x <b>A</b> <b>B</b> C</p>\n");
     assert_eq!(
         md.render("[x @ 雪 ^](/url)"),
         "<p><a href=\"/url\">x <b>A</b> <b>B</b> C</a></p>\n"
     );
-    md.inline.remove_rule::<LeafRule<A>>();
-    assert!(!md.inline.has_rule::<LeafRule<A>>());
-    assert_eq!(md.render("@ 雪 ^"), "<p>@ <b>B</b> C</p>\n");
 }
 
 #[test]
-fn static_dependencies_order_the_low_level_rules() {
+fn leaf_dependencies_order_rules() {
     let md = MarkdownIt::builder()
-        .plugin(PluginSpec::new("a").with(A).after("c"))
-        .plugin(PluginSpec::new("c").with(C))
+        .plugin(A::plugin().after("c"))
+        .plugin(C::plugin())
         .build();
     assert_eq!(md.render("@"), "<p><b>C</b></p>\n");
 }
 
 #[test]
-fn static_wildcard_invalidates_warmed_scanners_and_can_be_removed() {
-    use markdown_it::LeafRule;
+fn wildcard_leaf_invalidates_warmed_scanners() {
+    #[derive(Debug)]
+    struct Todo;
+
     for unicode in [false, true] {
         let mut md = MarkdownIt::new();
         if unicode {
             token_spec("unicode", '雪', "snow").install(&mut md);
         }
         assert_eq!(md.render("x TODO"), "<p>x TODO</p>\n");
-        PluginSpec::new("todo").with(Todo).install(&mut md);
+        PluginSpec::new("todo")
+            .inline_leaf::<Todo>("todo")
+            .parse(|cx| cx.consume("TODO").then_some(Todo))
+            .render_html(|_, html| {
+                html.element("b").text("done");
+            })
+            .finish()
+            .install(&mut md);
         assert_eq!(
             md.render("x TODO [TODO](/url)"),
             "<p>x <b>done</b> <a href=\"/url\"><b>done</b></a></p>\n"
         );
-        md.inline.remove_rule::<LeafRule<Todo>>();
-        assert_eq!(md.render("x TODO"), "<p>x TODO</p>\n");
     }
 }
 
 #[test]
-fn duplicate_static_leaves_are_rejected_before_installation() {
+fn duplicate_leaf_specs_are_rejected_before_installation() {
     let mut md = MarkdownIt::new();
-    PluginSpec::new("a").with(A).install(&mut md);
+    A::plugin().install(&mut md);
     assert_panics(|| {
         PluginSpec::new("duplicate")
-            .with(B)
-            .with(A)
+            .with(B::plugin())
+            .with(A::plugin())
             .install(&mut md);
     });
     assert_eq!(md.render("@ 雪"), "<p><b>A</b> 雪</p>\n");
     assert_panics(|| {
         MarkdownIt::builder()
-            .plugin(PluginSpec::new("a").with(A))
-            .plugin(PluginSpec::new("a2").with(A))
+            .plugin(A::plugin())
+            .plugin(A::plugin())
             .build();
     });
 }
 
 #[test]
-fn static_renderer_can_be_overridden_after_installation() {
-    use markdown_it::{NodeRef, NodeRenderer, RenderContext, Writer};
+fn same_payload_type_can_be_used_by_multiple_leaf_rules() {
+    let plugin = PluginSpec::new("tags")
+        .inline_leaf::<A>("at")
+        .marker('@')
+        .parse(|cx| cx.consume("@").then_some(A))
+        .render_html(|_, html| {
+            html.element("b").text("A");
+        })
+        .finish()
+        .inline_leaf::<A>("hash")
+        .marker('#')
+        .parse(|cx| cx.consume("#").then_some(A))
+        .render_html(|_, html| {
+            html.element("b").text("A");
+        })
+        .finish();
+    let md = MarkdownIt::builder().plugin(plugin).build();
+    assert_eq!(md.render("@ #"), "<p><b>A</b> <b>A</b></p>\n");
+}
+
+#[test]
+fn leaf_renderer_can_be_overridden_after_installation() {
+    use markdown_it::document::Node;
+    use markdown_it::render::{NodeRenderer, RenderContext, Writer};
     struct Custom;
     impl NodeRenderer<A> for Custom {
-        fn render(&self, _: NodeRef<'_>, _: &A, _: &mut RenderContext<'_>, output: &mut Writer) {
+        fn render(&self, _: &Node, _: &A, _: &mut RenderContext<'_>, output: &mut Writer) {
             output.write_str("CUSTOM");
         }
     }
 
     let mut md = MarkdownIt::new();
-    PluginSpec::new("static").with(A).install(&mut md);
+    A::plugin().install(&mut md);
     let document = md.parse("@");
-    assert_eq!(md.render_html(&document), "<p><b>A</b></p>\n");
+    assert_eq!(md.render_document(&document, "html"), "<p><b>A</b></p>\n");
 
     md.add_renderer::<A, _>("html", Custom);
-    assert_eq!(md.render_html(&document), "<p>CUSTOM</p>\n");
+    assert_eq!(md.render_document(&document, "html"), "<p>CUSTOM</p>\n");
 }
 
 #[test]
 #[should_panic(expected = "succeeded without consuming input")]
-fn static_leaf_rejects_success_without_consumption() {
+fn leaf_rejects_success_without_consumption() {
     #[derive(Debug)]
     struct Empty;
-    impl InlinePlugin for Empty {
-        const NAME: &'static str = "empty";
-        const MARKER: char = '@';
-
-        fn parse(_: &mut InlinePluginState<'_>) -> Option<Self> {
-            Some(Empty)
-        }
-
-        fn render_html(&self, _: &mut Html) {}
-    }
-
-    MarkdownIt::builder().plugin(Empty).build().render("@");
-}
-
-#[test]
-fn static_leaves_can_be_registered_with_only_low_level_apis() {
-    use markdown_it::{LeafRenderer, LeafRule};
-
-    let mut md = MarkdownIt::new();
-    md.inline
-        .add_rule::<LeafRule<A>>()
-        .after_named("text")
-        .before_all();
-    md.inline
-        .add_rule::<LeafRule<B>>()
-        .after_named("text")
-        .before::<LeafRule<A>>()
-        .before_all();
-    md.add_renderer::<A, _>("html", LeafRenderer::<A>::default());
-    md.add_renderer::<B, _>("html", LeafRenderer::<B>::default());
-    assert_eq!(md.render("x 雪"), "<p>x <b>B</b></p>\n");
-    md.inline.remove_rule::<LeafRule<B>>();
-    assert_eq!(md.render("x 雪"), "<p>x 雪</p>\n");
+    let plugin = PluginSpec::new("empty")
+        .inline_leaf::<Empty>("empty")
+        .marker('@')
+        .parse(|_| Some(Empty))
+        .render_html(|_, _| {})
+        .finish();
+    MarkdownIt::builder().plugin(plugin).build().render("@");
 }
 
 #[test]

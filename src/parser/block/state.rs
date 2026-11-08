@@ -98,7 +98,25 @@ impl<'a> BlockState<'a> {
                 let mut matched = None;
                 for index in 0..self.rules.len() {
                     let run = self.rules[index].1;
-                    if let Some(result) = run(self) {
+                    let start = self.line;
+
+                    // additional checks
+                    #[cfg(debug_assertions)]
+                    let result = super::validation::run_block(self, index, run);
+
+                    // normal, faster
+                    #[cfg(not(debug_assertions))]
+                    let result = run(self);
+
+                    if let Some(result) = result {
+                        block_progress(
+                            index,
+                            start,
+                            self.line,
+                            self.line_max,
+                            self.line_offsets.len(),
+                            result.1,
+                        );
                         matched = Some(result);
                         break;
                     }
@@ -124,7 +142,7 @@ impl<'a> BlockState<'a> {
                     #[cfg(feature = "sourcemap")]
                     let mapping = vec![(0, start)];
                     #[cfg(not(feature = "sourcemap"))]
-                    let mapping = crate::parser::InlineMapping;
+                    let mapping = crate::parser::inline::InlineMapping;
 
                     let pending = self.pending_inline(content, mapping);
                     self.document.push_child(self.node, pending);
@@ -165,7 +183,7 @@ impl<'a> BlockState<'a> {
 
             // debug checks
             #[cfg(debug_assertions)]
-            let matched = crate::parser::validation::check_block(self, index, check);
+            let matched = super::validation::check_block(self, index, check);
 
             #[cfg(not(debug_assertions))]
             let matched = check(self);
@@ -219,13 +237,13 @@ impl<'a> BlockState<'a> {
         end: usize,
         indent: usize,
         keep_last_lf: bool,
-    ) -> (String, crate::parser::InlineMapping) {
-        let mut result = String::new();
+    ) -> (String, crate::parser::inline::InlineMapping) {
         #[cfg(feature = "sourcemap")]
-        let mut mapping = crate::parser::InlineMapping::default();
+        let mut mapping = crate::parser::inline::InlineMapping::default();
         #[cfg(not(feature = "sourcemap"))]
-        let mapping = crate::parser::InlineMapping;
+        let mapping = crate::parser::inline::InlineMapping;
 
+        let mut result = String::new();
         for line in begin..end {
             let offsets = &self.line_offsets[line];
             let add_last_lf = line + 1 < end || keep_last_lf;
@@ -265,7 +283,7 @@ impl<'a> BlockState<'a> {
     pub fn pending_inline(
         &mut self,
         source: String,
-        mapping: crate::parser::InlineMapping,
+        mapping: crate::parser::inline::InlineMapping,
     ) -> NodeId {
         self.document.create_node(PendingInline {
             content: source,
@@ -288,6 +306,27 @@ impl<'a> BlockState<'a> {
             self.line_offsets[end_line].line_end,
         ))
     }
+}
+
+/// Assert that a successful block rule advances from `start` and stays within
+/// the current window. Also enforced in release builds, since a zero-length
+/// success would loop forever.
+#[inline]
+fn block_progress(
+    index: usize,
+    start: usize,
+    line: usize,
+    line_max: usize,
+    line_count: usize,
+    len: usize,
+) {
+    assert!(
+        len > 0
+            && line
+                .checked_add(len)
+                .is_some_and(|end| { end > start && end <= line_max && end <= line_count }),
+        "block rule {index} reported invalid run length {len} at {line} (started at {start})"
+    );
 }
 
 #[cfg(test)]
