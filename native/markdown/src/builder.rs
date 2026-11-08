@@ -1,6 +1,8 @@
 use markdown_it::MarkdownIt;
 use markdown_it::plugins::directives::{DirectiveKind, DirectiveNode, DirectiveRenderer};
 
+use crate::terminal::render_terminal;
+
 // REFAC: move this to somewhere else
 fn render_spoiler(
     _kind: DirectiveKind,
@@ -44,6 +46,18 @@ pub(crate) fn build() -> MarkdownIt {
         DirectiveKind::Container,
         "spoiler",
         render_spoiler,
+    );
+    markdown_it::plugins::directives::add_render(
+        &mut inner,
+        DirectiveKind::Leaf,
+        "terminal",
+        render_terminal,
+    );
+    markdown_it::plugins::directives::add_render(
+        &mut inner,
+        DirectiveKind::Container,
+        "terminal",
+        render_terminal,
     );
     markdown_it::plugins::extra::tasklist::add(&mut inner);
     markdown_it::plugins::extra::footnote::add(&mut inner);

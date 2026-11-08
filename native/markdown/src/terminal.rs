@@ -1,157 +1,209 @@
 use std::sync::LazyLock;
 
-use html_escape::decode_html_entities;
-use lol_html::errors::RewritingError;
-use lol_html::html_content::{ContentType, Element};
-use lol_html::{HandlerResult, RewriteStrSettings, element, rewrite_str};
+use markdown_it::plugins::directives::{DirectiveKind, DirectiveNode, DirectiveRenderer};
 use regex::Regex;
 
-use crate::rewriter::escape_html;
-
-static SHELL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-9_+-]{0,31}$").unwrap());
-static PROMPT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\w@:/~.+#>$%?❯-]{1,16}$").unwrap());
-static TITLE_LINE_BREAK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\r\n|[\n\r\u{000B}\u{000C}\u{001C}-\u{001E}\u{0085}\u{2028}\u{2029}]").unwrap()
-});
-
-pub(crate) fn rewrite(html: &str) -> Result<String, RewritingError> {
-    rewrite_str(
-        html,
-        RewriteStrSettings::new().append_element_content_handler(element!("div", rewrite_element)),
-    )
-}
-
-fn rewrite_element(element: &mut Element<'_, '_>) -> HandlerResult {
-    let Some(classes) = element.get_attribute("class") else {
-        return Ok(());
+pub(crate) fn render_terminal(
+    _kind: DirectiveKind,
+    _name: &str,
+    attributes: &[(String, String)],
+    node: DirectiveNode<'_>,
+    fmt: &mut DirectiveRenderer<'_, '_>,
+) {
+    let attribute = |name: &str| {
+        attributes
+            .iter()
+            .find(|(attribute, _)| attribute.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
     };
-    let classes: Vec<_> = classes.split_whitespace().collect();
-    if !classes.contains(&"directive") || !classes.contains(&"terminal") {
-        return Ok(());
-    }
-
-    let attributes: Vec<_> = element
-        .attributes()
-        .iter()
-        .map(|attribute| (attribute.name(), attribute.value()))
-        .collect();
-    let shell = normalize_shell(attribute(&attributes, "shell").unwrap_or("bash"));
-    let default_prompt = default_prompt(&shell);
-    let prompt = normalize_prompt(
-        attribute(&attributes, "prompt").unwrap_or(default_prompt),
-        default_prompt,
-    );
-    let title = normalize_title(attribute(&attributes, "title").unwrap_or("Terminal"));
-    let title = if title.is_empty() {
-        "Terminal".to_owned()
-    } else {
-        title
+    let shell = {
+        static VALID: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-9_+-]{0,31}$").unwrap());
+        let value = attribute("shell").unwrap_or("bash").trim().to_lowercase();
+        if VALID.is_match(&value) {
+            value
+        } else {
+            "bash".to_owned()
+        }
+    };
+    let prompt = {
+        static VALID: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[\w@:/~.+#>$%?❯-]{1,16}$").unwrap());
+        let default = match shell.as_str() {
+            "fish" => ">",
+            "powershell" | "pwsh" => "PS>",
+            "python" => ">>>",
+            _ => "$",
+        };
+        let value = attribute("prompt").unwrap_or(default).trim();
+        if VALID.is_match(value) {
+            value.to_owned()
+        } else {
+            default.to_owned()
+        }
+    };
+    let title = {
+        static LINE_BREAK: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"\r\n|[\n\r\u{000B}\u{000C}\u{001C}-\u{001E}\u{0085}\u{2028}\u{2029}]")
+                .unwrap()
+        });
+        let value = LINE_BREAK
+            .split(attribute("title").unwrap_or("Terminal"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let value = value.trim().chars().take(100).collect::<String>();
+        if value.is_empty() {
+            "Terminal".to_owned()
+        } else {
+            value
+        }
     };
 
-    for (name, _) in &attributes {
-        element.remove_attribute(name);
-    }
-    element.set_attribute("class", "terminal")?;
-    element.set_attribute("data-shell", &shell)?;
-    element.set_attribute("role", "group")?;
-    element.set_attribute("aria-label", &escape_html(&title))?;
-    element.set_attribute(
-        "style",
-        &escape_html(&format!(r#"--terminal-prompt:"{prompt} ""#)),
-    )?;
-    element.prepend(
-        &format!(
-            r#"<div class="terminal-title" aria-hidden="true">{}</div>"#,
-            escape_html(&title)
-        ),
-        ContentType::Html,
+    fmt.cr();
+    fmt.open(
+        "div",
+        &[
+            ("class".into(), "terminal".into()),
+            ("data-shell".into(), shell),
+            ("role".into(), "group".into()),
+            ("aria-label".into(), title.clone()),
+            ("style".into(), format!(r#"--terminal-prompt:"{prompt} ""#)),
+        ],
     );
-    Ok(())
-}
-
-fn attribute<'a>(attributes: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    attributes
-        .iter()
-        .find(|(attribute, _)| attribute == name)
-        .map(|(_, value)| value.as_str())
-}
-
-fn normalize_shell(value: &str) -> String {
-    let value = decode_html_entities(value).trim().to_lowercase();
-    if SHELL.is_match(&value) {
-        value
-    } else {
-        "bash".to_owned()
-    }
-}
-
-fn normalize_prompt(value: &str, default: &str) -> String {
-    let value = decode_html_entities(value).trim().to_owned();
-    if PROMPT.is_match(&value) {
-        value
-    } else {
-        default.to_owned()
-    }
-}
-
-fn normalize_title(value: &str) -> String {
-    let value = decode_html_entities(value);
-    let value = TITLE_LINE_BREAK.split(&value).collect::<Vec<_>>().join(" ");
-    value.trim().chars().take(100).collect()
-}
-
-fn default_prompt(shell: &str) -> &'static str {
-    match shell {
-        "bash" | "sh" | "zsh" => "$",
-        "fish" => ">",
-        "powershell" | "pwsh" => "PS>",
-        "python" => ">>>",
-        _ => "$",
-    }
+    fmt.open(
+        "div",
+        &[
+            ("class".into(), "terminal-title".into()),
+            ("aria-hidden".into(), "true".into()),
+        ],
+    );
+    fmt.text(&title);
+    fmt.close("div");
+    fmt.contents(node.children());
+    fmt.close("div");
+    fmt.cr();
 }
 
 #[cfg(test)]
 mod tests {
-    use serde::Deserialize;
+    use std::collections::HashMap;
 
-    use super::*;
     use crate::sanitizer::sanitize;
-    use crate::solid_island;
-    use crate::test_support::fixtures;
 
-    #[derive(Deserialize)]
-    struct TerminalFixture {
-        name: String,
-        input: String,
-        terminal: String,
-        solid: String,
-        sanitized: String,
+    #[test]
+    fn renders_block_directives_without_html_rewriting() {
+        let parser = crate::builder::build();
+        for source in [
+            "::terminal",
+            ":::terminal\nhello\n:::",
+            "::::terminal\n:::terminal\nhello\n:::\n::::",
+        ] {
+            let html = parser.render(source);
+            assert!(html.contains("class=\"terminal\""), "{html}");
+            assert!(html.contains("class=\"terminal-title\""), "{html}");
+            assert!(!html.contains("directive terminal"), "{html}");
+        }
     }
 
     #[test]
-    fn matches_frozen_python_fixtures() {
-        let fixtures: Vec<TerminalFixture> =
-            fixtures(include_str!("../tests/fixtures/terminal.json"));
-        for fixture in fixtures {
-            let terminal = rewrite(&fixture.input).unwrap();
-            assert_eq!(terminal, fixture.terminal, "fixture: {}", fixture.name);
-            let solid = solid_island::rewrite(&terminal).unwrap();
-            assert_eq!(solid, fixture.solid, "solid fixture: {}", fixture.name);
+    fn renders_normalized_metadata() {
+        for (source, shell, prompt, title) in [
+            ("::terminal", "bash", "$", "Terminal"),
+            ("::terminal{shell=python}", "python", ">>>", "Terminal"),
+            ("::terminal{shell=pwsh}", "pwsh", "PS>", "Terminal"),
+            ("::terminal{shell=fish}", "fish", ">", "Terminal"),
+            (
+                "::terminal{shell=\" ZSH \" prompt=\" ❯ \" title=数据库迁移}",
+                "zsh",
+                "❯",
+                "数据库迁移",
+            ),
+            (
+                "::terminal{SHELL=python TITLE=Uppercase PROMPT=❯}",
+                "python",
+                "❯",
+                "Uppercase",
+            ),
+            (
+                "::terminal{shell=python shell=bash title=first title=second}",
+                "python",
+                ">>>",
+                "first",
+            ),
+            (
+                "::terminal{shell=\"invalid shell\" prompt=\"x; color:red\" title=\"   \"}",
+                "bash",
+                "$",
+                "Terminal",
+            ),
+            (
+                "::terminal{title=\"A &amp; B &#10; second\" prompt=\"&gt;\"}",
+                "bash",
+                "$",
+                "A &amp; B &#10; second",
+            ),
+        ] {
+            let title = crate::rewriter::escape_html(title);
+            let prompt = crate::rewriter::escape_html(prompt);
             assert_eq!(
-                sanitize(&solid),
-                fixture.sanitized,
-                "sanitized fixture: {}",
-                fixture.name
+                crate::builder::build().render(source),
+                format!(
+                    "<div class=\"terminal\" data-shell=\"{shell}\" role=\"group\" aria-label=\"{title}\" style=\"--terminal-prompt:&quot;{prompt} &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">{title}</div></div>\n"
+                ),
+                "source: {source}",
             );
         }
     }
 
     #[test]
-    fn truncates_title_to_one_hundred_unicode_characters() {
-        let title = normalize_title(&"界".repeat(101));
+    fn preserves_nested_content_through_the_pipeline() {
+        let html = crate::builder::build().render(
+            "::::terminal{title=outer}\n:::terminal{title=inner}\n```command\necho hello\n```\n\n[link](https://example.com)\n\n![caption](image.png)\n\n::counter{initial=2}\n:::\n::::",
+        );
+        let html = crate::suffix::rewrite(&html, &HashMap::new(), &[], None).unwrap();
+        assert_eq!(html.matches("class=\"terminal\"").count(), 2);
+        assert!(html.contains("data-language=\"command\""));
+        assert!(html.contains("echo hello"));
+        assert!(html.contains("data-domain=\"example.com\""));
+        assert!(html.contains("data-caption=\"caption\""));
+        assert!(html.contains("data-solid-island=\"Counter\""));
+    }
 
-        assert_eq!(title.chars().count(), 100);
+    #[test]
+    fn leaves_raw_html_and_inline_directives_unconverted() {
+        for source in [
+            "<div class=\"directive terminal\" shell=\"python\" onclick=\"bad()\">raw</div>",
+            "before :terminal{title=inline} after",
+        ] {
+            let html = crate::builder::build().render(source);
+            let html = crate::suffix::rewrite(&html, &HashMap::new(), &[], None).unwrap();
+            assert!(html.contains("class=\"directive terminal\""));
+            assert!(!html.contains("terminal-title"));
+            assert!(!html.contains("data-shell"));
+            assert!(!html.contains("onclick"));
+        }
+    }
+
+    #[test]
+    fn sanitizes_native_terminal_content_and_metadata() {
+        let html = crate::builder::build().render(
+            ":::terminal{title=\"<script>bad()</script>\" shell=\"bash;bad\" prompt=\"x; color:red\" onclick=bad}\n<script>bad()</script>\n:::",
+        );
+        let cleaned = sanitize(&html);
+        assert!(cleaned.contains("&lt;script&gt;bad()&lt;/script&gt;"));
+        assert!(cleaned.contains("data-shell=\"bash\""));
+        assert!(cleaned.contains("--terminal-prompt:&quot;$ &quot;"));
+        assert!(!cleaned.contains("<script>"));
+        assert!(!cleaned.contains("onclick"));
+        assert!(!cleaned.contains("color:red"));
+    }
+
+    #[test]
+    fn truncates_title_to_one_hundred_unicode_characters() {
+        let html = crate::builder::build()
+            .render(&format!("::terminal{{title=\"{}\"}}", "界".repeat(101),));
+
+        assert!(html.contains(&format!("aria-label=\"{}\"", "界".repeat(100))));
+        assert!(!html.contains(&"界".repeat(101)));
     }
 }

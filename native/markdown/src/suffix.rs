@@ -10,7 +10,6 @@ use crate::{
     image_wrapper,
     sanitizer,
     solid_island,
-    terminal,
 };
 
 // TODO: migrate to MarkdownIt plugins
@@ -24,7 +23,6 @@ pub(crate) fn rewrite(
     let html = image_optimizer::rewrite(&html, images, image_picture_source_prefixes)?;
     let html = image_wrapper::rewrite(&html)?;
     let html = code_language::rewrite(&html)?;
-    let html = terminal::rewrite(&html)?;
     let html = solid_island::rewrite(&html)?;
     let html = sanitizer::sanitize(&html);
     let html = image_optimizer::inject_placeholders(&html, images)?;
@@ -134,10 +132,9 @@ mod tests {
                 placeholder: None,
             },
         )]);
-        let html = format!(
-            "<div class=\"directive terminal\"><pre><code class=\"language-command\">run</code></pre>\
-             <img src=\"{checksum}\" alt=\"Shot\" onerror=\"alert(1)\"></div>"
-        );
+        let html = crate::builder::build().render(&format!(
+            ":::terminal\n```command\nrun\n```\n\n![Shot]({checksum})\n\n<img src=\"x\" onerror=\"alert(1)\">\n:::"
+        ));
 
         let rewritten = rewrite(&html, &images, &[], None).unwrap();
 
