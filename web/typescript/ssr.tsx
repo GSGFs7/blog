@@ -36,8 +36,8 @@ export function buildSsrManifest() {
       Object.entries(STATIC_COMPONENTS).map(([name, Component]) => [
         name,
         renderToString(() => (
-          // some component may be handled incorrectly by sanitize.
-          // for this reaseon, disable hydration for itey.
+          // some component may be handled incorrectly by markdown sanitize.
+          // for this reason, disable hydration for item.
           <NoHydration>
             <Component />
           </NoHydration>
