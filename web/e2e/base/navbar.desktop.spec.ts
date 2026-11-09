@@ -30,3 +30,40 @@ test("shows desktop navigation links", async ({ page }) => {
   });
   expect(backdropFilter).toBe("blur(8px)");
 });
+
+test("shows a spinning loader until navigation completes", async ({ page }) => {
+  let releaseResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => {
+    releaseResponse = resolve;
+  });
+  await page.route("**/about", async (route) => {
+    await responseGate;
+    await route.continue();
+  });
+  await page.goto("/test");
+  await expect(page.getByText("Count: 1024", { exact: true })).toBeVisible();
+
+  const logo = page.locator(".site-navbar__inner .site-navbar__brand-logo");
+  const loader = page.locator(".site-navbar__inner .site-navbar__brand-loader");
+  await expect(logo).toBeVisible();
+  await expect(loader).toBeHidden();
+
+  const navigation = page
+    .locator(".site-navbar__links")
+    .getByRole("link", { name: "About", exact: true })
+    .click();
+  try {
+    await expect(loader).toBeVisible();
+    await expect(logo).toBeHidden();
+    await expect(loader).toHaveCSS("animation-name", "navbar-loading-spin");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(loader).toHaveCSS("animation-name", "none");
+  } finally {
+    releaseResponse();
+    await navigation;
+  }
+
+  await expect(page).toHaveURL(/\/about$/);
+  await expect(logo).toBeVisible();
+  await expect(loader).toBeHidden();
+});

@@ -13,7 +13,7 @@ Lucide
 Icons from Lucide (https://lucide.dev, https://github.com/lucide-icons/lucide)
 are embedded as inline SVG markup in:
 
-- web/templates/web/partials/globals/navbar.html (lollipop)
+- web/templates/web/partials/globals/navbar.html (lollipop, refresh-cw)
 - web/templates/web/partials/blog/post_list_item.html (calendar, refresh-cw, folder, tags)
 - web/templates/web/pages/blog.html (chevron-left, chevron-right)
 - web/typescript/islands/MusicPlayer/MusicDock.island.tsx (rotate-cw, pause, play)
