@@ -68,22 +68,22 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use crate::MarkdownIt;
 use crate::common::extset::{NodeExtSet, RenderExtSet};
-#[cfg(feature = "sourcemap")]
-use crate::common::sourcemap::SourcePos;
-use crate::document::{HtmlAttribute, NodeId, NodeRef};
+use crate::document::{Document, HtmlAttribute, Node, NodeId, NodeValue};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::parser::inline::{InlineRule, InlineState};
 use crate::render::{
     NodeRenderer,
     RenderContext,
+    RenderOptions,
     TransparentRenderer,
+    Writer,
     write_html_close,
     write_html_open,
     write_html_self_close,
     write_html_text,
 };
-use crate::{Document, MarkdownIt, NodeValue, RenderOptions, Writer};
 
 // --- render ---
 
@@ -132,13 +132,14 @@ impl InlineRule for TextDirective {
         let preceded_by_colon = state.pos > 0 && state.src[..state.pos].ends_with(':');
         let (name, attrs, len) = scan_text_directive(state.remaining(), preceded_by_colon)?;
 
+        let md = state.markdown_it();
         let node = state.document.create_node(TextDirective {
             name: name.clone(),
             attrs,
         });
         attach_render(
             state.document.node_mut(node).ext_mut(),
-            state.md,
+            md,
             DirectiveKind::Text,
             &name,
         );
@@ -340,29 +341,35 @@ pub type DirectiveRenderFn =
 #[derive(Clone, Copy, Debug)]
 pub struct DirectiveNode<'a> {
     document: &'a Document,
-    node: NodeRef<'a>,
+    node: &'a Node,
 }
 
 impl<'a> DirectiveNode<'a> {
     pub fn name(self) -> &'static str {
         self.node.name()
     }
+
     pub fn is<T: NodeValue>(self) -> bool {
         self.node.is::<T>()
     }
+
     pub fn cast<T: NodeValue>(self) -> Option<&'a T> {
         self.node.cast::<T>()
     }
+
     pub fn attrs(self) -> &'a [HtmlAttribute] {
         self.node.attrs()
     }
+
     #[cfg(feature = "sourcemap")]
-    pub fn srcmap(self) -> Option<SourcePos> {
+    pub fn srcmap(self) -> Option<crate::common::sourcemap::SourcePos> {
         self.node.srcmap()
     }
+
     pub fn ext(self) -> &'a NodeExtSet {
         self.node.ext()
     }
+
     pub fn children(self) -> impl ExactSizeIterator<Item = Self> + 'a {
         self.node.children().iter().map(move |&id| Self {
             document: self.document,
@@ -671,7 +678,7 @@ struct DirectiveNodeRenderer;
 impl NodeRenderer<TextDirective> for DirectiveNodeRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &TextDirective,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -692,7 +699,7 @@ impl NodeRenderer<TextDirective> for DirectiveNodeRenderer {
 impl NodeRenderer<LeafDirective> for DirectiveNodeRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &LeafDirective,
         context: &mut RenderContext<'_>,
         output: &mut Writer,
@@ -713,7 +720,7 @@ impl NodeRenderer<LeafDirective> for DirectiveNodeRenderer {
 impl NodeRenderer<ContainerDirective> for DirectiveNodeRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         value: &ContainerDirective,
         context: &mut RenderContext<'_>,
         output: &mut Writer,

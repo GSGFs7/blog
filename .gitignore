@@ -26,6 +26,7 @@ artifacts/
 # Local development tools
 .vscode/
 .idea/
+.zed/
 *.http
 
 # Environment / credentials

@@ -4,15 +4,18 @@ mod lines;
 mod parser;
 mod rule;
 mod state;
-pub(crate) use document::parse_document;
-pub use lines::*;
-pub use parser::BlockParserRule;
-pub use rule::*;
-pub use state::BlockState;
+#[cfg(debug_assertions)]
+mod validation;
 
+pub(crate) use self::document::parse_document;
+pub use self::lines::*;
+pub use self::parser::BlockParserRule;
+pub use self::rule::*;
+pub use self::state::BlockState;
+use crate::MarkdownIt;
 use crate::common::RuleMark;
 use crate::common::ruler::Ruler;
-use crate::{MarkdownIt, NodeId};
+use crate::document::NodeId;
 
 /// Register the core rule that drives block parsing.
 pub fn add(md: &mut MarkdownIt) {
@@ -35,7 +38,7 @@ impl BlockParser {
     }
 
     pub(crate) fn rules(&self) -> &[BlockRuleFns] {
-        self.ruler.as_slice()
+        self.ruler.iter().as_slice()
     }
 
     pub fn add_rule<T: BlockRule>(&mut self) -> RuleBuilder<'_, BlockRuleFns> {

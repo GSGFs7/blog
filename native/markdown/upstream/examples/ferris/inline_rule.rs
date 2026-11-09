@@ -1,7 +1,9 @@
 // Replaces `(\/)` with `🦀`.
 
-use markdown_it::parser::inline::InlineRule;
-use markdown_it::{InlineState, MarkdownIt, NodeId, NodeRef, NodeRenderer, RenderContext, Writer};
+use markdown_it::MarkdownIt;
+use markdown_it::document::{Node, NodeId};
+use markdown_it::parser::inline::{InlineRule, InlineState};
+use markdown_it::render::{NodeRenderer, RenderContext, Writer};
 
 const CRAB_CLAW: &str = r#"(\/)"#;
 
@@ -13,13 +15,7 @@ pub struct InlineFerris;
 struct InlineFerrisRenderer;
 
 impl NodeRenderer<InlineFerris> for InlineFerrisRenderer {
-    fn render(
-        &self,
-        _: NodeRef<'_>,
-        _: &InlineFerris,
-        _: &mut RenderContext<'_>,
-        output: &mut Writer,
-    ) {
+    fn render(&self, _: &Node, _: &InlineFerris, _: &mut RenderContext<'_>, output: &mut Writer) {
         output.write_str("<span class=\"ferris-inline\">🦀</span>");
     }
 }
@@ -39,7 +35,7 @@ impl InlineRule for FerrisInlineScanner {
     // appears at the current position.
     //
     // If custom structure is found, it:
-    //  - creates a new `NodeDraft`
+    //  - creates a node in the document and returns its `NodeId`
     //  - returns length of it
     //
     fn run(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {

@@ -22,12 +22,14 @@
 //!
 //! ```rust
 //! use markdown_it::parser::inline::helpers::emph_pair;
-//! use markdown_it::{MarkdownIt, NodeId, NodeRef, NodeRenderer, RenderContext, Writer};
+//! use markdown_it::MarkdownIt;
+//! use markdown_it::document::{NodeId, Node};
+//! use markdown_it::render::{NodeRenderer, RenderContext, Writer};
 //! #[derive(Debug)]
 //! struct Superscript;
 //! struct CustomRenderer;
 //! impl NodeRenderer<Superscript> for CustomRenderer {
-//!     fn render(&self, node: NodeRef<'_>, _: &Superscript, ctx: &mut RenderContext<'_>, out: &mut Writer) {
+//!     fn render(&self, node: &Node, _: &Superscript, ctx: &mut RenderContext<'_>, out: &mut Writer) {
 //!         out.write_str("<sup>"); ctx.render_children(node.id(), out); out.write_str("</sup>");
 //!     }
 //! }
@@ -45,10 +47,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::MarkdownIt;
 use crate::document::{Document, NodeId, Text};
 use crate::parser::core::{CoreRule, CoreState};
 use crate::parser::inline::{InlineParserRule, InlineRule, InlineState};
-use crate::MarkdownIt;
 
 // --- pub ---
 
@@ -262,7 +264,7 @@ impl<const MARKER: char, const CAN_SPLIT_WORD: bool> InlineRule
 
         // scan_and_match may set a map spanning earlier delimiters. Push directly
         // so tokenize does not overwrite it with this delimiter's span.
-        state.nodes_mut().push(closer);
+        state.push_node(closer);
         Some((None, scanned_bytes))
     }
 }
@@ -401,7 +403,7 @@ fn scan_and_match<const MARKER: char>(state: &mut InlineState, closer_token: Nod
                 opener.remaining -= marker_len;
 
                 let new_token = marker_fn.create(state.document);
-                let children = state.nodes_mut().split_off(idx + 1);
+                let children = state.split_off_nodes(idx + 1);
                 state.document.attach_children(new_token, children);
 
                 #[cfg(feature = "sourcemap")]
@@ -418,12 +420,12 @@ fn scan_and_match<const MARKER: char>(state: &mut InlineState, closer_token: Nod
 
                 // Drop the opener once fully matched.
                 if opener.remaining == 0 {
-                    let removed = state.nodes_mut().pop().unwrap();
+                    let removed = state.pop_node().unwrap();
                     state.document.discard_node(removed);
                 }
 
                 removed_from = Some(removed_from.map_or(idx, |earliest| earliest.min(idx)));
-                state.nodes_mut().push(new_token);
+                state.push_node(new_token);
             }
         }
 
@@ -460,7 +462,7 @@ fn scan_and_match<const MARKER: char>(state: &mut InlineState, closer_token: Nod
         closer_token
     } else {
         state.document.discard_node(closer_token);
-        state.nodes_mut().pop().unwrap()
+        state.pop_node().unwrap()
     }
 }
 
@@ -490,9 +492,11 @@ impl CoreRule for EmphasisCleanup {
         let mut stack = vec![(document.root(), false)];
         while let Some((node, expanded)) = stack.pop() {
             if expanded {
-                document.rewrite_children(node, |document, children| {
-                    fragments_join_children(document, children);
-                });
+                if needs_cleanup(document, node) {
+                    document.rewrite_children(node, |document, children| {
+                        fragments_join_children(document, children);
+                    });
+                }
                 continue;
             }
 
@@ -508,6 +512,26 @@ impl CoreRule for EmphasisCleanup {
             }
         }
     }
+}
+
+/// Most containers already have their final children. Avoid detaching and
+/// reattaching them unless the fragment pass would actually change something.
+fn needs_cleanup(document: &Document, parent: NodeId) -> bool {
+    let mut previous_is_text = false;
+    for &child in document.children(parent) {
+        let node = document.node(child);
+        if node.is::<EmphMarker>() {
+            return true;
+        }
+
+        let text = node.cast::<Text>();
+        if text.is_some_and(|text| text.content.is_empty() || previous_is_text) {
+            return true;
+        }
+
+        previous_is_text = text.is_some();
+    }
+    false
 }
 
 /// Merge adjacent text nodes and fix source maps after emphasis matching.
@@ -613,7 +637,52 @@ fn update_pair_sourcemaps(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Preset;
+    use crate::plugins::presets::Preset;
+
+    #[test]
+    fn cleanup_preflight_preserves_all_fragment_mutations() {
+        let mut document = Document::new("", crate::document::Root::new(""));
+        let root = document.root();
+        let text = document.create_node(Text {
+            content: "a".into(),
+        });
+        let other_text = document.create_node(Text {
+            content: "b".into(),
+        });
+        let empty = document.create_node(Text {
+            content: String::new(),
+        });
+        let other = document.create_node(());
+        let marker = document.create_node(EmphMarker {
+            marker: '*',
+            length: 1,
+            remaining: 1,
+            open: false,
+            close: false,
+        });
+        let consumed = document.create_node(EmphMarker {
+            marker: '*',
+            length: 1,
+            remaining: 0,
+            open: false,
+            close: false,
+        });
+        for (children, expected) in [
+            (vec![], false),
+            (vec![text], false),
+            (vec![other], false),
+            (vec![text, other, other_text], false),
+            (vec![text, other_text], true),
+            (vec![empty], true),
+            (vec![other, empty], true),
+            (vec![marker], true),
+            (vec![consumed], true),
+        ] {
+            document.take_children(root);
+            document.attach_children(root, children);
+            assert_eq!(needs_cleanup(&document, root), expected);
+        }
+    }
 
     #[test]
     fn literal_closers_stay_text_before_later_emphasis() {
@@ -646,7 +715,7 @@ mod tests {
             (30_000, source.len())
         );
         assert_eq!(
-            md.render_html(&document),
+            md.render_document(&document, "html"),
             "<p>".to_owned() + &"a_ ".repeat(10_000) + "<strong>雪</strong></p>\n"
         );
     }
@@ -819,7 +888,7 @@ mod tests {
         for event in node.events(node.root()) {
             assert!(event.node().srcmap().is_some());
         }
-        assert_eq!(md.render_html(&node), output);
+        assert_eq!(md.render_document(&node, "html"), output);
     }
 
     /// Parse with only CommonMark paragraph and emphasis rules.
@@ -833,7 +902,11 @@ mod tests {
         for event in node.events(node.root()) {
             assert!(event.node().srcmap().is_some());
         }
-        assert_eq!(md.render_html(&node), output, "parser for {input:?}");
+        assert_eq!(
+            md.render_document(&node, "html"),
+            output,
+            "parser for {input:?}"
+        );
     }
 
     #[test]
@@ -882,13 +955,13 @@ mod tests {
     struct CustomEmphasis;
 
     struct CustomRenderer;
-    impl crate::NodeRenderer<CustomEmphasis> for CustomRenderer {
+    impl crate::render::NodeRenderer<CustomEmphasis> for CustomRenderer {
         fn render(
             &self,
-            node: crate::NodeRef<'_>,
+            node: &crate::document::Node,
             _: &CustomEmphasis,
-            ctx: &mut crate::RenderContext<'_>,
-            out: &mut crate::Writer,
+            ctx: &mut crate::render::RenderContext<'_>,
+            out: &mut crate::render::Writer,
         ) {
             out.write_str("<x>");
             ctx.render_children(node.id(), out);
@@ -906,7 +979,7 @@ mod tests {
 
         let root = md.parse("a 🦀雪🦀 b");
 
-        assert_eq!(md.render_html(&root), "<p>a <x>雪</x> b</p>\n",);
+        assert_eq!(md.render_document(&root, "html"), "<p>a <x>雪</x> b</p>\n",);
 
         let paragraph = root.children(root.root())[0];
         let wrapper = root.node(root.children(paragraph)[1]);
@@ -923,7 +996,7 @@ mod tests {
 
         let root = md.parse("🦀🦀雪🦀🦀");
 
-        assert_eq!(md.render_html(&root), "<p><x>雪</x></p>\n",);
+        assert_eq!(md.render_document(&root, "html"), "<p><x>雪</x></p>\n",);
 
         #[cfg(feature = "sourcemap")]
         {

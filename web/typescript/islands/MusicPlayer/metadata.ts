@@ -4,10 +4,7 @@ export async function extractMusicMetadata(
   src: string,
   signal: AbortSignal,
 ): Promise<MusicMetadata | undefined> {
-  const [{ makeTokenizer }, { parseFromTokenizer }] = await Promise.all([
-    import("@tokenizer/http"),
-    import("music-metadata"),
-  ]);
+  const { makeTokenizer, parseFromTokenizer } = await import("./metadata-runtime");
 
   if (signal.aborted) {
     return;

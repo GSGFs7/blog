@@ -11,6 +11,7 @@ import { PAGE_TRANSITION_TIMING } from "../../runtime";
 import { setupNativePageNavigation } from "./adapter";
 import type { preparePageHead } from "./head";
 import { type page, PageLoadError, type PageLoadResult } from "./page";
+import * as prefetchModule from "./prefetch";
 
 interface RecordedEvent {
   name: string;
@@ -29,6 +30,7 @@ interface TestNavigateEvent {
 interface Deferred<T> {
   promise: Promise<T>;
   resolve(value: T): void;
+  reject(reason: unknown): void;
 }
 
 let navigation: EventTarget;
@@ -39,10 +41,12 @@ let originalNavigation: PropertyDescriptor | undefined;
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, failed) => {
     resolve = done;
+    reject = failed;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function destination(path: string): URL {
@@ -57,14 +61,16 @@ function pageDocument(body = "<main>next page</main>"): Document {
 }
 
 function swapResult(requestedPath: string, finalPath = requestedPath): PageLoadResult {
+  const document = pageDocument();
   return {
     kind: "swap",
     page: {
       requestedUrl: destination(requestedPath),
       finalUrl: destination(finalPath),
-      document: pageDocument(),
+      document,
       response: new Response(""),
       deliverySource: "origin",
+      html: "<!doctype html>" + document.documentElement.outerHTML,
     },
   };
 }
@@ -211,12 +217,277 @@ beforeEach(() => {
 afterEach(() => {
   teardown?.();
   teardown = undefined;
+  vi.restoreAllMocks();
   recordingController.abort();
   if (originalNavigation) {
     Object.defineProperty(window, "navigation", originalNavigation);
   } else {
     Reflect.deleteProperty(window, "navigation");
   }
+});
+
+function cachedNavigation(stale = true, requestedPath = "/about", finalPath = requestedPath) {
+  const cached = swapResult(requestedPath, finalPath);
+  if (cached.kind !== "swap") throw new Error("Expected page");
+  const refreshed = deferred<PageLoadResult>();
+  const take = vi.fn().mockResolvedValue({ page: cached.page, stale });
+  const refresh = vi.fn(() => refreshed.promise);
+  vi.spyOn(prefetchModule, "setupNativePrefetch").mockReturnValue({
+    take,
+    refresh,
+    dispose: vi.fn(),
+  });
+  return { cached, refreshed, take, refresh };
+}
+
+test("uses fresh cached content without fetching or revalidating", async () => {
+  const cache = cachedNavigation(false);
+  const harness = setup();
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  expect(document.body).toHaveTextContent("next page");
+  expect(harness.loadPage).not.toHaveBeenCalled();
+  expect(cache.refresh).not.toHaveBeenCalled();
+  expect(request.scroll).toHaveBeenCalledOnce();
+});
+
+test("shows stale content before revalidation and updates without a second navigation or animation", async () => {
+  const cache = cachedNavigation();
+  cache.cached.page.document.body.insertAdjacentHTML(
+    "beforeend",
+    '<div id="dock" data-app-preserve data-solid-island="MusicDock"><audio></audio></div><div id="removed" data-solid-island="Example"></div>',
+  );
+  const harness = setup();
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  expect(document.body).toHaveTextContent("next page");
+  expect(cache.refresh).toHaveBeenCalledExactlyOnceWith(destination("/about"));
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ outcome: "completed" });
+  expect(harness.loadPage).not.toHaveBeenCalled();
+  const dock = document.getElementById("dock") as IslandElement;
+  const audio = dock.firstElementChild;
+  const disposeDock = vi.fn();
+  const disposeRemoved = vi.fn();
+  dock.__solidDispose__ = disposeDock;
+  (document.getElementById("removed") as IslandElement).__solidDispose__ = disposeRemoved;
+  document.addEventListener(
+    APP_PAGE_EVENT.beforeSwap,
+    (event) => cleanup(event.detail.root, event.detail.preservedRoots),
+    { signal: recordingController.signal },
+  );
+  const updated = swapResult("/about");
+  if (updated.kind !== "swap") throw new Error("Expected page");
+  updated.page.document.body.innerHTML =
+    '<main>updated content</main><div id="dock" data-app-preserve data-solid-island="MusicDock"></div>';
+  cache.refreshed.resolve({
+    kind: "swap",
+    page: { ...updated.page, html: updated.page.document.documentElement.outerHTML },
+  });
+  await vi.waitFor(() => expect(document.body).toHaveTextContent("updated content"));
+
+  expect(harness.commit).toHaveBeenCalledTimes(2);
+  expect(request.scroll).toHaveBeenCalledOnce();
+  expect(harness.wait).toHaveBeenCalledTimes(2);
+  expect(eventNames()).toEqual([
+    APP_PAGE_EVENT.navigationStart,
+    APP_PAGE_EVENT.beforeLeave,
+    APP_PAGE_EVENT.beforeSwap,
+    APP_PAGE_EVENT.afterSwap,
+    APP_PAGE_EVENT.navigationEnd,
+    APP_PAGE_EVENT.beforeSwap,
+    APP_PAGE_EVENT.afterSwap,
+  ]);
+  expect(recordedEvents.at(-1)?.detail).toMatchObject({ reason: "revalidation" });
+  expect(document.body).not.toHaveAttribute("data-page-transition");
+  expect(document.body).not.toHaveAttribute("aria-busy");
+  expect(harness.navigate).not.toHaveBeenCalled();
+  expect(document.getElementById("dock")).toBe(dock);
+  expect(dock.firstElementChild).toBe(audio);
+  expect(disposeDock).not.toHaveBeenCalled();
+  expect(disposeRemoved).toHaveBeenCalledOnce();
+});
+
+test.each(["unchanged", "invalid", "redirected", "offline"])(
+  "keeps displayed stale content when revalidation is %s",
+  async (state) => {
+    const cache = cachedNavigation();
+    const harness = setup();
+    const request = navigateEvent("/about");
+    navigation.dispatchEvent(request.event);
+    await request.run();
+    if (state === "offline") {
+      cache.refreshed.reject(new Error("offline"));
+      await cache.refreshed.promise.catch(() => undefined);
+    } else {
+      cache.refreshed.resolve(
+        state === "invalid"
+          ? reloadResult("/about")
+          : state === "redirected"
+            ? swapResult("/about", "/elsewhere")
+            : cache.cached,
+      );
+      await cache.refreshed.promise;
+    }
+    await Promise.resolve();
+
+    expect(harness.prepareHead).toHaveBeenCalledOnce();
+    expect(harness.navigate).not.toHaveBeenCalled();
+    expect(document.body).toHaveTextContent("next page");
+    expect(eventNames()).toHaveLength(5);
+  },
+);
+
+test("keeps displayed stale content while the user is editing", async () => {
+  const cache = cachedNavigation();
+  const harness = setup();
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  const input = document.createElement("input");
+  input.value = "draft";
+  document.body.append(input);
+  input.focus();
+
+  const updated = swapResult("/about");
+  if (updated.kind !== "swap") throw new Error("Expected page");
+  updated.page.document.body.innerHTML = "<main>updated content</main>";
+  cache.refreshed.resolve({
+    kind: "swap",
+    page: { ...updated.page, html: updated.page.document.documentElement.outerHTML },
+  });
+  await vi.waitFor(() => expect(harness.rollback).toHaveBeenCalledOnce());
+
+  expect(document.body).toHaveTextContent("next page");
+  expect(document.body).not.toHaveTextContent("updated content");
+  expect(document.activeElement).toBe(input);
+  expect(input.value).toBe("draft");
+});
+
+test("keeps displayed stale content when a form control is dirty", async () => {
+  const cache = cachedNavigation();
+  const harness = setup();
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  const input = document.createElement("input");
+  input.value = "edited";
+  document.body.append(input);
+  input.blur();
+
+  const updated = swapResult("/about");
+  if (updated.kind !== "swap") throw new Error("Expected page");
+  updated.page.document.body.innerHTML = "<main>updated content</main>";
+  cache.refreshed.resolve({
+    kind: "swap",
+    page: { ...updated.page, html: updated.page.document.documentElement.outerHTML },
+  });
+  await vi.waitFor(() => expect(harness.rollback).toHaveBeenCalledOnce());
+
+  expect(document.body).toHaveTextContent("next page");
+  expect(document.body).not.toHaveTextContent("updated content");
+});
+
+test.each(["contenteditable", "component"])(
+  "keeps the displayed page when %s has unsaved state after losing focus",
+  async (kind) => {
+    const cache = cachedNavigation();
+    const harness = setup();
+    const request = navigateEvent("/about");
+    navigation.dispatchEvent(request.event);
+    await request.run();
+
+    const editor = document.createElement("div");
+    document.body.append(editor);
+    if (kind === "contenteditable") {
+      editor.setAttribute("contenteditable", "true");
+      editor.tabIndex = 0;
+      editor.focus();
+      editor.textContent = "unsaved edits";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      editor.blur();
+    } else {
+      editor.setAttribute("data-nav-dirty", "");
+    }
+
+    cache.refreshed.resolve({
+      kind: "swap",
+      page: { ...cache.cached.page, html: "changed" },
+    });
+    await vi.waitFor(() => expect(harness.rollback).toHaveBeenCalledOnce());
+
+    expect(editor.isConnected).toBe(true);
+    expect(harness.commit).toHaveBeenCalledOnce();
+    expect(eventNames().filter((name) => name === APP_PAGE_EVENT.afterSwap)).toHaveLength(1);
+  },
+);
+
+test("revalidates the original requested URL after a redirect", async () => {
+  const cache = cachedNavigation(true, "/alias", "/about");
+  setup({ supportsPrecommitRedirect: () => true });
+  const request = navigateEvent("/alias");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  expect(request.redirect).toHaveBeenCalledWith(destination("/about"));
+  expect(cache.refresh).toHaveBeenCalledExactlyOnceWith(destination("/alias"));
+  expect(document.body).toHaveTextContent("next page");
+});
+
+test.each(["navigation", "teardown"])("ignores a late refreshed page after %s", async (action) => {
+  const cache = cachedNavigation();
+  const harness = setup();
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+
+  if (action === "navigation") {
+    cache.take.mockResolvedValue(undefined);
+    harness.loadPage.mockResolvedValue(swapResult("/second"));
+    const second = navigateEvent("/second");
+    navigation.dispatchEvent(second.event);
+    await second.run();
+  } else {
+    teardown?.();
+    teardown = undefined;
+  }
+  const content = document.body.innerHTML;
+  const changed = swapResult("/about");
+  if (changed.kind !== "swap") throw new Error("Expected page");
+  cache.refreshed.resolve({ kind: "swap", page: { ...changed.page, html: "changed" } });
+  await cache.refreshed.promise;
+  await Promise.resolve();
+
+  expect(document.body.innerHTML).toBe(content);
+  expect(harness.prepareHead).toHaveBeenCalledTimes(action === "navigation" ? 2 : 1);
+});
+
+test("rolls back refresh stylesheets when navigation changes during head preparation", async () => {
+  const cache = cachedNavigation();
+  const harness = setup();
+  const prepared = deferred<Awaited<ReturnType<typeof preparePageHead>>>();
+  const rollback = vi.fn();
+  const commit = vi.fn();
+  const request = navigateEvent("/about");
+  navigation.dispatchEvent(request.event);
+  await request.run();
+  harness.prepareHead.mockImplementationOnce(() => prepared.promise);
+  cache.refreshed.resolve({
+    kind: "swap",
+    page: { ...cache.cached.page, html: "changed" },
+  });
+  await vi.waitFor(() => expect(harness.prepareHead).toHaveBeenCalledTimes(2));
+
+  navigation.dispatchEvent(navigateEvent("/account/login").event);
+  prepared.resolve({ commit, rollback });
+  await vi.waitFor(() => expect(rollback).toHaveBeenCalledOnce());
+  expect(commit).not.toHaveBeenCalled();
+  expect(document.body).toHaveTextContent("next page");
 });
 
 test("completes a page navigation with transition timing and lifecycle events", async () => {
@@ -409,6 +680,7 @@ test("cancels a superseded loading transaction exactly once", async () => {
 
   navigation.dispatchEvent(first.event);
   const firstRun = first.run();
+  await vi.waitFor(() => expect(loadPage).toHaveBeenCalledOnce());
   navigation.dispatchEvent(second.event);
 
   expect(firstSignal?.aborted).toBe(true);
@@ -445,6 +717,7 @@ test("teardown aborts active work and prevents a late swap", async () => {
 
   navigation.dispatchEvent(request.event);
   const running = request.run();
+  await vi.waitFor(() => expect(loadPage).toHaveBeenCalledOnce());
   teardown?.();
   teardown = undefined;
 

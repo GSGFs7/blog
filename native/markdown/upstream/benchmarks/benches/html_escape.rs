@@ -1,22 +1,15 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use markdown_it::{
-    Document,
-    MarkdownIt,
-    NodeDraft,
-    NodeRef,
-    NodeRenderer,
-    RenderContext,
-    Text,
-    Writer,
-};
+use markdown_it::document::{Document, Node, Text};
+use markdown_it::render::{NodeRenderer, RenderContext, Writer};
+use markdown_it::MarkdownIt;
 
 // Preserve the previous rendering operation as a same-process control.
 struct LegacyHtmlTextRenderer;
 
 impl NodeRenderer<Text> for LegacyHtmlTextRenderer {
-    fn render(&self, _: NodeRef<'_>, value: &Text, _: &mut RenderContext<'_>, output: &mut Writer) {
+    fn render(&self, _: &Node, value: &Text, _: &mut RenderContext<'_>, output: &mut Writer) {
         output.write_str(&markdown_it::common::utils::escape_html(&value.content));
     }
 }
@@ -32,7 +25,7 @@ fn benchmark(c: &mut Criterion) {
         ("dense-escaping", "<&>\""),
     ] {
         let source = pattern.repeat((64_usize * 1024).div_ceil(pattern.len()));
-        let document = Document::from_draft("", NodeDraft::new(Text { content: source }));
+        let document = Document::new("", Text { content: source });
         let text = &document
             .node(document.root())
             .cast::<Text>()
@@ -40,15 +33,15 @@ fn benchmark(c: &mut Criterion) {
             .content;
         // Verify the full output independently before timing document rendering.
         let expected = markdown_it::common::utils::escape_html(text);
-        assert_eq!(md.render_html(&document), expected);
-        assert_eq!(legacy.render_html(&document), expected);
+        assert_eq!(md.render_document(&document, "html"), expected);
+        assert_eq!(legacy.render_document(&document, "html"), expected);
         let mut group = c.benchmark_group(format!("html-escape/{name}"));
         group.throughput(Throughput::Bytes(text.len() as u64));
         group.bench_function("legacy-html", |b| {
-            b.iter(|| black_box(legacy.render_html(black_box(&document))))
+            b.iter(|| black_box(legacy.render_document(black_box(&document), "html")))
         });
         group.bench_function("document-html", |b| {
-            b.iter(|| black_box(md.render_html(black_box(&document))))
+            b.iter(|| black_box(md.render_document(black_box(&document), "html")))
         });
         group.finish();
     }
@@ -78,19 +71,21 @@ fn benchmark_sizes(c: &mut Criterion) {
             };
             assert_eq!(source.len(), len);
             let expected = markdown_it::common::utils::escape_html(&source).into_owned();
-            let document = Document::from_draft("", NodeDraft::new(Text { content: source }));
-            assert_eq!(md.render_html(&document), expected);
-            assert_eq!(legacy.render_html(&document), expected);
+            let document = Document::new("", Text { content: source });
+            assert_eq!(md.render_document(&document, "html"), expected);
+            assert_eq!(legacy.render_document(&document, "html"), expected);
             group.throughput(Throughput::Bytes(len as u64));
             group.bench_with_input(
                 BenchmarkId::new("legacy-html", len),
                 &document,
-                |b, document| b.iter(|| black_box(legacy.render_html(black_box(document)))),
+                |b, document| {
+                    b.iter(|| black_box(legacy.render_document(black_box(document), "html")))
+                },
             );
             group.bench_with_input(
                 BenchmarkId::new("document-html", len),
                 &document,
-                |b, document| b.iter(|| black_box(md.render_html(black_box(document)))),
+                |b, document| b.iter(|| black_box(md.render_document(black_box(document), "html"))),
             );
         }
         group.finish();

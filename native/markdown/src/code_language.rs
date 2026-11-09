@@ -106,15 +106,14 @@ mod tests {
 
     use super::*;
     use crate::sanitizer::sanitize;
+    use crate::solid_island;
     use crate::test_support::fixtures;
-    use crate::{solid_island, terminal};
 
     #[derive(Deserialize)]
     struct CodeLanguageFixture {
         name: String,
         input: String,
         code: String,
-        terminal: String,
         solid: String,
         sanitized: String,
     }
@@ -126,13 +125,7 @@ mod tests {
         for fixture in fixtures {
             let code = rewrite(&fixture.input).unwrap();
             assert_eq!(code, fixture.code, "fixture: {}", fixture.name);
-            let terminal = terminal::rewrite(&code).unwrap();
-            assert_eq!(
-                terminal, fixture.terminal,
-                "terminal fixture: {}",
-                fixture.name
-            );
-            let solid = solid_island::rewrite(&terminal).unwrap();
+            let solid = solid_island::rewrite_raw_html(&code).unwrap();
             assert_eq!(solid, fixture.solid, "solid fixture: {}", fixture.name);
             assert_eq!(
                 sanitize(&solid),

@@ -1,16 +1,19 @@
+use markdown_it::MarkdownIt;
 #[cfg(feature = "sourcemap")]
-use markdown_it::Root;
+use markdown_it::document::Root;
+use markdown_it::document::edit::EditBatch;
+use markdown_it::document::{Document, StructuralEvent, Text};
 use markdown_it::parser::core::{CoreRule, CoreState};
 #[cfg(feature = "sourcemap")]
 use markdown_it::plugins::sourcepos;
 use markdown_it::plugins::{cmark, extra};
-use markdown_it::{Document, EditBatch, MarkdownIt, NodeDraft, StructuralEvent, Text};
 
 #[test]
 fn typographer_precedes_custom_smartquotes_in_reverse_registration_order() {
     let mut md = MarkdownIt::new();
     extra::smartquotes::add_with::<'‹', '›', '«', '»'>(&mut md);
     extra::typographer::add(&mut md);
+
     assert_eq!(md.render("\"...\" '雪' (TM)"), "<p>«…» ‹雪› ™</p>\n");
 }
 
@@ -22,6 +25,7 @@ fn sourcepos_runs_after_tasklist_in_reverse_registration_order() {
     extra::tasklist::add(&mut md);
     md.render_options.xhtml_out = true;
     let doc = md.parse("- [x] 雪");
+
     let text = doc
         .events(doc.root())
         .find_map(|event| {
@@ -34,36 +38,42 @@ fn sourcepos_runs_after_tasklist_in_reverse_registration_order() {
             }
         })
         .unwrap();
+
     assert_eq!(text.srcmap().unwrap().get_byte_offsets(), (6, 9));
-    let html = md.render_html(&doc);
+    let html = md.render_document(&doc, "html");
     assert!(
         html.contains("type=\"checkbox\" checked=\"\" /> 雪"),
         "{html}"
     );
     assert!(html.contains("data-sourcepos=\"1:1-1:7\""), "{html}");
-    assert_eq!(md.render_as(&doc, "text"), "雪\n");
+    assert_eq!(md.render_document(&doc, "text"), "雪\n");
 }
 
 #[test]
 #[cfg(feature = "sourcemap")]
 fn sourcepos_deduplicates_existing_attributes_and_skips_generated_nodes() {
     let source = "# 雪";
-    let mut root = NodeDraft::new(Root::new(source));
-    let mut heading = NodeDraft::new(cmark::block::heading::ATXHeading { level: 1 });
-    heading.set_srcmap(Some(markdown_it::common::sourcemap::SourcePos::new(
-        0,
-        source.len(),
-    )));
-    heading.attrs_mut().extend([
+    let mut doc = Document::new(source, Root::new(source));
+    let root = doc.root();
+    let heading = doc.create_node(cmark::block::heading::ATXHeading { level: 1 });
+    doc.node_mut(heading)
+        .set_srcmap(Some(markdown_it::common::sourcemap::SourcePos::new(
+            0,
+            source.len(),
+        )));
+    doc.node_mut(heading).attrs_mut().extend([
         ("data-sourcepos".into(), "stale".into()),
         ("data-sourcepos".into(), "duplicate".into()),
     ]);
-    heading.push_child(NodeDraft::new(Text {
+
+    let text = doc.create_node(Text {
         content: "雪".into(),
-    }));
-    root.push_child(heading);
-    let mut doc = Document::from_draft(source, root);
+    });
+    doc.push_child(heading, text);
+    doc.push_child(root, heading);
+
     sourcepos::edits(&doc).commit(&mut doc);
+
     let heading = doc.node(doc.children(doc.root())[0]);
     assert_eq!(
         heading.attrs(),
@@ -79,25 +89,26 @@ fn text_fallback_runs_typographer_and_custom_smartquotes() {
     let mut md = MarkdownIt::empty();
     extra::smartquotes::add_with::<'‹', '›', '«', '»'>(&mut md);
     extra::typographer::add(&mut md);
+
     assert_eq!(md.render("\"雪...\""), "«雪…»\n");
     assert_eq!(md.render(""), "");
 }
 
 #[test]
-fn draft_drop_and_arena_insertion_handle_deep_generated_trees() {
-    fn tree() -> NodeDraft {
-        let mut node = NodeDraft::new(Text {
-            content: "leaf".into(),
-        });
-        for _ in 0..50_000 {
-            let mut parent = NodeDraft::new(cmark::block::paragraph::Paragraph);
-            parent.push_child(node);
-            node = parent;
-        }
-        node
+fn arena_construction_traversal_and_drop_handle_deep_generated_trees() {
+    let mut doc = Document::new("", cmark::block::paragraph::Paragraph);
+    let mut parent = doc.root();
+    for _ in 1..50_000 {
+        let child = doc.create_node(cmark::block::paragraph::Paragraph);
+        doc.push_child(parent, child);
+        parent = child;
     }
-    drop(tree());
-    let doc = Document::from_draft("", tree());
+
+    let leaf = doc.create_node(Text {
+        content: "leaf".into(),
+    });
+    doc.push_child(parent, leaf);
+
     assert_eq!(doc.len(), 50_001);
     assert_eq!(
         doc.events(doc.root())
@@ -105,6 +116,8 @@ fn draft_drop_and_arena_insertion_handle_deep_generated_trees() {
             .count(),
         1
     );
+
+    drop(doc);
 }
 
 #[test]
@@ -113,15 +126,14 @@ fn appended_subtrees_keep_parent_links_and_existing_node_ids() {
     let mut doc = md.parse("first");
     let root = doc.root();
     let first = doc.children(root)[0];
-    let appended = doc.append_child(
-        root,
-        NodeDraft::new(Text {
-            content: "second".into(),
-        }),
-    );
+    let appended = doc.create_node(Text {
+        content: "second".into(),
+    });
+    doc.push_child(root, appended);
+
     assert_eq!(doc.children(root), &[first, appended]);
     assert_eq!(doc.parent(appended), Some(root));
-    assert_eq!(md.render_html(&doc), "<p>first</p>\nsecond");
+    assert_eq!(md.render_document(&doc, "html"), "<p>first</p>\nsecond");
 }
 
 struct ConfiguredPostProcess {
@@ -189,7 +201,7 @@ fn core_rules_run_once_per_parse_and_rendering_does_not_repeat_them() {
         for source in ["", "text"] {
             let document = md.parse(source);
             assert_eq!(steps(&document), "1");
-            md.render_html(&document);
+            md.render_document(&document, "html");
             assert_eq!(steps(&document), "1");
             assert_eq!(steps(&md.parse(source)), "1");
         }

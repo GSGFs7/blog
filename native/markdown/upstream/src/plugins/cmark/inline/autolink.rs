@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::MarkdownIt;
-use crate::document::{NodeRef, TextSpecial};
+use crate::document::{Node, TextSpecial};
 use crate::links::LinkFormatter;
 use crate::parser::inline::{InlineRule, InlineState};
 use crate::render::{NodeRenderer, RenderContext, TransparentRenderer, render_html_link};
@@ -23,10 +23,10 @@ struct AutolinkRenderer;
 impl NodeRenderer<Autolink> for AutolinkRenderer {
     fn render(
         &self,
-        node: NodeRef<'_>,
+        node: &Node,
         link: &Autolink,
         context: &mut RenderContext<'_>,
-        output: &mut crate::Writer,
+        output: &mut crate::render::Writer,
     ) {
         render_html_link(node, &link.url, None, context, output);
     }
@@ -72,7 +72,9 @@ impl InlineRule for AutolinkScanner {
         }
     }
 
-    fn run(state: &mut crate::InlineState<'_>) -> Option<(Option<crate::NodeId>, usize)> {
+    fn run(
+        state: &mut crate::parser::inline::InlineState<'_>,
+    ) -> Option<(Option<crate::document::NodeId>, usize)> {
         let matched = scan_autolink(
             state.remaining(),
             state.markdown_it().link_formatter.as_ref(),
@@ -107,22 +109,12 @@ fn scan_autolink(src: &str, formatter: &dyn LinkFormatter) -> Option<AutolinkMat
         return None;
     }
 
-    let mut closing = None;
-    for (offset, ch) in src[1..].char_indices() {
-        let offset = offset + 1;
-        match ch {
-            '<' => return None,
-            '>' => {
-                closing = Some(offset);
-                break;
-            }
-            _ => {}
-        }
+    let label_end = 1 + memchr::memchr2(b'<', b'>', &src.as_bytes()[1..])?;
+    if src.as_bytes()[label_end] == b'<' {
+        return None;
     }
 
-    let label_end = closing?;
     let raw = &src[1..label_end];
-
     let is_uri = AUTOLINK_RE.is_match(raw);
     let is_email = EMAIL_RE.is_match(raw);
     if !is_uri && !is_email {
@@ -267,7 +259,7 @@ mod tests {
             if node.is::<super::Autolink>() {
                 found = true;
                 assert_eq!(node.srcmap().unwrap().get_byte_offsets(), (start, end + 1));
-            } else if let Some(text) = node.cast::<crate::TextSpecial>() {
+            } else if let Some(text) = node.cast::<crate::document::TextSpecial>() {
                 assert_eq!(text.content, "ab:é�x");
                 assert_eq!(node.srcmap().unwrap().get_byte_offsets(), (start + 1, end));
             }
@@ -278,8 +270,7 @@ mod tests {
     #[test]
     #[cfg(feature = "sourcemap")]
     fn direct_autolink_source_maps() {
-        use crate::StructuralEvent;
-        use crate::document::TextSpecial;
+        use crate::document::{StructuralEvent, TextSpecial};
 
         let md = parser();
         let document = md.parse("x <https://example.test> y");

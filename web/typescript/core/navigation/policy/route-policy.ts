@@ -52,8 +52,12 @@ export function isPageNavigationSource(source: Element | null): boolean {
   }
 
   const anchor = source.closest("a, area");
-  if (!anchor || !anchor.hasAttribute("download")) {
+  if (!anchor) {
     return true;
+  }
+
+  if (anchor.hasAttribute("download")) {
+    return false;
   }
 
   const target = anchor.getAttribute("target")?.trim().toLowerCase();

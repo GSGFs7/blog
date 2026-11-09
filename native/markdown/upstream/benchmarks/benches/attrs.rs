@@ -1,7 +1,8 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use markdown_it::{Document, HtmlAttribute, MarkdownIt};
+use markdown_it::document::{Document, HtmlAttribute};
+use markdown_it::MarkdownIt;
 
 fn parser() -> MarkdownIt {
     let mut md = MarkdownIt::empty();
@@ -10,16 +11,18 @@ fn parser() -> MarkdownIt {
 }
 
 fn document_with_attrs(md: &MarkdownIt, attrs: &[HtmlAttribute]) -> Document {
-    let mut root = markdown_it::NodeDraft::new(markdown_it::Root::new("text"));
-    let mut paragraph =
-        markdown_it::NodeDraft::new(markdown_it::plugins::cmark::block::paragraph::Paragraph);
-    paragraph.attrs_mut().extend_from_slice(attrs);
-    paragraph.push_child(markdown_it::NodeDraft::new(markdown_it::Text {
+    let mut document = Document::new("text", markdown_it::document::Root::new("text"));
+    let paragraph = document.create_node(markdown_it::plugins::cmark::block::paragraph::Paragraph);
+    document
+        .node_mut(paragraph)
+        .attrs_mut()
+        .extend_from_slice(attrs);
+    let text = document.create_node(markdown_it::document::Text {
         content: "text".into(),
-    }));
-    root.push_child(paragraph);
-    let document = Document::from_draft("text", root);
-    md.render_html(&document);
+    });
+    document.push_child(paragraph, text);
+    document.push_child(document.root(), paragraph);
+    md.render_document(&document, "html");
     document
 }
 
@@ -58,7 +61,7 @@ fn benchmark(c: &mut Criterion) {
         let mut group = c.benchmark_group(format!("attrs/{name}"));
         group.throughput(Throughput::Elements(attrs.len() as u64));
         group.bench_function("markdown-it-rs", |b| {
-            b.iter(|| black_box(md.render_html(black_box(&document))))
+            b.iter(|| black_box(md.render_document(black_box(&document), "html")))
         });
         group.finish();
     }

@@ -45,6 +45,6 @@
     "name": "suffix_chain",
     "input": "<div class=\"directive terminal\"><pre><code class=\"language-command\">run</code></pre><img src=\"a.jpg\" alt=\"Shot\"></div>",
     "image": "<div class=\"directive terminal\"><pre><code class=\"language-command\">run</code></pre><span class=\"md-img-container\" data-caption=\"Shot\"><img src=\"a.jpg\" alt=\"Shot\"></span></div>",
-    "sanitized": "<div class=\"terminal\" data-shell=\"bash\" role=\"group\" aria-label=\"Terminal\" style=\"--terminal-prompt:&quot;$ &quot;\"><div class=\"terminal-title\" aria-hidden=\"true\">Terminal</div><pre data-language=\"command\"><code class=\"language-command\">run</code></pre><span class=\"md-img-container\" data-caption=\"Shot\"><img src=\"a.jpg\" alt=\"Shot\"></span></div>"
+    "sanitized": "<div class=\"directive terminal\"><pre data-language=\"command\"><code class=\"language-command\">run</code></pre><span class=\"md-img-container\" data-caption=\"Shot\"><img src=\"a.jpg\" alt=\"Shot\"></span></div>"
   }
 ]

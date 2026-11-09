@@ -32,6 +32,10 @@ export function setupPageTransition(
   };
 
   const beforeSwap = (event: DocumentEventMap["app:before-swap"]): void => {
+    if (event.detail.reason === "revalidation") {
+      return;
+    }
+
     if (active?.navigationId === event.detail.navigationId && active.root === event.detail.root) {
       return;
     }
@@ -49,6 +53,10 @@ export function setupPageTransition(
   };
 
   const afterSwap = (event: DocumentEventMap["app:after-swap"]): void => {
+    if (event.detail.reason === "revalidation") {
+      return;
+    }
+
     if (active?.navigationId !== event.detail.navigationId || active.root !== event.detail.root) {
       return;
     }

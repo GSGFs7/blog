@@ -15,7 +15,6 @@ static DIGITAL_ENTITY_TEST_RE: LazyLock<Regex> =
 static UNESCAPE_ALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!("{UNESCAPE_MD_RE}|{ENTITY_RE}")).unwrap());
 
-#[allow(clippy::manual_range_contains)]
 /// Return true if a `code` you got from `&#xHHHH;` entity is a valid charcode.
 ///
 /// It returns false for surrogates and non-printables, so it's a subset of `char::from_u32`.
@@ -26,6 +25,7 @@ static UNESCAPE_ALL_RE: LazyLock<Regex> =
 /// assert_eq!(is_valid_entity_code(1), false);
 /// assert_eq!(is_valid_entity_code(32), true);
 /// ```
+#[allow(clippy::manual_range_contains)]
 pub fn is_valid_entity_code(code: u32) -> bool {
     // broken sequence
     if code >= 0xD800 && code <= 0xDFFF {
@@ -78,6 +78,56 @@ pub fn get_entity_from_str(str: &str) -> Option<&'static str> {
     ENTITIES_HASH.get(str).copied()
 }
 
+/// Windows-1252 replacements for C1 controls in malformed numeric entities.
+///
+/// markdown-it falls back to `entities.decodeHTMLStrict()` when a numeric
+/// reference is too long for its own fast-path regex. That fallback applies the
+/// HTML C1 remapping, unlike the regular `is_valid_entity_code` path.
+const C1_REPLACEMENTS: [u32; 32] = [
+    8364, 0, 8218, 402, 8222, 8230, 8224, 8225, 710, 8240, 352, 8249, 338, 0, 381, 0, 0, 8216,
+    8217, 8220, 8221, 8226, 8211, 8212, 732, 8482, 353, 8250, 339, 0, 382, 376,
+];
+
+fn decode_long_numeric_entity(str: &str) -> Option<String> {
+    let body = str.strip_prefix("&#")?.strip_suffix(';')?;
+    let (digits, radix) = match body.strip_prefix('x').or_else(|| body.strip_prefix('X')) {
+        Some(hex) => (hex, 16),
+        None => (body, 10),
+    };
+    if digits.is_empty() {
+        return None;
+    }
+
+    let mut value = 0u64;
+    for byte in digits.bytes() {
+        let digit = match byte {
+            b'0'..=b'9' => u64::from(byte - b'0'),
+            b'a'..=b'f' => u64::from(byte - b'a' + 10),
+            b'A'..=b'F' => u64::from(byte - b'A' + 10),
+            _ => return None,
+        };
+        if digit >= radix {
+            return None;
+        }
+        value = value.saturating_mul(radix).saturating_add(digit);
+    }
+
+    let code = if value == 0 || value > 0x10FFFF || (0xD800..=0xDFFF).contains(&value) {
+        0xFFFD
+    } else if (128..=159).contains(&value) {
+        let replacement = C1_REPLACEMENTS[(value - 128) as usize];
+        if replacement == 0 {
+            value as u32
+        } else {
+            replacement
+        }
+    } else {
+        value as u32
+    };
+
+    char::from_u32(code).map(|c| c.to_string())
+}
+
 #[allow(clippy::from_str_radix_10)]
 fn replace_entity_pattern(str: &str) -> Option<String> {
     if let Some(entity) = get_entity_from_str(str) {
@@ -96,7 +146,9 @@ fn replace_entity_pattern(str: &str) -> Option<String> {
             None
         }
     } else {
-        None
+        // markdown-it's unescapeAll() falls back to decodeHTMLStrict() for
+        // entities that its own numeric regex rejects.
+        decode_long_numeric_entity(str)
     }
 }
 
@@ -107,7 +159,7 @@ fn replace_entity_pattern(str: &str) -> Option<String> {
 /// assert_eq!(unescape_all("\\&"), "&");
 /// ```
 pub fn unescape_all(str: &str) -> Cow<'_, str> {
-    if !str.contains('\\') && !str.contains('&') {
+    if memchr::memchr2(b'\\', b'&', str.as_bytes()).is_none() {
         return Cow::Borrowed(str);
     }
 
@@ -131,7 +183,46 @@ pub fn unescape_all(str: &str) -> Cow<'_, str> {
 /// assert_eq!(escape_html("&\""), "&amp;&quot;");
 /// ```
 pub fn escape_html(str: &str) -> Cow<'_, str> {
-    html_escape::encode_double_quoted_attribute(str)
+    let bytes = str.as_bytes();
+    let first = if bytes.len() < 32 {
+        bytes
+            .iter()
+            .position(|b| matches!(b, b'&' | b'<' | b'>' | b'"'))
+    } else {
+        let other = memchr::memchr3(b'&', b'<', b'>', bytes).unwrap_or(bytes.len());
+        memchr::memchr(b'"', &bytes[..other]).or_else(|| (other < bytes.len()).then_some(other))
+    };
+    let Some(first) = first else {
+        return Cow::Borrowed(str);
+    };
+
+    // '"' -> "&quot;"
+    let mut output = String::with_capacity(str.len() + 5);
+    output.push_str(&str[..first]);
+
+    let mut start = first;
+    for (offset, byte) in str[first..].bytes().enumerate() {
+        let index = first + offset;
+        macro_rules! append_escape {
+            ($entity:literal) => {{
+                if start != index {
+                    output.push_str(&str[start..index]);
+                }
+                output.push_str($entity);
+                start = index + 1;
+            }};
+        }
+        match byte {
+            b'&' => append_escape!("&amp;"),
+            b'<' => append_escape!("&lt;"),
+            b'>' => append_escape!("&gt;"),
+            b'"' => append_escape!("&quot;"),
+            _ => {}
+        }
+    }
+
+    output.push_str(&str[start..]);
+    Cow::Owned(output)
 }
 
 /// Unicode case folding + space normalization, used for for reference labels.
@@ -349,26 +440,14 @@ pub fn is_punct_char(ch: char) -> bool {
     use unicode_general_category::GeneralCategory::*;
     use unicode_general_category::get_general_category;
 
-    match get_general_category(ch) {
+    matches!(
+        get_general_category(ch),
         // P
         ConnectorPunctuation | DashPunctuation | OpenPunctuation | ClosePunctuation |
         InitialPunctuation | FinalPunctuation | OtherPunctuation |
         // S (in CommonMark 0.31, symbol also refers to punctuation)
-        MathSymbol | CurrencySymbol | ModifierSymbol | OtherSymbol => true,
-
-        // L
-        UppercaseLetter | LowercaseLetter | TitlecaseLetter | ModifierLetter | OtherLetter |
-        // M
-        NonspacingMark | SpacingMark | EnclosingMark |
-        // N
-        DecimalNumber | LetterNumber | OtherNumber |
-        // Z
-        SpaceSeparator | LineSeparator | ParagraphSeparator |
-        // C
-        Control | Format | Surrogate | PrivateUse | Unassigned => false,
-
-        _ => false
-    }
+        MathSymbol | CurrencySymbol | ModifierSymbol | OtherSymbol
+    )
 }
 
 #[cfg(test)]
@@ -494,6 +573,12 @@ mod tests {
         assert_eq!(replace_entity_pattern("&ffff;"), None);
         assert_eq!(replace_entity_pattern("&#3F;"), None);
         assert_eq!(replace_entity_pattern("&#xGG;"), None);
+        assert_eq!(
+            replace_entity_pattern("&#xfffffffff;"),
+            Some("\u{FFFD}".into())
+        );
+        assert_eq!(replace_entity_pattern("&#000000065;"), Some("A".into()));
+        assert_eq!(replace_entity_pattern("&#000000128;"), Some("€".into()));
     }
 
     #[test]

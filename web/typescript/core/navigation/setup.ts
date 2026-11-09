@@ -1,5 +1,6 @@
 // make it as a inline dependency (reduce js chunks)
 import { setupNativePageNavigation } from "./adapters/native";
+import { setupNavigationStatus } from "./runtime/navigation-status";
 
 const hasNavigationAPI = () =>
   "navigation" in window &&
@@ -10,6 +11,8 @@ const getNavigationConfig = () =>
   document.querySelector<HTMLMetaElement>('meta[name="page-navigation-mode"]')?.content ?? "auto";
 
 export async function setupNavigation() {
+  setupNavigationStatus(document);
+
   const requestedMode = getNavigationConfig();
 
   // auto mode

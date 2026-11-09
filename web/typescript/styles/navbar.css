@@ -43,6 +43,39 @@
   white-space: nowrap;
 }
 
+.site-navbar__brand-icon {
+  display: block;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  translate: 0 -0.15rem;
+}
+
+.site-navbar__brand-loader {
+  display: none;
+}
+
+html[data-navigation-loading] .site-navbar__brand-logo {
+  display: none;
+}
+
+html[data-navigation-loading] .site-navbar__brand-loader {
+  display: block;
+  animation: navbar-loading-spin 1s linear infinite;
+}
+
+@keyframes navbar-loading-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-navigation-loading] .site-navbar__brand-loader {
+    animation: none;
+  }
+}
+
 .site-navbar__links-wrap {
   display: none;
   pointer-events: none;

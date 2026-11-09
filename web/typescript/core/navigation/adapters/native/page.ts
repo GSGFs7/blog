@@ -22,6 +22,7 @@ export interface FetchedPage {
   readonly document: Document;
   readonly response: Response;
   readonly deliverySource: PageNavigationDeliverySource;
+  readonly html: string;
 }
 
 export type PageLoadResult =
@@ -182,6 +183,7 @@ export async function page(requestedUrl: URL, options: FetchPageOptions): Promis
       document: parsed,
       response,
       deliverySource: deliverSource(response),
+      html,
     },
   };
 }

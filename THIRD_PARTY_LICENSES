@@ -13,7 +13,8 @@ Lucide
 Icons from Lucide (https://lucide.dev, https://github.com/lucide-icons/lucide)
 are embedded as inline SVG markup in:
 
-- web/templates/web/partials/globals/navbar.html (lollipop)
+- web/templates/web/partials/globals/navbar.html (lollipop, refresh-cw)
+- web/templates/web/partials/blog/post_list_item.html (calendar, refresh-cw, folder, tags)
 - web/templates/web/pages/blog.html (chevron-left, chevron-right)
 - web/typescript/islands/MusicPlayer/MusicDock.island.tsx (rotate-cw, pause, play)
 - web/typescript/islands/MusicPlayer/MusicTrack.island.tsx (music, pause, play)
@@ -21,6 +22,7 @@ are embedded as inline SVG markup in:
 ISC License
 
 Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+Copyright (c) 2026 Lucide Icons and Contributors
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above

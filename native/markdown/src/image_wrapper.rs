@@ -148,7 +148,7 @@ mod tests {
     use super::*;
     use crate::sanitizer::sanitize;
     use crate::test_support::fixtures;
-    use crate::{code_language, solid_island, terminal};
+    use crate::{code_language, solid_island};
 
     #[derive(Deserialize)]
     struct ImageWrapperFixture {
@@ -166,8 +166,7 @@ mod tests {
             let image = rewrite(&fixture.input).unwrap();
             assert_eq!(image, fixture.image, "fixture: {}", fixture.name);
             let code = code_language::rewrite(&image).unwrap();
-            let terminal = terminal::rewrite(&code).unwrap();
-            let solid = solid_island::rewrite(&terminal).unwrap();
+            let solid = solid_island::rewrite_raw_html(&code).unwrap();
             assert_eq!(
                 sanitize(&solid),
                 fixture.sanitized,

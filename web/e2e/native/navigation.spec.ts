@@ -9,6 +9,7 @@ interface NavigationProbeEvent {
   outcome?: string;
   requestedUrl?: string;
   finalUrl?: string;
+  reason?: string;
 }
 
 interface NavigationProbe {
@@ -48,6 +49,7 @@ async function installNavigationProbe(page: Page): Promise<void> {
           outcome: detail.outcome,
           requestedUrl: detail.requestedUrl?.href,
           finalUrl: detail.finalUrl?.href,
+          reason: detail.reason,
         });
       });
     }
@@ -106,10 +108,10 @@ async function openNativeTestPage(page: Page, path = "/test"): Promise<string> {
 }
 
 test("navigates a regular page without replacing the document in native mode", async ({ page }) => {
-  const initialDocumentId = await openNativeTestPage(page);
   const requestPromise = page.waitForRequest(
     (request) => new URL(request.url()).pathname === "/about" && request.resourceType() === "fetch",
   );
+  const initialDocumentId = await openNativeTestPage(page);
 
   await page
     .locator(".site-navbar__links")
@@ -236,6 +238,7 @@ test("commits and swaps the final URL from a redirect", async ({ page }) => {
 });
 
 test("preserves a live Solid island across a native page swap", async ({ page }) => {
+  const aboutPath = "/about?e2e=preserve-island";
   const initialDocumentId = await openNativeTestPage(page);
   const counter = page.locator('[data-solid-island="Counter"]');
   await expect(counter.getByText("Count: 1024", { exact: true })).toBeVisible();
@@ -246,21 +249,21 @@ test("preserves a live Solid island across a native page swap", async ({ page })
   });
   const original = await counter.elementHandle();
 
-  await page.route(/\/about$/, async (route) => {
-    const response = await route.fetch();
-    const html = await response.text();
-    await route.fulfill({
-      response,
-      body: html.replace(
-        "</body>",
-        '<div id="preserved-counter" data-app-preserve data-solid-island="Counter"></div></body>',
-      ),
-    });
-  });
-  await page
-    .locator(".site-navbar__links")
-    .getByRole("link", { name: "About", exact: true })
-    .click();
+  await page.route(
+    (url) => url.pathname + url.search === aboutPath,
+    async (route) => {
+      const response = await route.fetch();
+      const html = await response.text();
+      await route.fulfill({
+        response,
+        body: html.replace(
+          "</body>",
+          '<div id="preserved-counter" data-app-preserve data-solid-island="Counter"></div></body>',
+        ),
+      });
+    },
+  );
+  await navigateByLink(page, aboutPath);
   await expectCompletedLifecycle(page, "push");
   expect((await probe(page)).documentId).toBe(initialDocumentId);
   expect(
@@ -356,21 +359,24 @@ test("waits for article CSS before swapping and restores it without duplicates",
 });
 
 test("cancels a slow navigation without committing its stale page", async ({ page }) => {
+  const aboutPath = "/about?e2e=slow-navigation";
   const documentId = await openNativeTestPage(page);
   const aboutRequested = deferred();
   const releaseAbout = deferred();
-  await page.route("**/about", async (route) => {
-    aboutRequested.resolve();
-    await releaseAbout.promise;
-    await route.continue();
-  });
+  await page.route(
+    (url) => url.pathname + url.search === aboutPath,
+    async (route) => {
+      aboutRequested.resolve();
+      await releaseAbout.promise;
+      await route.continue();
+    },
+  );
   const cancelledRequest = page.waitForEvent("requestfailed", {
-    predicate: (request) =>
-      new URL(request.url()).pathname === "/about" && request.resourceType() === "fetch",
+    predicate: (request) => request.url().endsWith(aboutPath) && request.resourceType() === "fetch",
   });
 
   try {
-    await navigateByLink(page, "/about");
+    await navigateByLink(page, aboutPath);
     await aboutRequested.promise;
     await navigateByLink(page, "/privacy");
     await cancelledRequest;
@@ -389,7 +395,7 @@ test("cancels a slow navigation without committing its stale page", async ({ pag
     expect(state.events.filter((event) => event.navigationId === firstId)).toEqual([
       expect.objectContaining({
         name: "app:navigation-start",
-        requestedUrl: expect.stringMatching(/\/about$/),
+        requestedUrl: expect.stringContaining(aboutPath),
       }),
       expect.objectContaining({ name: "app:navigation-end", outcome: "cancelled" }),
     ]);
@@ -415,29 +421,33 @@ test("cancels a slow navigation without committing its stale page", async ({ pag
 });
 
 test("reloads once when the fetched page has a different build", async ({ page }) => {
+  const aboutPath = "/about?e2e=different-build";
   const documentId = await openNativeTestPage(page);
   const requestTypes: string[] = [];
-  await page.route("**/about", async (route) => {
-    const type = route.request().resourceType();
-    requestTypes.push(type);
-    if (type !== "fetch") {
-      await route.continue();
-      return;
-    }
-    const response = await route.fetch();
-    const html = await response.text();
-    const changed = html.replace(
-      /(<meta\b[^>]*name="app-build-id"[^>]*content=")[^"]*(")/,
-      "$1e2e-different-build$2",
-    );
-    expect(changed).not.toBe(html);
-    await route.fulfill({ response, body: changed });
-  });
+  await page.route(
+    (url) => url.pathname + url.search === aboutPath,
+    async (route) => {
+      const type = route.request().resourceType();
+      requestTypes.push(type);
+      if (type !== "fetch") {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      const html = await response.text();
+      const changed = html.replace(
+        /(<meta\b[^>]*name="app-build-id"[^>]*content=")[^"]*(")/,
+        "$1e2e-different-build$2",
+      );
+      expect(changed).not.toBe(html);
+      await route.fulfill({ response, body: changed });
+    },
+  );
 
-  await navigateByLink(page, "/about");
+  await navigateByLink(page, aboutPath);
   await expect(page.getByRole("heading", { name: "关于我", exact: true })).toBeVisible();
   await expect.poll(async () => (await probe(page)).documentId).not.toBe(documentId);
-  await expect(page).toHaveURL(/\/about$/);
+  await expect(page).toHaveURL(new URL(aboutPath, page.url()).href);
   await expect(page).toHaveTitle(/^About -/);
   expect(requestTypes).toEqual(["fetch", "document"]);
   await expectIdle(page);
@@ -540,4 +550,99 @@ test("resets focus after keyboard navigation and keeps Tab navigation usable", a
   await expect(page.locator(".site-navbar__inner .site-navbar__brand")).toBeFocused();
   expect((await probe(page)).documentId).toBe(documentId);
   await expectIdle(page);
+});
+
+test("reuses a hovered page without a second fetch", async ({ page }) => {
+  const aboutPath = "/about?e2e=hover-prefetch";
+  const documentId = await openNativeTestPage(page);
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith(aboutPath)) {
+      requests.push(request.resourceType());
+    }
+  });
+  await page.evaluate((href) => {
+    const link = document.createElement("a");
+    link.href = href;
+    link.textContent = "Prefetch E2E";
+    link.setAttribute("data-nav-prefetch", "");
+    document.querySelector("main")!.prepend(link);
+  }, aboutPath);
+  const link = page.getByRole("link", { name: "Prefetch E2E", exact: true });
+  const response = page.waitForResponse((response) => response.url().endsWith(aboutPath));
+  await link.hover();
+  await (await response).finished();
+  await link.click();
+
+  await expectCompletedLifecycle(page, "push");
+  await expect(page).toHaveURL(new URL(aboutPath, page.url()).href);
+  await expect(page.getByRole("heading", { name: "关于我", exact: true })).toBeVisible();
+  expect(requests).toEqual(["fetch"]);
+  expect((await probe(page)).documentId).toBe(documentId);
+  await expectIdle(page);
+});
+
+test("shows expired prefetch content before updating it in the same document", async ({ page }) => {
+  const aboutPath = "/about?e2e=stale-prefetch";
+  const documentId = await openNativeTestPage(page);
+  const initialTime = Date.now();
+  await page.clock.setFixedTime(initialTime);
+  let requests = 0;
+  const refreshRequested = deferred();
+  const releaseRefresh = deferred();
+  await page.route(
+    (url) => url.pathname + url.search === aboutPath,
+    async (route) => {
+      requests++;
+      const version = requests === 1 ? "cached" : "refreshed";
+      if (version === "refreshed") {
+        refreshRequested.resolve();
+        await releaseRefresh.promise;
+      }
+      const response = await route.fetch();
+      const html = await response.text();
+      await route.fulfill({
+        response,
+        body: html.replace("</body>", `<div id="prefetch-version">${version}</div></body>`),
+      });
+    },
+  );
+
+  try {
+    await page.evaluate((href) => {
+      const link = document.createElement("a");
+      link.href = href;
+      link.textContent = "Stale prefetch E2E";
+      link.setAttribute("data-nav-prefetch", "");
+      document.querySelector("main")!.prepend(link);
+    }, aboutPath);
+    const response = page.waitForResponse((response) => response.url().endsWith(aboutPath));
+    const link = page.getByRole("link", { name: "Stale prefetch E2E", exact: true });
+    await link.hover();
+    await (await response).finished();
+    await page.clock.setFixedTime(initialTime + 31_000);
+    await link.evaluate((element: HTMLAnchorElement) => element.click());
+    await expectCompletedLifecycle(page, "push");
+    await refreshRequested.promise;
+    await expect(page.locator("#prefetch-version")).toHaveText("cached");
+    await expectIdle(page);
+    const historyLength = await page.evaluate(() => history.length);
+
+    releaseRefresh.resolve();
+    await expect(page.locator("#prefetch-version")).toHaveText("refreshed");
+    await expectIdle(page);
+    expect(requests).toBe(2);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+    await expect(page).toHaveURL(new URL(aboutPath, page.url()).href);
+    const state = await probe(page);
+    expect(state.documentId).toBe(documentId);
+    expect(state.events.filter((event) => event.name === "app:navigation-end")).toHaveLength(1);
+    expect(state.events.slice(-2)).toMatchObject([
+      { name: "app:before-swap", reason: "revalidation" },
+      { name: "app:after-swap", reason: "revalidation" },
+    ]);
+  } finally {
+    releaseRefresh.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+  }
 });

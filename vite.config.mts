@@ -99,6 +99,32 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
       ssrEmitAssets: false,
       rolldownOptions: {
         input: rolldownInputs,
+        output: isSsrBuild
+          ? undefined // no code split in ssr mode
+          : {
+              codeSplitting: {
+                groups: [
+                  // separate the preloading helper
+                  {
+                    name: "preload-helper",
+                    test: "\0vite/preload-helper.js",
+                    priority: 1,
+                  },
+                  // merge small shared navigation files
+                  {
+                    name: "navigation-runtime",
+                    test: /\/core\/navigation\/(?:contracts|runtime)\//,
+                    includeDependenciesRecursively: true,
+                  },
+                  // merge music deps
+                  {
+                    name: "music-metadata-runtime",
+                    test: /\/islands\/MusicPlayer\/metadata-runtime\.ts$/,
+                    includeDependenciesRecursively: true,
+                  },
+                ],
+              },
+            },
       },
       cssMinify: "lightningcss",
       cssCodeSplit: true,

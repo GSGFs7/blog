@@ -15,8 +15,10 @@ import { readPageProtocol } from "../../contracts";
 import { isPageNavigationUrl, shouldInterceptNavigation } from "../../policy";
 import { PAGE_TRANSITION_TIMING, setupPageTransition } from "../../runtime";
 import { preparePreservation } from "../../runtime/preservation";
+import { setupBackgroundUpdateGuard } from "./background-update";
 import { preparePageHead } from "./head";
 import { type FetchedPage, page, PageLoadError, type PageLoadResult } from "./page";
+import { setupNativePrefetch } from "./prefetch";
 
 type TransactionStage = "loading" | "swapping" | "settling" | "finished";
 
@@ -30,6 +32,7 @@ interface NavigationTransaction {
   stage: TransactionStage;
   controller: AbortController;
   preservedRoots: readonly HTMLElement[];
+  revalidate: boolean;
 }
 
 interface NativePageNavigationOptions {
@@ -82,6 +85,7 @@ export function setupNativePageNavigation(
   let nextNavigationId = 0;
   let currentUrl = new URL(view.location.href);
   let activeTransaction: NavigationTransaction | undefined;
+  let displayRevision = 0;
   const controller = new AbortController();
   const loadPage = options.loadPage ?? page;
   const prepareHead = options.prepareHead ?? preparePageHead;
@@ -192,11 +196,15 @@ export function setupNativePageNavigation(
   ): Promise<FetchedPage | undefined> => {
     let result: PageLoadResult;
     try {
-      result = await loadPage(transaction.requestedUrl, {
-        signal,
-        expectedOrigin: view.location.origin,
-        currentProtocol,
-      });
+      const prefetched = await prefetch.take(transaction.requestedUrl, signal);
+      transaction.revalidate = prefetched?.stale ?? false;
+      result = prefetched
+        ? { kind: "swap", page: prefetched.page }
+        : await loadPage(transaction.requestedUrl, {
+            signal,
+            expectedOrigin: view.location.origin,
+            currentProtocol,
+          });
     } catch (e) {
       if (!isCurrent(transaction)) {
         return;
@@ -232,6 +240,42 @@ export function setupNativePageNavigation(
     return result.page;
   };
 
+  const prepareBodySwap = (fetchedPage: FetchedPage) => {
+    const incomingBody = document.importNode(fetchedPage.document.body, true);
+    const plan = preparePreservation(document.body, incomingBody);
+
+    return {
+      preservedRoots: plan.roots,
+      commit(
+        head: Awaited<ReturnType<typeof prepareHead>>,
+        detail: PageSwapDetail,
+        scroll?: () => void,
+      ) {
+        const minHeight = document.body.style.getPropertyValue("min-height");
+        const priority = document.body.style.getPropertyPriority("min-height");
+        document.body.style.setProperty("min-height", `${document.documentElement.scrollHeight}px`);
+
+        try {
+          head.commit();
+          emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, detail);
+
+          for (const { current, incoming } of plan.pairs) {
+            incoming.replaceWith(current);
+          }
+
+          document.body.replaceChildren(...Array.from(incomingBody.childNodes));
+          scroll?.();
+        } finally {
+          if (minHeight) {
+            document.body.style.setProperty("min-height", minHeight, priority);
+          } else {
+            document.body.style.removeProperty("min-height");
+          }
+        }
+      },
+    };
+  };
+
   const swapTransaction = async (
     transaction: NavigationTransaction,
     fetchedPage: FetchedPage,
@@ -242,6 +286,8 @@ export function setupNativePageNavigation(
       return;
     }
 
+    // only the latest version
+    const revision = displayRevision;
     let head: Awaited<ReturnType<typeof preparePageHead>> | undefined;
 
     try {
@@ -267,29 +313,11 @@ export function setupNativePageNavigation(
         return;
       }
 
-      const incomingBody = document.importNode(fetchedPage.document.body, true);
-      const plan = preparePreservation(document.body, incomingBody);
-      transaction.preservedRoots = plan.roots;
+      const swap = prepareBodySwap(fetchedPage);
+      transaction.preservedRoots = swap.preservedRoots;
 
-      const minHeight = document.body.style.getPropertyValue("min-height");
-      const minHeightPriority = document.body.style.getPropertyPriority("min-height");
-      // Avoid clamping history positions to the shorter page before native scrolling runs.
-      document.body.style.setProperty("min-height", `${document.documentElement.scrollHeight}px`);
-      try {
-        head.commit();
-        emitPageEvent(document, APP_PAGE_EVENT.beforeSwap, swapDetailFor(transaction));
-        for (const { current, incoming } of plan.pairs) {
-          incoming.replaceWith(current);
-        }
-        document.body.replaceChildren(...Array.from(incomingBody.childNodes));
-        scroll();
-      } finally {
-        if (minHeight) {
-          document.body.style.setProperty("min-height", minHeight, minHeightPriority);
-        } else {
-          document.body.style.removeProperty("min-height");
-        }
-      }
+      swap.commit(head, swapDetailFor(transaction), scroll);
+
       transaction.stage = "settling";
       emitPageEvent(document, APP_PAGE_EVENT.afterSwap, swapDetailFor(transaction));
       if (!prefersReducedMotion()) {
@@ -301,6 +329,10 @@ export function setupNativePageNavigation(
       }
 
       finish(transaction, "completed");
+
+      if (transaction.revalidate) {
+        void revalidateDisplayedPage(fetchedPage, revision, transaction.id);
+      }
     } catch (e) {
       head?.rollback();
       if (!isCurrent(transaction)) {
@@ -315,6 +347,8 @@ export function setupNativePageNavigation(
   };
 
   const handleNavigate = (event: NavigateEvent) => {
+    displayRevision++;
+
     if (fullNavigationPending) {
       restoreScrollRestoration();
       return;
@@ -368,6 +402,7 @@ export function setupNativePageNavigation(
       stage: "loading",
       controller: new AbortController(),
       preservedRoots: [],
+      revalidate: false,
     };
 
     const signal = AbortSignal.any([
@@ -436,13 +471,99 @@ export function setupNativePageNavigation(
     emitPageEvent(document, APP_PAGE_EVENT.navigationStart, detailFor(transaction));
   };
 
+  const updateDisplayedPage = async (
+    fetchedPage: FetchedPage,
+    navigationId: number,
+    isStillDisplayed: () => boolean,
+  ): Promise<void> => {
+    if (!isStillDisplayed()) {
+      return;
+    }
+
+    let head: Awaited<ReturnType<typeof prepareHead>> | undefined;
+    try {
+      head = await prepareHead(document, fetchedPage.document, {
+        signal: controller.signal,
+        currentUrl: new URL(view.location.href),
+        nextUrl: new URL(view.location.href),
+      });
+
+      // user may started aother navigation
+      if (!isStillDisplayed()) {
+        head.rollback();
+        return;
+      }
+
+      // prevent update page when entering content
+      if (!backgroundUpdateGuard.canApply()) {
+        head.rollback();
+        return;
+      }
+
+      const swap = prepareBodySwap(fetchedPage);
+      const detail: PageSwapDetail = {
+        navigationId,
+        root: document.body,
+        preservedRoots: swap.preservedRoots,
+        reason: "revalidation",
+      };
+
+      swap.commit(head, detail);
+      emitPageEvent(document, APP_PAGE_EVENT.afterSwap, detail);
+    } catch (e) {
+      head?.rollback();
+      throw e;
+    }
+  };
+
+  const revalidateDisplayedPage = async (
+    displayedPage: FetchedPage,
+    revision: number,
+    navigationId: number,
+  ) => {
+    const isStillDisplayed = () =>
+      revision === displayRevision &&
+      !controller.signal.aborted &&
+      !fullNavigationPending &&
+      !activeTransaction;
+
+    if (!isStillDisplayed()) {
+      return;
+    }
+
+    try {
+      const result = await prefetch.refresh(displayedPage.requestedUrl);
+      if (!isStillDisplayed() || result.kind !== "swap") {
+        return;
+      }
+
+      const nextPage = result.page;
+      const previousUrl = new URL(displayedPage.finalUrl);
+      const nextUrl = new URL(nextPage.finalUrl);
+      previousUrl.hash = "";
+      nextUrl.hash = "";
+      if (previousUrl.href !== nextUrl.href) {
+        return;
+      }
+      if (nextPage.html === displayedPage.html) {
+        return;
+      }
+
+      await updateDisplayedPage(nextPage, navigationId, isStillDisplayed);
+    } catch {}
+  };
+
   view.navigation.addEventListener("navigate", handleNavigate, {
     signal: controller.signal,
   });
 
   const stopPageTransition = setupPageTransition(document, { prefersReducedMotion });
+  const backgroundUpdateGuard = setupBackgroundUpdateGuard(document);
+  const prefetch = setupNativePrefetch(document, { loadPage });
 
   return () => {
+    backgroundUpdateGuard.dispose();
+    prefetch.dispose();
     if (activeTransaction) {
       cancel(activeTransaction);
     }

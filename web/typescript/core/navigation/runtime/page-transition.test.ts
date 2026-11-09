@@ -77,3 +77,16 @@ test("teardown clears state and removes listeners", () => {
 
   expect(document.body).not.toHaveAttribute("data-page-transition");
 });
+
+test("background revalidation does not start or disturb navigation animations", () => {
+  teardown = setupPageTransition(document, { prefersReducedMotion: () => false });
+  const detail = { ...swapDetail(1), reason: "revalidation" };
+  emit(APP_PAGE_EVENT.beforeSwap, detail);
+  emit(APP_PAGE_EVENT.afterSwap, detail);
+  expect(document.body).not.toHaveAttribute("data-page-transition");
+
+  emit(APP_PAGE_EVENT.beforeSwap, swapDetail(2));
+  emit(APP_PAGE_EVENT.beforeSwap, detail);
+  emit(APP_PAGE_EVENT.afterSwap, detail);
+  expect(document.body).toHaveAttribute("data-page-transition", "leaving");
+});
