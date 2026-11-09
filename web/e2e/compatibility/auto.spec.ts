@@ -15,6 +15,7 @@ for (const disableNavigationAPI of [false, true]) {
         Reflect.deleteProperty(window, "NavigateEvent");
       });
     }
+    const request = page.waitForRequest((request) => new URL(request.url()).pathname === "/about");
     await page.goto("/test");
     await expect(page.locator('meta[name="page-navigation-mode"]')).toHaveAttribute(
       "content",
@@ -31,7 +32,6 @@ for (const disableNavigationAPI of [false, true]) {
     );
     if (disableNavigationAPI) expect(supportsNative).toBe(false);
     const originalBody = await page.locator("body").elementHandle();
-    const request = page.waitForRequest((request) => new URL(request.url()).pathname === "/about");
     await page
       .locator(".site-navbar__links")
       .getByRole("link", { name: "About", exact: true })
