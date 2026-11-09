@@ -1,4 +1,4 @@
-import { onCleanup, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 
 import { PythonWorker } from "./python.worker";
 import { Terminal } from "./terminal";
@@ -31,6 +31,8 @@ export function PythonREPL(_props: Readonly<PythonREPLProps>) {
   let terminal: Terminal | null = null;
   let worker: PythonWorker | null = null;
   let disposed: boolean = false;
+  const [interacted, setInteracted] = createSignal(false);
+  const interactionController = new AbortController();
 
   onMount(() => {
     if (!container) {
@@ -38,6 +40,12 @@ export function PythonREPL(_props: Readonly<PythonREPLProps>) {
     }
 
     const terminalContainer: HTMLDivElement = container;
+    for (const type of ["keydown", "paste", "input"]) {
+      terminalContainer.addEventListener(type, () => setInteracted(true), {
+        capture: true,
+        signal: interactionController.signal,
+      });
+    }
     const backendName: TerminalBackendName = "xterm";
 
     void loadTerminalBackend(backendName).then(({ backend, styles }) => {
@@ -88,12 +96,14 @@ export function PythonREPL(_props: Readonly<PythonREPLProps>) {
 
   onCleanup(() => {
     disposed = true;
+    interactionController.abort();
     worker?.terminate();
     terminal?.dispose();
   });
 
   return (
     <div
+      data-nav-dirty={interacted() ? "" : undefined}
       class="h-100 w-full"
       ref={(element) => (container = element)}
       aria-label="Python REPL"

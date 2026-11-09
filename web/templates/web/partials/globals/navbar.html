@@ -30,6 +30,7 @@
                 href="{{ item.href }}"
                 class="site-navbar__link"
                 preload="mouseover"
+                data-nav-prefetch="load"
               >
                 {{ item.label }}
               </a>
@@ -129,6 +130,7 @@
           <a
             class="site-mobile-menu__link"
             href="{{ item.href }}"
+            data-nav-prefetch="load"
           >
             {{ item.label }}
           </a>

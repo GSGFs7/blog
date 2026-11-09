@@ -335,3 +335,90 @@ test("commit is idempotent and rollback is a no-op after commit", async () => {
   ).toBe("next description");
   expect(currentDocument.head.querySelector("title")?.textContent).toBe("Next Page");
 });
+
+test("rollback keeps a stylesheet adopted by a newer preparation", async () => {
+  const first = harness(`
+    <title>Next Page</title>
+    <meta name="app-dynamic-head-start">
+    <link rel="stylesheet" href="https://example.com/css/new.css">
+    <meta name="app-dynamic-head-end">
+  `);
+  const secondDocument = documentWithHead(`
+    <title>Later Page</title>
+    <meta name="app-dynamic-head-start">
+    <link rel="stylesheet" href="https://example.com/css/new.css">
+    <meta name="app-dynamic-head-end">
+  `);
+
+  const firstPending = preparePageHead(first.currentDocument, first.nextDocument, first.options);
+  const secondPending = preparePageHead(first.currentDocument, secondDocument, first.options);
+  loadStylesheet(first.currentDocument, "https://example.com/css/new.css");
+  const firstPrepared = await firstPending;
+  const secondPrepared = await secondPending;
+
+  firstPrepared.rollback();
+
+  expect(
+    first.currentDocument.head.querySelectorAll('link[href="https://example.com/css/new.css"]'),
+  ).toHaveLength(1);
+
+  secondPrepared.commit();
+
+  expect(
+    first.currentDocument.head.querySelectorAll('link[href="https://example.com/css/new.css"]'),
+  ).toHaveLength(1);
+  expect(first.currentDocument.head.querySelector("title")?.textContent).toBe("Later Page");
+});
+
+test.each(["oldest-first", "newest-first"])(
+  "rollback removes an adopted temporary stylesheet when both preparations roll back: %s",
+  async (order) => {
+    const { currentDocument, nextDocument, options } = harness(`
+      <title>Next Page</title>
+      <meta name="app-dynamic-head-start">
+      ${SHARED_STYLESHEET}
+      <link rel="stylesheet" href="https://example.com/css/new.css">
+      <meta name="app-dynamic-head-end">
+    `);
+    const firstPending = preparePageHead(currentDocument, nextDocument, options);
+    const secondPending = preparePageHead(currentDocument, nextDocument, options);
+    loadStylesheet(currentDocument, "https://example.com/css/new.css");
+    const preparations = await Promise.all([firstPending, secondPending]);
+    if (order === "newest-first") {
+      preparations.reverse();
+    }
+
+    for (const prepared of preparations) {
+      prepared.rollback();
+    }
+
+    expect(
+      currentDocument.head.querySelector('link[href="https://example.com/css/new.css"]'),
+    ).toBeNull();
+    expect(
+      currentDocument.head.querySelectorAll('link[href="https://example.com/css/shared.css"]'),
+    ).toHaveLength(1);
+    expect(currentDocument.title).toBe("Current Page");
+  },
+);
+
+test("rollback keeps a temporary stylesheet committed by another preparation", async () => {
+  const { currentDocument, nextDocument, options } = harness(`
+    <title>Next Page</title>
+    <meta name="app-dynamic-head-start">
+    <link rel="stylesheet" href="https://example.com/css/new.css">
+    <meta name="app-dynamic-head-end">
+  `);
+  const firstPending = preparePageHead(currentDocument, nextDocument, options);
+  const secondPending = preparePageHead(currentDocument, nextDocument, options);
+  loadStylesheet(currentDocument, "https://example.com/css/new.css");
+  const [first, second] = await Promise.all([firstPending, secondPending]);
+
+  first.commit();
+  second.rollback();
+
+  expect(
+    currentDocument.head.querySelectorAll('link[href="https://example.com/css/new.css"]'),
+  ).toHaveLength(1);
+  expect(currentDocument.title).toBe("Next Page");
+});

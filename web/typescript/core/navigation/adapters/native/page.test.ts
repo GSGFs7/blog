@@ -116,6 +116,7 @@ test("swaps a valid same-origin page and keeps the fragment", async () => {
   expect(result.page.document.querySelector("title")?.textContent).toBe("Test Page");
   expect(result.page.response.status).toBe(200);
   expect(result.page.deliverySource).toBe("origin");
+  expect(result.page.html).toBe(pageHtml());
 });
 
 test("follows same-origin redirects and keeps the fragment", async () => {

@@ -1,7 +1,7 @@
 {% load media_tags %}
 
 <article class="group mt-4 h-64 overflow-hidden rounded-lg border border-gray-500/70 md:mt-4 md:h-72">
-  <a href="{% url 'blog_post_slug' post.slug %}" preload="mouseover">
+  <a href="{% url 'blog_post_slug' post.slug %}" preload="mouseover" data-nav-prefetch="viewport">
     <div
       class="relative z-10 h-44 w-full overflow-hidden transition-all duration-500 group-hover:scale-[1.65] md:h-56">
       {% render_image post.cover_image|default:'https://img.gsgfs.moe/images/webp/ff/87/ff87dd4044f5fb6614d80f11b1d336a279c5d3640faa1b1cb3221566321865ba.webp' alt=post.title class_name="block h-full w-full" img_class="block h-full w-full scale-100 object-cover object-center" loading="lazy" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" %}

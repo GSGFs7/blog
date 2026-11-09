@@ -17,6 +17,7 @@ export interface PageSwapDetail {
   readonly navigationId: number;
   readonly root: HTMLElement;
   readonly preservedRoots: readonly HTMLElement[];
+  readonly reason?: "navigation" | "revalidation";
 }
 
 export interface PageNavigationDetail extends PageSwapDetail {

@@ -29,7 +29,18 @@ export interface PreparePageHeadOptions {
 
 interface PreparedStylesheets {
   readonly bindings: ReadonlyMap<HTMLLinkElement, HTMLLinkElement>;
-  readonly inserted: readonly HTMLLinkElement[];
+  readonly temporary: readonly HTMLLinkElement[];
+}
+
+const stylesheetOwners = new WeakMap<HTMLLinkElement, PreparedStylesheets>();
+
+function removeOwnedStylesheets(stylesheets: PreparedStylesheets): void {
+  for (const node of stylesheets.temporary) {
+    if (stylesheetOwners.get(node) === stylesheets) {
+      node.remove();
+      stylesheetOwners.delete(node);
+    }
+  }
 }
 
 interface PrepareStylesheetsOptions {
@@ -226,7 +237,8 @@ async function prepareStylesheets(
   const existing = indexStylesheets(current);
   const usage = new Map<string, number>();
   const bindings = new Map<HTMLLinkElement, HTMLLinkElement>();
-  const inserted: HTMLLinkElement[] = [];
+  const temporary: HTMLLinkElement[] = [];
+  const prepared: PreparedStylesheets = { bindings, temporary };
   const loadTasks: Promise<void>[] = [];
 
   for (const node of next.range.nodes) {
@@ -243,11 +255,17 @@ async function prepareStylesheets(
     if (!liveStylesheet) {
       liveStylesheet = current.document.importNode(node, true);
       liveStylesheet.href = new URL(node.getAttribute("href")!, next.url).href;
-      inserted.push(liveStylesheet);
+      temporary.push(liveStylesheet);
       loadTasks.push(waitForStylesheet(liveStylesheet, options.timeoutMs, options.signal));
       current.range.end.before(liveStylesheet); // add to document to tell browser load this
+    } else if (stylesheetOwners.has(liveStylesheet)) {
+      temporary.push(liveStylesheet);
     }
 
+    // a newer preparation may adopt this temporary node and its cleanup responsibility
+    if (temporary.includes(liveStylesheet)) {
+      stylesheetOwners.set(liveStylesheet, prepared);
+    }
     bindings.set(node, liveStylesheet);
   }
 
@@ -256,11 +274,11 @@ async function prepareStylesheets(
     await Promise.all(loadTasks);
     options.signal.throwIfAborted();
   } catch (e) {
-    removeNodes(inserted);
+    removeOwnedStylesheets(prepared);
     throw e;
   }
 
-  return { bindings, inserted };
+  return prepared;
 }
 
 function materializeHeadNodes(
@@ -305,7 +323,7 @@ function createPageHeadTransaction(
     }
 
     state = "rolled-back";
-    removeNodes(stylesheets.inserted);
+    removeOwnedStylesheets(stylesheets);
   };
 
   const commit = () => {
@@ -330,6 +348,11 @@ function createPageHeadTransaction(
     removeNodes(live.nodes);
     live.end.before(...desiredNodes);
     current.document.title = next.title;
+    for (const node of desiredNodes) {
+      if (isStylesheet(node)) {
+        stylesheetOwners.delete(node);
+      }
+    }
     state = "committed";
   };
 

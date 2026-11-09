@@ -115,16 +115,24 @@ describe("isPageNavigationSource", () => {
     "<button data-source></button>",
     '<div contenteditable="false"><span data-source></span></div>',
     '<a href="/about"><span data-source></span></a>',
-    '<a href="/file" download target="_self"><span data-source></span></a>',
+    '<a href="/about" target=" _SELF "><span data-source></span></a>',
+    '<a href="/about" rel="nofollow"><span data-source></span></a>',
+    '<map><area href="/about" target="_self" data-source></map>',
   ])("allows a source in a page-navigation context", (html) => {
     expect(isPageNavigationSource(sourceFrom(html))).toBe(true);
   });
 
   test.each([
+    '<a href="/file" download><span data-source></span></a>',
+    '<a href="/file" download target="_self"><span data-source></span></a>',
+    '<a href="/about" target="_blank"><span data-source></span></a>',
+    '<a href="/about" target=" _PARENT "><span data-source></span></a>',
+    '<a href="/about" rel="nofollow EXTERNAL"><span data-source></span></a>',
+    '<map><area href="/about" target="named-frame" data-source></map>',
     '<a href="/file" download target="_blank"><span data-source></span></a>',
     '<a href="/file" download rel="nofollow external"><span data-source></span></a>',
     '<map><area href="/file" download target="named-frame" data-source></map>',
-  ])("rejects a download source that leaves the current context", (html) => {
+  ])("rejects a download or a link outside local navigation", (html) => {
     expect(isPageNavigationSource(sourceFrom(html))).toBe(false);
   });
 });

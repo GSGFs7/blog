@@ -104,7 +104,8 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
   let editor: monaco.editor.IStandaloneCodeEditor | undefined;
   let pythonWorker: PythonWorker | undefined;
 
-  const [_status, setStatus] = createSignal<RunStatus>("idle");
+  const [status, setStatus] = createSignal<RunStatus>("idle");
+  const [edited, setEdited] = createSignal(false);
   const [output, setOutput] = createSignal("");
 
   const initialSource = typeof props.source === "string" ? props.source : DEFAULT_SOURCE;
@@ -209,6 +210,7 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
       tabSize: 4,
     });
 
+    editor.onDidChangeModelContent(() => setEdited(editor?.getValue() !== initialSource));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, run);
   });
 
@@ -222,6 +224,7 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
 
   return (
     <section
+      data-nav-dirty={edited() || status() !== "idle" || output() ? "" : undefined}
       style={{
         overflow: "hidden",
         width: "100%",
