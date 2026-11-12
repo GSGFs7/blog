@@ -67,6 +67,7 @@ def http_error_handler(request, exc: HttpError):
 # api.get_openapi_schema = convert_openapi(original_get_schema)  # wrap
 
 
+# TODO: distinguish S2S & web
 api.add_router("/anime", anime_router)
 api.add_router("/auth", auth_router)
 api.add_router("/category", categories_router)
