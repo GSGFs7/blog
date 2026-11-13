@@ -2,6 +2,7 @@
 
 import datetime
 from typing import List, Optional
+from uuid import UUID
 
 from ninja.schema import Schema
 
@@ -12,7 +13,7 @@ class CommentSchema(Schema):
     id: int
     content: str
     post_id: int
-    guest_id: int
+    guest_id: UUID
     guest_name: str
     created_at: datetime.datetime
     updated_at: datetime.datetime

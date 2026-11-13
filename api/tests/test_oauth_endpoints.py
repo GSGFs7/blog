@@ -130,7 +130,7 @@ class OAuthEndpointTest(TransactionTestCase):
             response.json(),
             {
                 "identity_id": self.identity.pk,
-                "guest_id": self.guest.pk,
+                "guest_id": str(self.guest.pk),
                 "provider_key": "example",
                 "user_id": "provider-user-id",
                 "name": "Test User",

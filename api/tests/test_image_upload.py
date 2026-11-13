@@ -93,7 +93,7 @@ class ImageUploadTest(BaseImageUploadTest):
         self.assertEqual(image.uploader, self.guest)
         self.assertEqual(image.metadata["uploaded_via"], client_id)
         self.assertEqual(image.metadata["uploader_type"], "api.Guest")
-        self.assertEqual(image.metadata["uploader_id"], self.guest.id)
+        self.assertEqual(image.metadata["uploader_id"], str(self.guest.id))
 
         hasher = blake3.blake3()
         for chunk in file.chunks():

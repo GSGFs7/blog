@@ -57,7 +57,7 @@ async def upload_test(
             metadata={
                 "uploaded_via": str(request.auth),
                 "uploader_type": data.uploader_type,
-                "uploader_id": data.uploader_id,
+                "uploader_id": str(data.uploader_id),
             },
         )
     except ValidationError as exc:

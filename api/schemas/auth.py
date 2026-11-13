@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from ninja import Schema
 
 
@@ -8,7 +10,7 @@ class OAuthProviderSchema(Schema):
 
 class OAuthSessionSchema(Schema):
     identity_id: int
-    guest_id: int
+    guest_id: UUID
     provider_key: str
     user_id: str
     name: str
