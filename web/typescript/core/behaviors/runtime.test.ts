@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { runPageSwap } from "../../test/page-lifecycle";
+import { runPageSwap } from "@/test/page-lifecycle";
+
 import { startBehaviorRuntime } from "./runtime";
 import { waitForBehaviorMount } from "./test-utils";
 import type { BehaviorFactory } from "./types";

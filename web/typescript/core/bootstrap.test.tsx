@@ -1,7 +1,8 @@
 import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
-import { COMPONENTS } from "../islands";
+import { COMPONENTS } from "@/islands";
+
 import { bootstrap, cleanup, setupIslands } from "./bootstrap";
 
 setupIslands(COMPONENTS);

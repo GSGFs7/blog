@@ -3,6 +3,9 @@
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@/*": ["./web/typescript/*"]
+    },
     "outDir": "web/static/dist",
     "rootDir": "web/typescript",
     "strict": true,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createTerminal, enter, resetXterm, startPrompt, xterm } from "../../test/python-repl";
+import { createTerminal, enter, resetXterm, startPrompt, xterm } from "@/test/python-repl";
 
 describe("Python REPL command history", () => {
   beforeEach(resetXterm);

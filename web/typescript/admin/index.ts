@@ -1,8 +1,8 @@
 import { render } from "solid-js/web";
 
-import { COMPONENTS } from "../islands";
+import { COMPONENTS } from "@/islands";
 
-const { setupIslands } = await import("../core/bootstrap");
+const { setupIslands } = await import("@/core/bootstrap");
 setupIslands(COMPONENTS);
 
 (async function adminMount() {

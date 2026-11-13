@@ -7,6 +7,7 @@
 
 ## Non-negotiable rules
 
+- Use `@/` for TypeScript imports across modules, rooted at `web/typescript/`; keep relative imports within a module and for assets outside that root.
 - Use Django templates for pages and content, the protocol-driven navigation layer (`core/navigation/`: HTMX or Native Navigation API adapter) for page swaps, behaviors for small DOM enhancements, and Solid islands for isolated stateful interaction.
 - Load built assets with `{% vite_asset %}`. Do not reference generated `web/static/dist` files directly.
 - Preserve the base layout's early theme script, navigation protocol meta tags, and `hx-boost`/`hx-ext` wiring unless the task explicitly changes their behavior.

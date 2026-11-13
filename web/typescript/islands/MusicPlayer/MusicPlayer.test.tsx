@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { cleanup as cleanupIslands } from "../../core/bootstrap";
-import { preparePreservation } from "../../core/navigation/runtime/preservation";
+import { cleanup as cleanupIslands } from "@/core/bootstrap";
+import { preparePreservation } from "@/core/navigation/runtime/preservation";
+
 import { coverBackground, extractMusicMetadata } from "./metadata";
 import MusicDock from "./MusicDock.island";
 import MusicTrack from "./MusicTrack.island";

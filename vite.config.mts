@@ -116,7 +116,10 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
           open: true,
         }),
     ],
-    resolve: mode === "test" ? { conditions: ["solid", "browser"] } : undefined,
+    resolve: {
+      alias: { "@": resolve(import.meta.dirname, "web/typescript") },
+      ...(mode === "test" ? { conditions: ["solid", "browser"] } : {}),
+    },
     optimizeDeps: {
       // runtime-imported by the music islands, pre-bundle to avoid a dev reload on first use
       include: ["@tokenizer/http", "music-metadata"],

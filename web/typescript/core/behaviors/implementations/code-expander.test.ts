@@ -1,7 +1,8 @@
 import { fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";
 
-import { runPageSwap } from "../../../test/page-lifecycle";
+import { runPageSwap } from "@/test/page-lifecycle";
+
 import { setupBehaviors } from "../manager";
 import { waitForBehaviorMount } from "../test-utils";
 import { CODE_PREVIEW_LINE_LIMIT } from "./code-expander";

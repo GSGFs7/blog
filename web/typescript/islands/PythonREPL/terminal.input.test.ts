@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createTerminal, enter, resetXterm, startPrompt, xterm } from "../../test/python-repl";
+import { createTerminal, enter, resetXterm, startPrompt, xterm } from "@/test/python-repl";
 
 describe("Python REPL input editing", () => {
   beforeEach(resetXterm);

@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { render } from "solid-js/web";
 
-import type { IslandElement } from "../../core/bootstrap";
+import type { IslandElement } from "@/core/bootstrap";
+
 import { formatTime } from "./format";
 import { player } from "./player";
 import type { MusicMetadata } from "./types";

@@ -19,7 +19,7 @@ test("utilities override global and Markdown component defaults", () => {
     <article class="markdown-body">
       <h1 class="text-[23px]">Heading</h1>
     </article>
-    <div class="music-track rounded-none p-[13px]"></div>
+    <div class="music-track rounded-none p-3.25"></div>
   `;
 
   const main = getComputedStyle(document.querySelector("main")!);

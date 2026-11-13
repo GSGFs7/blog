@@ -1,7 +1,8 @@
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { canApplyBackgroundUpdate } from "../../core/navigation/adapters/native/background-update";
+import { canApplyBackgroundUpdate } from "@/core/navigation/adapters/native/background-update";
+
 import { PythonPlayground } from "./PythonPlayground.island";
 import { PythonREPL } from "./PythonREPL.island";
 

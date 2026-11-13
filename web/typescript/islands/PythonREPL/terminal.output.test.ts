@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createTerminal, resetXterm, xterm } from "../../test/python-repl";
+import { createTerminal, resetXterm, xterm } from "@/test/python-repl";
 
 describe("Python REPL output scheduling", () => {
   beforeEach(resetXterm);

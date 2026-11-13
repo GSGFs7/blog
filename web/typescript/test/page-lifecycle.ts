@@ -1,4 +1,4 @@
-import { APP_PAGE_EVENT, emitPageEvent } from "../core/navigation";
+import { APP_PAGE_EVENT, emitPageEvent } from "@/core/navigation";
 
 let nextNavigationId = 0;
 
