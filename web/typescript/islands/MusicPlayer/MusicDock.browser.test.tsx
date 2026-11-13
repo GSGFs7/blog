@@ -76,9 +76,15 @@ test("the dock only fades in when opened, not when its preserved root is reinser
 });
 
 test("the hover zoom only runs when reduced motion is not preferred", () => {
-  const styleRules = [...document.styleSheets]
-    .flatMap((sheet) => [...sheet.cssRules])
-    .flatMap((rule) => (rule instanceof CSSMediaRule ? [...rule.cssRules] : [rule]));
+  const collectRules = (rules: CSSRuleList): CSSStyleRule[] =>
+    [...rules].flatMap((rule) =>
+      rule instanceof CSSStyleRule
+        ? [rule]
+        : rule instanceof CSSGroupingRule
+          ? collectRules(rule.cssRules)
+          : [],
+    );
+  const styleRules = [...document.styleSheets].flatMap((sheet) => collectRules(sheet.cssRules));
   const zoomRules = styleRules.filter(
     (rule): rule is CSSStyleRule =>
       rule instanceof CSSStyleRule && rule.style.transform.includes("scale(1.1)"),

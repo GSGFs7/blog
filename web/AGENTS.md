@@ -30,6 +30,16 @@
 - A template island rendered with `{% solid_island %}` also needs a compatible entry in `web/typescript/islands/ssr_registry.ts`; otherwise it fails in production.
 - Markdown directive islands are client-rendered. Define allowed directives and props in `native/markdown/src/solid_island.rs` and preserve the sanitizer boundary. Music uses a build-time placeholder loaded by `api/markdown/islands.py`; the client replaces it rather than hydrating it.
 
+## Styling boundaries
+
+- Use Tailwind for page composition, inter-component spacing, and simple templates or Solid components; use component CSS for an independent component's internal layout, appearance, responsive rules, and states, regardless of Django versus Solid.
+- Name new component classes with BEM (`block`, `block__element`, `block--variant`) and preserve existing names until restructuring. Each property has one primary owner: pages position components and must not reach into their internals; expose variants through modifiers or props instead of utility overrides.
+- Reuse templates or Solid components before extracting repeated utility strings into classes, and do not wrap all Tailwind in `@apply`.
+- Component stylesheets import `styles/layers.css` (relative to the file) and put rules in `@layer components`, or use `@import ... layer(components)` when global-only. Order is `theme, base, components, utilities`, with `base` reserved for element defaults. Lazy imports use the same layers; keep vendor styles separate.
+- Markdown owns prose typography, not island internals. Descendant selectors exclude `[data-solid-island] *` via `:not(:where([data-solid-island] *))` before pseudo-elements while preserving specificity (`styles/markdown.test.ts` enforces this); island wrappers may only take document-flow spacing, and islands set their own UI typography. Keep music and ModelViewer styles in the initial Markdown bundle so placeholders reserve space before JavaScript loads.
+- Use `aria-*` or `data-state` for interaction state, scope legacy `is-*` selectors to their component, and keep behavior hooks in `data-*` attributes. Use inline styles or custom properties for runtime values and CSS variables or `@theme` for shared design values.
+- Avoid `!important` for ownership conflicts; the zoom backdrop override is the intentional exception (disabling the article container's backdrop filter while zoomed).
+
 ## Verification
 
 Choose checks for the affected behavior and layer:

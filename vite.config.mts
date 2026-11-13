@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -35,6 +36,34 @@ const djangoTemplateReload = (): Plugin => ({
     });
 
     return affectedModules;
+  },
+});
+
+// Tailwind's plugin swallows `?raw` for CSS, and Vite still runs the CSS pipeline on any id
+// ending in `.css`. Resolve `?raw` to a virtual `.mjs` module so it returns the source text.
+const cssSource = (): Plugin => ({
+  name: "css-source",
+  enforce: "pre",
+  async resolveId(source, importer) {
+    const suffix = "?raw";
+    if (!source.endsWith(suffix)) {
+      return;
+    }
+
+    const resolved = await this.resolve(source.slice(0, -suffix.length), importer, {
+      skipSelf: true,
+    });
+    return resolved ? `\0css-source:${resolved.id}.mjs` : undefined;
+  },
+  async load(id) {
+    const prefix = "\0css-source:";
+    if (!id.startsWith(prefix) || !id.endsWith(".mjs")) {
+      return;
+    }
+
+    const file = id.slice(prefix.length, -".mjs".length);
+    this.addWatchFile(file);
+    return `export default ${JSON.stringify(await readFile(file, "utf8"))};`;
   },
 });
 
@@ -77,6 +106,7 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
         dev: command === "serve" && mode !== "test",
       }),
       djangoTemplateReload(),
+      !isSsrBuild && cssSource(),
       !isSsrBuild &&
         process.env.ANALYZE === "1" &&
         Sonda({

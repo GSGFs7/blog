@@ -1,1042 +1,1061 @@
 /* tribute to GitHub Primer */
 /* styled with markdown art */
 
+@import "./layers.css";
 @import "../islands/MusicPlayer/music.css";
 @import "../islands/ModelViewer/model-viewer.css";
 
-.markdown-body {
-  /* Default variables */
-  --md-font-size: 18px;
-  --md-code-font-weight: 500;
-  --md-fg: #1f2328;
-  --md-bg: transparent;
-  --md-border: #d0d7de;
-  --md-heading-border: #d0d7de;
-  --md-blockquote-border: #d0d7de;
-  --md-blockquote-fg: #636c76;
-  --md-table-tr-bg: #ffffff;
-  --md-table-tr-2n-bg: #f6f8fa;
-  --md-code-bg: rgba(175, 184, 193, 0.2);
-  --md-spoiler-hover-bg: rgba(175, 184, 193, 0.12);
-  --md-pre-bg: #f6f8fa;
-  --md-pre-border: #d0d7de;
-  --md-link: #0969da;
-  --md-hr-bg: #d0d7de;
-  --md-syntax-fg: #0969da;
-
-  /* Syntax Highlighting */
-  --syn-comment: #6e7781;
-  --syn-keyword: #cf222e;
-  --syn-string: #0a3069;
-  --syn-function: #8250df;
-  --syn-constant: #0550ae;
-  --syn-entity: #116329;
-  --syn-variable: #953800;
-  --syn-punctuation: #1f2328;
-  --terminal-command: #1a7f37;
-
-  color-scheme: light dark;
-  text-size-adjust: 100%;
-  font-family: var(--font-sans);
-  font-size: var(--md-font-size);
-  line-height: 1.45;
-  word-wrap: break-word;
-  color: var(--md-fg);
-  background-color: var(--md-bg);
-}
-
-@media (max-width: 767px) {
-  /* 18px may too large to mobile device */
+@layer components {
   .markdown-body {
-    --md-font-size: 16px;
+    /* Default variables */
+    --md-font-size: 18px;
+    --md-code-font-weight: 500;
+    --md-fg: #1f2328;
+    --md-bg: transparent;
+    --md-border: #d0d7de;
+    --md-heading-border: #d0d7de;
+    --md-blockquote-border: #d0d7de;
+    --md-blockquote-fg: #636c76;
+    --md-table-tr-bg: #ffffff;
+    --md-table-tr-2n-bg: #f6f8fa;
+    --md-code-bg: rgba(175, 184, 193, 0.2);
+    --md-spoiler-hover-bg: rgba(175, 184, 193, 0.12);
+    --md-pre-bg: #f6f8fa;
+    --md-pre-border: #d0d7de;
+    --md-link: #0969da;
+    --md-hr-bg: #d0d7de;
+    --md-syntax-fg: #0969da;
+
+    /* Syntax Highlighting */
+    --syn-comment: #6e7781;
+    --syn-keyword: #cf222e;
+    --syn-string: #0a3069;
+    --syn-function: #8250df;
+    --syn-constant: #0550ae;
+    --syn-entity: #116329;
+    --syn-variable: #953800;
+    --syn-punctuation: #1f2328;
+    --terminal-command: #1a7f37;
+
+    color-scheme: light dark;
+    text-size-adjust: 100%;
+    font-family: var(--font-sans);
+    font-size: var(--md-font-size);
+    line-height: 1.45;
+    word-wrap: break-word;
+    color: var(--md-fg);
+    background-color: var(--md-bg);
   }
-}
 
-/* Dark Mode Overrides */
-:where(html.dark, .dark) .markdown-body {
-  --md-fg: #e6edf3;
-  --md-bg: #1a1c25;
-  --md-border: #30363d;
-  --md-heading-border: #30363d;
-  --md-blockquote-border: #30363d;
-  --md-blockquote-fg: #8b949e;
-  --md-table-tr-bg: #0d1117;
-  --md-table-tr-2n-bg: #161b22;
-  --md-code-bg: rgb(64 67 75 / 0.4);
-  --md-spoiler-hover-bg: rgb(64 67 75 / 0.2);
-  --md-pre-bg: #151b23;
-  --md-pre-border: #30363d;
-  --md-link: #4493f8;
-  --md-hr-bg: #30363d;
-  --md-syntax-fg: #5b6976;
+  @media (max-width: 767px) {
+    /* 18px may too large to mobile device */
+    .markdown-body {
+      --md-font-size: 16px;
+    }
+  }
 
-  --syn-comment: #9198a1;
-  --syn-keyword: #ff7b72;
-  --syn-string: #a5d6ff;
-  --syn-function: #d2a8ff;
-  --syn-constant: #79c0ff;
-  --syn-entity: #7ee787;
-  --syn-variable: #ffa657;
-  --syn-punctuation: #d1d7dd;
-  --terminal-command: #3fb950;
-}
+  /* Dark Mode Overrides */
+  :where(html.dark, .dark) .markdown-body {
+    --md-fg: #e6edf3;
+    --md-bg: #1a1c25;
+    --md-border: #30363d;
+    --md-heading-border: #30363d;
+    --md-blockquote-border: #30363d;
+    --md-blockquote-fg: #8b949e;
+    --md-table-tr-bg: #0d1117;
+    --md-table-tr-2n-bg: #161b22;
+    --md-code-bg: rgb(64 67 75 / 0.4);
+    --md-spoiler-hover-bg: rgb(64 67 75 / 0.2);
+    --md-pre-bg: #151b23;
+    --md-pre-border: #30363d;
+    --md-link: #4493f8;
+    --md-hr-bg: #30363d;
+    --md-syntax-fg: #5b6976;
 
-.markdown-body > * {
-  margin-top: 0;
-  margin-bottom: 1em;
-}
+    --syn-comment: #9198a1;
+    --syn-keyword: #ff7b72;
+    --syn-string: #a5d6ff;
+    --syn-function: #d2a8ff;
+    --syn-constant: #79c0ff;
+    --syn-entity: #7ee787;
+    --syn-variable: #ffa657;
+    --syn-punctuation: #d1d7dd;
+    --terminal-command: #3fb950;
+  }
 
-/* Typography */
-.markdown-body h1,
-.markdown-body h2,
-.markdown-body h3,
-.markdown-body h4,
-.markdown-body h5,
-.markdown-body h6 {
-  margin-top: 1.5em;
-  margin-bottom: 1em;
-  font-weight: 600;
-  line-height: 1.25;
-}
+  .markdown-body > *:not(:where([data-solid-island] *)) {
+    margin-top: 0;
+    margin-bottom: 1em;
+  }
 
-.markdown-body.is-decorated h1::before,
-.markdown-body.is-decorated h2::before,
-.markdown-body.is-decorated h3::before,
-.markdown-body.is-decorated h4::before,
-.markdown-body.is-decorated h5::before,
-.markdown-body.is-decorated h6::before {
-  color: var(--md-syntax-fg);
-  margin-right: 0.5ch;
-  font-weight: 400;
-  font-family: var(--font-mono);
-  user-select: none;
-}
+  /* Typography */
+  .markdown-body h1:not(:where([data-solid-island] *)),
+  .markdown-body h2:not(:where([data-solid-island] *)),
+  .markdown-body h3:not(:where([data-solid-island] *)),
+  .markdown-body h4:not(:where([data-solid-island] *)),
+  .markdown-body h5:not(:where([data-solid-island] *)),
+  .markdown-body h6:not(:where([data-solid-island] *)) {
+    margin-top: 1.5em;
+    margin-bottom: 1em;
+    font-weight: 600;
+    line-height: 1.25;
+  }
 
-.markdown-body.is-decorated h1::before {
-  content: "#";
-}
-.markdown-body.is-decorated h2::before {
-  content: "##";
-}
-.markdown-body.is-decorated h3::before {
-  content: "###";
-}
-.markdown-body.is-decorated h4::before {
-  content: "####";
-}
-.markdown-body.is-decorated h5::before {
-  content: "#####";
-}
-.markdown-body.is-decorated h6::before {
-  content: "######";
-}
+  .markdown-body.is-decorated h1:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated h2:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated h3:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated h4:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated h5:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated h6:not(:where([data-solid-island] *))::before {
+    color: var(--md-syntax-fg);
+    margin-right: 0.5ch;
+    font-weight: 400;
+    font-family: var(--font-mono);
+    user-select: none;
+  }
 
-.markdown-body h1 {
-  font-size: 2em;
-  padding-bottom: 0.3em;
-  margin-top: 0;
-  border-bottom: 1px solid var(--md-heading-border);
-}
+  .markdown-body.is-decorated h1:not(:where([data-solid-island] *))::before {
+    content: "#";
+  }
+  .markdown-body.is-decorated h2:not(:where([data-solid-island] *))::before {
+    content: "##";
+  }
+  .markdown-body.is-decorated h3:not(:where([data-solid-island] *))::before {
+    content: "###";
+  }
+  .markdown-body.is-decorated h4:not(:where([data-solid-island] *))::before {
+    content: "####";
+  }
+  .markdown-body.is-decorated h5:not(:where([data-solid-island] *))::before {
+    content: "#####";
+  }
+  .markdown-body.is-decorated h6:not(:where([data-solid-island] *))::before {
+    content: "######";
+  }
 
-.markdown-body h2 {
-  font-size: 1.5em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--md-heading-border);
-}
+  .markdown-body h1:not(:where([data-solid-island] *)) {
+    font-size: 2em;
+    padding-bottom: 0.3em;
+    margin-top: 0;
+    border-bottom: 1px solid var(--md-heading-border);
+  }
 
-.markdown-body h3 {
-  font-size: 1.25em;
-}
-.markdown-body h4 {
-  font-size: 1em;
-}
-.markdown-body h5 {
-  font-size: 0.875em;
-}
-.markdown-body h6 {
-  font-size: 0.85em;
-  color: var(--md-blockquote-fg);
-}
+  .markdown-body h2:not(:where([data-solid-island] *)) {
+    font-size: 1.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--md-heading-border);
+  }
 
-.markdown-body p {
-  margin-top: 0;
-  margin-bottom: 1em;
-}
+  .markdown-body h3:not(:where([data-solid-island] *)) {
+    font-size: 1.25em;
+  }
+  .markdown-body h4:not(:where([data-solid-island] *)) {
+    font-size: 1em;
+  }
+  .markdown-body h5:not(:where([data-solid-island] *)) {
+    font-size: 0.875em;
+  }
+  .markdown-body h6:not(:where([data-solid-island] *)) {
+    font-size: 0.85em;
+    color: var(--md-blockquote-fg);
+  }
 
-.markdown-body strong {
-  font-weight: 600;
-}
-.markdown-body em {
-  font-style: italic;
-}
+  .markdown-body p:not(:where([data-solid-island] *)) {
+    margin-top: 0;
+    margin-bottom: 1em;
+  }
 
-.markdown-body em .md-emoji,
-.markdown-body i .md-emoji {
-  display: inline-block;
-  font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
-  font-style: normal;
-  transform: skewX(-8deg);
-  transform-origin: center;
-}
+  .markdown-body strong:not(:where([data-solid-island] *)) {
+    font-weight: 600;
+  }
+  .markdown-body em:not(:where([data-solid-island] *)) {
+    font-style: italic;
+  }
 
-.markdown-body del,
-.markdown-body s {
-  color: var(--md-blockquote-fg);
-}
+  .markdown-body em .md-emoji:not(:where([data-solid-island] *)),
+  .markdown-body i .md-emoji:not(:where([data-solid-island] *)) {
+    display: inline-block;
+    font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+    font-style: normal;
+    transform: skewX(-8deg);
+    transform-origin: center;
+  }
 
-/* Links */
-.markdown-body a {
-  color: var(--md-link);
-  text-decoration: none;
-  position: relative;
-  display: inline-block;
-  transition: color 0.2s ease;
-}
+  .markdown-body del:not(:where([data-solid-island] *)),
+  .markdown-body s:not(:where([data-solid-island] *)) {
+    color: var(--md-blockquote-fg);
+  }
 
-.markdown-body a:hover {
-  text-decoration: underline;
-}
+  /* Links */
+  .markdown-body a:not(:where([data-solid-island] *)) {
+    color: var(--md-link);
+    text-decoration: none;
+    position: relative;
+    display: inline-block;
+    transition: color 0.2s ease;
+  }
 
-.markdown-body del a,
-.markdown-body s a {
-  text-decoration-line: line-through;
-}
+  .markdown-body a:hover:not(:where([data-solid-island] *)) {
+    text-decoration: underline;
+  }
 
-.markdown-body del a:hover,
-.markdown-body s a:hover {
-  text-decoration-line: line-through underline;
-}
+  .markdown-body del a:not(:where([data-solid-island] *)),
+  .markdown-body s a:not(:where([data-solid-island] *)) {
+    text-decoration-line: line-through;
+  }
 
-.markdown-body del code::before,
-.markdown-body del code::after,
-.markdown-body s code::before,
-.markdown-body s code::after {
-  text-decoration-line: line-through;
-}
+  .markdown-body del a:hover:not(:where([data-solid-island] *)),
+  .markdown-body s a:hover:not(:where([data-solid-island] *)) {
+    text-decoration-line: line-through underline;
+  }
 
-.markdown-body.is-decorated a::before,
-.markdown-body.is-decorated a::after {
-  content: "[";
-  color: var(--md-syntax-fg);
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  font-weight: 400;
-  user-select: none;
-  margin-inline: -0.15em;
-  text-decoration: none;
-  display: inline-block;
-  vertical-align: 0.05em;
-}
+  .markdown-body del code:not(:where([data-solid-island] *))::before,
+  .markdown-body del code:not(:where([data-solid-island] *))::after,
+  .markdown-body s code:not(:where([data-solid-island] *))::before,
+  .markdown-body s code:not(:where([data-solid-island] *))::after {
+    text-decoration-line: line-through;
+  }
 
-.markdown-body.is-decorated a::after {
-  content: "]";
-}
+  .markdown-body.is-decorated a:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated a:not(:where([data-solid-island] *))::after {
+    content: "[";
+    color: var(--md-syntax-fg);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    font-weight: 400;
+    user-select: none;
+    margin-inline: -0.15em;
+    text-decoration: none;
+    display: inline-block;
+    vertical-align: 0.05em;
+  }
 
-.markdown-body.is-decorated code a::before,
-.markdown-body.is-decorated code a::after {
-  content: none;
-}
+  .markdown-body.is-decorated a:not(:where([data-solid-island] *))::after {
+    content: "]";
+  }
 
-/* Domain Tooltip */
-.markdown-body a > span[data-domain] {
-  position: relative;
-}
-
-.markdown-body a > span[data-domain]::after {
-  content: attr(data-domain);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%) translateY(-2px);
-
-  font-family: var(--font-mono);
-  font-size: 0.75em;
-  font-weight: var(--md-code-font-weight);
-  line-height: 1;
-
-  /* High contrast theme */
-  color: #ffffff;
-  background-color: #24292f;
-  padding: 4px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-
-  pointer-events: none;
-  text-decoration: none;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
-}
-
-/* Tooltip Arrow */
-.markdown-body a > span[data-domain]::before {
-  content: "";
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%) translateY(6px);
-
-  border: 5px solid transparent;
-  border-top-color: #24292f;
-
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
-  z-index: 100;
-}
-
-/* tooltip may expand the container in mobile device */
-@media (hover: none), (pointer: coarse) {
-  .markdown-body a > span[data-domain]::before,
-  .markdown-body a > span[data-domain]::after {
+  .markdown-body.is-decorated code a:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated code a:not(:where([data-solid-island] *))::after {
     content: none;
   }
-}
 
-.markdown-body a > span[data-domain]:hover::after {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(-6px);
-}
-
-.markdown-body a > span[data-domain]:hover::before {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(3px);
-}
-
-:where(html.dark, .dark) .markdown-body a > span[data-domain]::after {
-  background-color: #30363d;
-  color: #e6edf3;
-  border: 1px solid #444c56;
-}
-
-:where(html.dark, .dark) .markdown-body a > span[data-domain]::before {
-  border-top-color: #444c56; /* Match border/bg of dark tooltip */
-}
-
-/* Lists */
-.markdown-body ul,
-.markdown-body ol {
-  padding-left: 2em;
-}
-
-.markdown-body ul {
-  list-style-type: disc;
-}
-.markdown-body ol {
-  list-style-type: decimal;
-}
-
-.markdown-body li {
-  margin-top: 0.25em;
-}
-.markdown-body li > p {
-  margin-top: 0.5em;
-  margin-bottom: 0;
-}
-.markdown-body li + li {
-  margin-top: 0.25em;
-}
-
-.markdown-body li > .contains-task-list {
-  margin-top: 0;
-}
-
-/* Blockquotes */
-.markdown-body blockquote {
-  padding: 0 1em;
-  color: var(--md-blockquote-fg);
-  border-left: 0.25em solid var(--md-blockquote-border);
-  margin: 0 0 1em 0;
-}
-
-.markdown-body blockquote > :first-child {
-  margin-top: 0;
-}
-.markdown-body blockquote > :last-child {
-  margin-bottom: 0;
-}
-
-/* Tables */
-.markdown-body table {
-  display: block;
-  width: max-content;
-  max-width: 100%;
-  overflow: auto;
-  border-spacing: 0;
-  border-collapse: collapse;
-  margin-bottom: 1em;
-}
-
-.markdown-body table th,
-.markdown-body table td {
-  padding: 0.4em 0.8em;
-  border: 1px solid var(--md-border);
-}
-
-.markdown-body table th {
-  font-weight: 600;
-  background-color: var(--md-table-tr-2n-bg);
-}
-
-.markdown-body table tr {
-  background-color: var(--md-table-tr-bg);
-  border-top: 1px solid var(--md-border);
-}
-
-.markdown-body table tr:nth-child(2n) {
-  background-color: var(--md-table-tr-2n-bg);
-}
-
-/* Horizontal Rules */
-.markdown-body hr {
-  height: 0.25em;
-  padding: 0;
-  margin: 1.5em 0;
-  background-color: var(--md-hr-bg);
-  border: 0;
-}
-
-/* Images */
-.markdown-body img {
-  max-width: 100%;
-  box-sizing: content-box;
-  background-color: transparent;
-}
-
-.markdown-body .md-img-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  margin: 1.5em 2em;
-}
-
-@media (max-width: 767px) {
-  .markdown-body .md-img-container {
-    margin: 1.5em 1em;
+  /* Domain Tooltip */
+  .markdown-body a > span[data-domain]:not(:where([data-solid-island] *)) {
+    position: relative;
   }
-}
 
-.markdown-body .md-img-container::after {
-  content: attr(data-caption);
-  display: block;
-  margin-top: 0.5em;
-  font-size: 0.85em;
-  color: var(--md-blockquote-fg);
-  /* simulate `font-style: italic` */
-  /* it has some problem in Firefox when display emoji */
-  font-style: normal;
-  transform: skewX(-8deg);
-  transform-origin: center;
-}
-
-.markdown-body .md-img-container[data-caption=""]::after {
-  display: none;
-}
-
-/* Code */
-.markdown-body code:not(pre code) {
-  padding: 0 0.4ch 0 0;
-  margin: 0 0.1em;
-  font-size: 85%;
-  font-family: var(--font-mono);
-  font-weight: var(--md-code-font-weight);
-  border-bottom: 1px solid var(--md-syntax-fg);
-}
-
-.markdown-body.is-decorated code:not(pre code)::before,
-.markdown-body.is-decorated code:not(pre code)::after {
-  content: "`";
-  color: var(--md-syntax-fg);
-  font-size: 0.9em;
-  user-select: none;
-  display: inline-block;
-  width: 0.6ch;
-  overflow: hidden;
-  text-align: center;
-  vertical-align: 0.12em;
-  position: relative;
-  z-index: 1;
-}
-
-.markdown-body.is-decorated code:not(pre code)::before {
-  margin-left: 0.2ch;
-  margin-right: 0.4ch;
-}
-
-.markdown-body.is-decorated code:not(pre code)::after {
-  margin-left: 0;
-  margin-right: 0.2ch;
-}
-
-.markdown-body pre {
-  padding: 1em;
-  overflow: auto;
-  font-size: 85%;
-  line-height: 1.45;
-  background-color: var(--md-pre-bg);
-  border-radius: 6px;
-  margin-bottom: 1em;
-}
-
-.markdown-body.is-decorated pre[data-language]::before,
-.markdown-body.is-decorated pre[data-language]::after {
-  display: block;
-  color: var(--md-syntax-fg);
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-  user-select: none;
-  opacity: 0.6;
-}
-
-:where(html.dark, .dark) .markdown-body.is-decorated pre[data-language]::before,
-:where(html.dark, .dark) .markdown-body.is-decorated pre[data-language]::after {
-  color: var(--syn-comment);
-  opacity: 0.8;
-}
-
-.markdown-body.is-decorated pre[data-language]::before {
-  /* Using attr(data-language) to dynamically show the language.
-     Ensure adds data-language to the <pre> tag. */
-  content: "```" attr(data-language);
-  margin-bottom: 0.5em;
-}
-
-.markdown-body.is-decorated pre[data-language]::after {
-  content: "```";
-  margin-top: 0.5em;
-}
-
-.markdown-body pre code {
-  display: inline;
-  max-width: none;
-  padding: 0;
-  margin: 0;
-  overflow: visible;
-  line-height: inherit;
-  word-wrap: normal;
-  background-color: transparent;
-  border: 0;
-  font-family: var(--font-mono);
-  font-weight: var(--md-code-font-weight);
-}
-
-/* Footnotes */
-.markdown-body .footnotes {
-  font-size: 0.85em;
-  color: var(--md-blockquote-fg);
-  border-top: 1px solid var(--md-border);
-  margin-top: 2em;
-  padding-top: 1em;
-}
-
-.markdown-body .footnotes-sep {
-  display: none;
-}
-
-.markdown-body .footnotes ol {
-  padding-left: 1.5em;
-}
-
-.markdown-body .footnote-item {
-  margin-bottom: 0.5em;
-}
-
-.markdown-body .footnote-item p {
-  display: inline;
-  margin-bottom: 0;
-}
-
-.markdown-body .footnote-ref {
-  font-size: 0.75em;
-  vertical-align: super;
-  line-height: 0;
-  margin-left: 2px;
-}
-
-.markdown-body.is-decorated .footnote-ref a::before,
-.markdown-body.is-decorated .footnote-ref a::after,
-.markdown-body.is-decorated .footnote-backref::before,
-.markdown-body.is-decorated .footnote-backref::after {
-  content: none;
-}
-
-.markdown-body .footnote-backref {
-  display: inline-block;
-  margin-left: 4px;
-  vertical-align: middle;
-}
-
-/* Syntect Syntax Highlighting Colors */
-.syntect-comment {
-  color: var(--syn-comment);
-}
-.syntect-comment.syntect-punctuation {
-  /* Ensure comment color wins over punctuation if both are present */
-  color: var(--syn-comment);
-}
-.syntect-keyword,
-.syntect-storage {
-  color: var(--syn-keyword);
-}
-.syntect-keyword.syntect-operator.syntect-optional {
-  /* Solving the problem of connected text spanning span tags */
-  font-variant-ligatures: no-contextual;
-}
-.syntect-string {
-  color: var(--syn-string);
-}
-.syntect-entity.syntect-name.syntect-function {
-  color: var(--syn-function);
-}
-.syntect-variable.syntect-function,
-.syntect-support.syntect-class,
-.syntect-entity.syntect-name:is(
-    .syntect-class,
-    .syntect-struct,
-    .syntect-enum,
-    .syntect-trait,
-    .syntect-type,
-    .syntect-interface,
-    .syntect-namespace,
-    .syntect-impl
-  ) {
-  color: var(--syn-function);
-}
-.syntect-entity.syntect-other.syntect-attribute-name {
-  color: var(--syn-function);
-}
-.syntect-entity.syntect-other:is(.syntect-pseudo-class, .syntect-pseudo-element) {
-  color: var(--syn-function);
-}
-.syntect-support.syntect-function,
-.syntect-macro {
-  color: var(--syn-function);
-}
-.syntect-constant {
-  color: var(--syn-constant);
-}
-.syntect-support.syntect-type {
-  color: var(--syn-constant);
-}
-.syntect-meta.syntect-property-name.syntect-css {
-  color: var(--syn-variable);
-}
-.syntect-meta.syntect-property-name.syntect-css .syntect-support.syntect-type {
-  color: inherit;
-}
-.syntect-keyword.syntect-other.syntect-unit {
-  color: var(--syn-constant);
-}
-.syntect-entity.syntect-name.syntect-tag {
-  color: var(--syn-entity);
-}
-.syntect-entity.syntect-name.syntect-table,
-.syntect-meta.syntect-mapping.syntect-key > .syntect-string {
-  color: var(--syn-entity);
-}
-.syntect-variable {
-  color: var(--syn-variable);
-}
-.syntect-punctuation {
-  color: var(--syn-punctuation);
-}
-.syntect-regexp,
-.syntect-markup.syntect-raw {
-  color: var(--syn-string);
-}
-.syntect-markup.syntect-heading {
-  color: var(--syn-function);
-  font-weight: 600;
-}
-.syntect-markup.syntect-bold {
-  font-weight: 600;
-}
-.syntect-markup.syntect-italic {
-  font-style: italic;
-}
-.syntect-markup.syntect-underline.syntect-link {
-  color: var(--syn-constant);
-  text-decoration: underline;
-}
-.syntect-markup.syntect-inserted,
-.syntect-punctuation.syntect-inserted {
-  color: var(--syn-entity);
-}
-.syntect-markup.syntect-deleted,
-.syntect-punctuation.syntect-deleted {
-  color: var(--syn-keyword);
-}
-.syntect-markup.syntect-changed,
-.syntect-punctuation.syntect-changed {
-  color: var(--syn-constant);
-}
-.syntect-meta.syntect-range.syntect-diff,
-.syntect-punctuation.syntect-range.syntect-diff {
-  color: var(--syn-function);
-}
-
-/* --- layout --- */
-.markdown-body--poem {
-  line-height: 1.9;
-  letter-spacing: 0.02em;
-}
-
-.markdown-body--poem p {
-  max-width: 42rem;
-  margin: auto auto 1.8em;
-  text-align: center;
-}
-
-.markdown-body--poem h1,
-.markdown-body--poem h2,
-.markdown-body--poem h3 {
-  border-bottom: 0;
-  text-align: center;
-  font-weight: 700;
-}
-
-.markdown-body--poem blockquote {
-  border-left: 0;
-  padding-left: 0;
-  text-align: center;
-  color: var(--md-fg);
-}
-
-/* --- Other styles --- */
-
-/* Mask layer lifted on mouseover ("黑幕" in Chinese) */
-.markdown-body .heimu {
-  border-radius: 0.125rem;
-  padding: 0.125rem;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  color: #000;
-  background: #000;
-  /* force overwrite */
-  filter: brightness(0);
-}
-
-.markdown-body .heimu:hover,
-.markdown-body .heimu:active {
-  color: inherit;
-  background: transparent;
-  filter: none;
-}
-
-/* Image zoom */
-.markdown-body img {
-  transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
-}
-
-.markdown-body img.is-zoomable {
-  cursor: zoom-in;
-}
-
-.markdown-body:has(img.is-zoomed) {
-  backdrop-filter: none !important;
-}
-
-.markdown-body img.is-zoomed {
-  cursor: zoom-out;
-  position: relative;
-  z-index: 1001;
-  background-color: var(--md-bg);
-}
-
-#zoom-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s;
-  z-index: 1000;
-}
-
-#zoom-overlay.is-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Task lists */
-.markdown-body .contains-task-list {
-  padding-left: 0;
-  list-style-type: none;
-}
-
-.markdown-body .contains-task-list .contains-task-list {
-  padding-left: 1.6em;
-}
-
-.markdown-body .task-list-item {
-  display: flex;
-  align-items: flex-start;
-  margin-top: 0.25em;
-}
-
-.markdown-body .task-list-item + .task-list-item {
-  margin-top: 0.25em;
-}
-
-.markdown-body .task-list-item-checkbox {
-  margin: 0.35em 0.5ch 0 0.2em;
-  flex-shrink: 0;
-  cursor: default;
-}
-
-/* Completed task style */
-.markdown-body .task-list-item:has(input:checked) {
-  color: var(--md-blockquote-fg);
-  text-decoration: line-through;
-  text-decoration-color: var(--md-border);
-}
-
-.markdown-body .task-list-item:has(input:checked) a {
-  text-decoration-line: line-through;
-  text-decoration-color: var(--md-border);
-}
-
-/* terminal */
-.markdown-body .terminal {
-  overflow: hidden;
-  margin-block: 1em;
-  border: 1px solid var(--md-border);
-  border-radius: 8px;
-  background: var(--md-pre-bg);
-}
-
-.markdown-body .terminal-title {
-  padding: 0.55rem 1rem;
-  border-bottom: 1px solid var(--md-border);
-  color: var(--syn-comment);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-}
-
-.markdown-body .terminal pre {
-  padding: 0.3rem 1rem;
-  margin: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.markdown-body .terminal pre:first-of-type {
-  padding-top: 1rem;
-}
-
-.markdown-body .terminal pre:last-of-type {
-  padding-bottom: 1rem;
-}
-
-.markdown-body.is-decorated .terminal pre::before,
-.markdown-body.is-decorated .terminal pre::after {
-  display: none;
-  content: none;
-  margin: 0;
-}
-
-.markdown-body.is-decorated
-  .terminal
-  pre:is(
-    [data-language="command"],
-    [data-language="bash"],
-    [data-language="sh"],
-    [data-language="zsh"],
-    [data-language="fish"]
-  )::before {
-  display: inline;
-  content: var(--terminal-prompt, "$ ");
-  color: var(--syn-variable);
-  opacity: 1;
-}
-
-.markdown-body
-  .terminal
-  pre:is(
-    [data-language="bash"],
-    [data-language="sh"],
-    [data-language="zsh"],
-    [data-language="fish"]
-  )
-  .syntect-meta.syntect-function-call
-  > .syntect-function {
-  color: var(--terminal-command);
-}
-
-.markdown-body .terminal pre[data-language="error"] {
-  color: #f87171;
-}
-
-/* Code expansion */
-.markdown-body .code-expander {
-  overflow: hidden;
-  position: relative;
-  margin-bottom: 1em;
-  border-radius: 6px;
-  background: var(--md-pre-bg);
-}
-
-.markdown-body .code-expander--terminal {
-  border: 1px solid var(--md-border);
-  border-radius: 8px;
-}
-
-.markdown-body .code-expander__viewport {
-  position: relative;
-}
-
-.markdown-body .code-expander.is-collapsed .code-expander__viewport {
-  overflow: hidden;
-  /* this set by js */
-  max-height: var(--code-preview-height);
-}
-
-.markdown-body .code-expander.is-collapsed .code-expander__viewport::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2.5rem;
-  pointer-events: none;
-  /* -1px, avoid last pixel transparent */
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--md-pre-bg) calc(100% - 1px),
-    var(--md-pre-bg)
-  );
-}
-
-.markdown-body .code-expander__viewport > pre,
-.markdown-body .code-expander__viewport > .terminal {
-  margin: 0;
-  border-radius: 0;
-}
-
-.markdown-body .code-expander__viewport > .terminal {
-  border: 0;
-}
-
-.markdown-body .code-expander__toggle {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.55rem 1rem;
-  border: 0;
-  border-top: 1px solid var(--md-border);
-  color: var(--md-link);
-  background: var(--md-pre-bg);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background-color 0.1s;
-}
-
-.markdown-body .code-expander__toggle::after {
-  content: "↑";
-}
-
-.markdown-body .code-expander.is-collapsed .code-expander__toggle::after {
-  content: "↓";
-}
-
-.markdown-body .code-expander__toggle:hover {
-  background: var(--md-code-bg);
-}
-
-.markdown-body .code-expander__toggle:focus-visible {
-  outline: 2px solid var(--md-link);
-  outline-offset: -2px;
-}
-
-/* Spoiler */
-.markdown-body details.spoiler {
-  overflow: hidden;
-  margin-block: 1em;
-  padding-inline: 1rem;
-  border: 1px solid var(--md-border);
-  border-radius: 8px;
-  background: var(--md-pre-bg);
-}
-
-.markdown-body details.spoiler > summary {
-  display: flex;
-  align-items: baseline;
-  gap: 0.65em;
-  list-style: none;
-  margin-inline: -1rem;
-  padding: 0.55rem 1rem;
-  color: var(--md-fg);
-  /* LXGW Wenkai has a poor readability in small size */
-  /* Maple Mono may fallback to a fuzzy font when display Chinese */
-  /* tall browser use the system UI font */
-  font-family: system-ui, sans-serif;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 180ms ease;
-}
-
-.markdown-body details.spoiler > summary::before {
-  content: "";
-  flex: none;
-  width: 0.6em;
-  height: 0.7em;
-  background: currentColor;
-  clip-path: polygon(15% 0, 100% 50%, 15% 100%);
-  transform: rotate(0deg);
-  transition: transform 180ms ease;
-}
-
-.markdown-body details.spoiler[open] > summary::before {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .markdown-body details.spoiler > summary,
-  .markdown-body details.spoiler > summary::before {
-    transition: none;
+  .markdown-body a > span[data-domain]:not(:where([data-solid-island] *))::after {
+    content: attr(data-domain);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-2px);
+
+    font-family: var(--font-mono);
+    font-size: 0.75em;
+    font-weight: var(--md-code-font-weight);
+    line-height: 1;
+
+    /* High contrast theme */
+    color: #ffffff;
+    background-color: #24292f;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+
+    pointer-events: none;
+    text-decoration: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
   }
-}
 
-.markdown-body details.spoiler > summary:hover {
-  background: var(--md-spoiler-hover-bg);
-}
+  /* Tooltip Arrow */
+  .markdown-body a > span[data-domain]:not(:where([data-solid-island] *))::before {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(6px);
 
-.markdown-body details.spoiler > summary:focus-visible {
-  outline: 2px solid var(--md-link);
-  outline-offset: -2px;
-}
+    border: 5px solid transparent;
+    border-top-color: #24292f;
 
-.markdown-body details.spoiler[open] {
-  padding-bottom: 1rem;
-}
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
+    z-index: 100;
+  }
 
-.markdown-body details.spoiler[open] > summary {
-  margin-bottom: 1rem;
-  border-bottom: 1px solid var(--md-border);
-}
+  /* tooltip may expand the container in mobile device */
+  @media (hover: none), (pointer: coarse) {
+    .markdown-body a > span[data-domain]:not(:where([data-solid-island] *))::before,
+    .markdown-body a > span[data-domain]:not(:where([data-solid-island] *))::after {
+      content: none;
+    }
+  }
 
-.markdown-body details.spoiler > summary + * {
-  margin-top: 0;
-}
+  .markdown-body a > span[data-domain]:hover:not(:where([data-solid-island] *))::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(-6px);
+  }
 
-.markdown-body details.spoiler > :last-child {
-  margin-bottom: 0;
+  .markdown-body a > span[data-domain]:hover:not(:where([data-solid-island] *))::before {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(3px);
+  }
+
+  :where(html.dark, .dark)
+    .markdown-body
+    a
+    > span[data-domain]:not(:where([data-solid-island] *))::after {
+    background-color: #30363d;
+    color: #e6edf3;
+    border: 1px solid #444c56;
+  }
+
+  :where(html.dark, .dark)
+    .markdown-body
+    a
+    > span[data-domain]:not(:where([data-solid-island] *))::before {
+    border-top-color: #444c56; /* Match border/bg of dark tooltip */
+  }
+
+  /* Lists */
+  .markdown-body ul:not(:where([data-solid-island] *)),
+  .markdown-body ol:not(:where([data-solid-island] *)) {
+    padding-left: 2em;
+  }
+
+  .markdown-body ul:not(:where([data-solid-island] *)) {
+    list-style-type: disc;
+  }
+  .markdown-body ol:not(:where([data-solid-island] *)) {
+    list-style-type: decimal;
+  }
+
+  .markdown-body li:not(:where([data-solid-island] *)) {
+    margin-top: 0.25em;
+  }
+  .markdown-body li > p:not(:where([data-solid-island] *)) {
+    margin-top: 0.5em;
+    margin-bottom: 0;
+  }
+  .markdown-body li + li:not(:where([data-solid-island] *)) {
+    margin-top: 0.25em;
+  }
+
+  .markdown-body li > .contains-task-list:not(:where([data-solid-island] *)) {
+    margin-top: 0;
+  }
+
+  /* Blockquotes */
+  .markdown-body blockquote:not(:where([data-solid-island] *)) {
+    padding: 0 1em;
+    color: var(--md-blockquote-fg);
+    border-left: 0.25em solid var(--md-blockquote-border);
+    margin: 0 0 1em 0;
+  }
+
+  .markdown-body blockquote > :first-child:not(:where([data-solid-island] *)) {
+    margin-top: 0;
+  }
+  .markdown-body blockquote > :last-child:not(:where([data-solid-island] *)) {
+    margin-bottom: 0;
+  }
+
+  /* Tables */
+  .markdown-body table:not(:where([data-solid-island] *)) {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow: auto;
+    border-spacing: 0;
+    border-collapse: collapse;
+    margin-bottom: 1em;
+  }
+
+  .markdown-body table th:not(:where([data-solid-island] *)),
+  .markdown-body table td:not(:where([data-solid-island] *)) {
+    padding: 0.4em 0.8em;
+    border: 1px solid var(--md-border);
+  }
+
+  .markdown-body table th:not(:where([data-solid-island] *)) {
+    font-weight: 600;
+    background-color: var(--md-table-tr-2n-bg);
+  }
+
+  .markdown-body table tr:not(:where([data-solid-island] *)) {
+    background-color: var(--md-table-tr-bg);
+    border-top: 1px solid var(--md-border);
+  }
+
+  .markdown-body table tr:nth-child(2n):not(:where([data-solid-island] *)) {
+    background-color: var(--md-table-tr-2n-bg);
+  }
+
+  /* Horizontal Rules */
+  .markdown-body hr:not(:where([data-solid-island] *)) {
+    height: 0.25em;
+    padding: 0;
+    margin: 1.5em 0;
+    background-color: var(--md-hr-bg);
+    border: 0;
+  }
+
+  /* Images */
+  .markdown-body img:not(:where([data-solid-island] *)) {
+    max-width: 100%;
+    box-sizing: content-box;
+    background-color: transparent;
+  }
+
+  .markdown-body .md-img-container:not(:where([data-solid-island] *)) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 1.5em 2em;
+  }
+
+  @media (max-width: 767px) {
+    .markdown-body .md-img-container:not(:where([data-solid-island] *)) {
+      margin: 1.5em 1em;
+    }
+  }
+
+  .markdown-body .md-img-container:not(:where([data-solid-island] *))::after {
+    content: attr(data-caption);
+    display: block;
+    margin-top: 0.5em;
+    font-size: 0.85em;
+    color: var(--md-blockquote-fg);
+    /* simulate `font-style: italic` */
+    /* it has some problem in Firefox when display emoji */
+    font-style: normal;
+    transform: skewX(-8deg);
+    transform-origin: center;
+  }
+
+  .markdown-body .md-img-container[data-caption=""]:not(:where([data-solid-island] *))::after {
+    display: none;
+  }
+
+  /* Code */
+  .markdown-body code:not(pre code):not(:where([data-solid-island] *)) {
+    padding: 0 0.4ch 0 0;
+    margin: 0 0.1em;
+    font-size: 85%;
+    font-family: var(--font-mono);
+    font-weight: var(--md-code-font-weight);
+    border-bottom: 1px solid var(--md-syntax-fg);
+  }
+
+  .markdown-body.is-decorated code:not(pre code):not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated code:not(pre code):not(:where([data-solid-island] *))::after {
+    content: "`";
+    color: var(--md-syntax-fg);
+    font-size: 0.9em;
+    user-select: none;
+    display: inline-block;
+    width: 0.6ch;
+    overflow: hidden;
+    text-align: center;
+    vertical-align: 0.12em;
+    position: relative;
+    z-index: 1;
+  }
+
+  .markdown-body.is-decorated code:not(pre code):not(:where([data-solid-island] *))::before {
+    margin-left: 0.2ch;
+    margin-right: 0.4ch;
+  }
+
+  .markdown-body.is-decorated code:not(pre code):not(:where([data-solid-island] *))::after {
+    margin-left: 0;
+    margin-right: 0.2ch;
+  }
+
+  .markdown-body pre:not(:where([data-solid-island] *)) {
+    padding: 1em;
+    overflow: auto;
+    font-size: 85%;
+    line-height: 1.45;
+    background-color: var(--md-pre-bg);
+    border-radius: 6px;
+    margin-bottom: 1em;
+  }
+
+  .markdown-body.is-decorated pre[data-language]:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated pre[data-language]:not(:where([data-solid-island] *))::after {
+    display: block;
+    color: var(--md-syntax-fg);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    user-select: none;
+    opacity: 0.6;
+  }
+
+  :where(html.dark, .dark)
+    .markdown-body.is-decorated
+    pre[data-language]:not(:where([data-solid-island] *))::before,
+  :where(html.dark, .dark)
+    .markdown-body.is-decorated
+    pre[data-language]:not(:where([data-solid-island] *))::after {
+    color: var(--syn-comment);
+    opacity: 0.8;
+  }
+
+  .markdown-body.is-decorated pre[data-language]:not(:where([data-solid-island] *))::before {
+    /* Using attr(data-language) to dynamically show the language.
+       Ensure adds data-language to the <pre> tag. */
+    content: "```" attr(data-language);
+    margin-bottom: 0.5em;
+  }
+
+  .markdown-body.is-decorated pre[data-language]:not(:where([data-solid-island] *))::after {
+    content: "```";
+    margin-top: 0.5em;
+  }
+
+  .markdown-body pre code:not(:where([data-solid-island] *)) {
+    display: inline;
+    max-width: none;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    line-height: inherit;
+    word-wrap: normal;
+    background-color: transparent;
+    border: 0;
+    font-family: var(--font-mono);
+    font-weight: var(--md-code-font-weight);
+  }
+
+  /* Footnotes */
+  .markdown-body .footnotes:not(:where([data-solid-island] *)) {
+    font-size: 0.85em;
+    color: var(--md-blockquote-fg);
+    border-top: 1px solid var(--md-border);
+    margin-top: 2em;
+    padding-top: 1em;
+  }
+
+  .markdown-body .footnotes-sep:not(:where([data-solid-island] *)) {
+    display: none;
+  }
+
+  .markdown-body .footnotes ol:not(:where([data-solid-island] *)) {
+    padding-left: 1.5em;
+  }
+
+  .markdown-body .footnote-item:not(:where([data-solid-island] *)) {
+    margin-bottom: 0.5em;
+  }
+
+  .markdown-body .footnote-item p:not(:where([data-solid-island] *)) {
+    display: inline;
+    margin-bottom: 0;
+  }
+
+  .markdown-body .footnote-ref:not(:where([data-solid-island] *)) {
+    font-size: 0.75em;
+    vertical-align: super;
+    line-height: 0;
+    margin-left: 2px;
+  }
+
+  .markdown-body.is-decorated .footnote-ref a:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated .footnote-ref a:not(:where([data-solid-island] *))::after,
+  .markdown-body.is-decorated .footnote-backref:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated .footnote-backref:not(:where([data-solid-island] *))::after {
+    content: none;
+  }
+
+  .markdown-body .footnote-backref:not(:where([data-solid-island] *)) {
+    display: inline-block;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  /* Syntect Syntax Highlighting Colors */
+  .syntect-comment {
+    color: var(--syn-comment);
+  }
+  .syntect-comment.syntect-punctuation {
+    /* Ensure comment color wins over punctuation if both are present */
+    color: var(--syn-comment);
+  }
+  .syntect-keyword,
+  .syntect-storage {
+    color: var(--syn-keyword);
+  }
+  .syntect-keyword.syntect-operator.syntect-optional {
+    /* Solving the problem of connected text spanning span tags */
+    font-variant-ligatures: no-contextual;
+  }
+  .syntect-string {
+    color: var(--syn-string);
+  }
+  .syntect-entity.syntect-name.syntect-function {
+    color: var(--syn-function);
+  }
+  .syntect-variable.syntect-function,
+  .syntect-support.syntect-class,
+  .syntect-entity.syntect-name:is(
+      .syntect-class,
+      .syntect-struct,
+      .syntect-enum,
+      .syntect-trait,
+      .syntect-type,
+      .syntect-interface,
+      .syntect-namespace,
+      .syntect-impl
+    ) {
+    color: var(--syn-function);
+  }
+  .syntect-entity.syntect-other.syntect-attribute-name {
+    color: var(--syn-function);
+  }
+  .syntect-entity.syntect-other:is(.syntect-pseudo-class, .syntect-pseudo-element) {
+    color: var(--syn-function);
+  }
+  .syntect-support.syntect-function,
+  .syntect-macro {
+    color: var(--syn-function);
+  }
+  .syntect-constant {
+    color: var(--syn-constant);
+  }
+  .syntect-support.syntect-type {
+    color: var(--syn-constant);
+  }
+  .syntect-meta.syntect-property-name.syntect-css {
+    color: var(--syn-variable);
+  }
+  .syntect-meta.syntect-property-name.syntect-css .syntect-support.syntect-type {
+    color: inherit;
+  }
+  .syntect-keyword.syntect-other.syntect-unit {
+    color: var(--syn-constant);
+  }
+  .syntect-entity.syntect-name.syntect-tag {
+    color: var(--syn-entity);
+  }
+  .syntect-entity.syntect-name.syntect-table,
+  .syntect-meta.syntect-mapping.syntect-key > .syntect-string {
+    color: var(--syn-entity);
+  }
+  .syntect-variable {
+    color: var(--syn-variable);
+  }
+  .syntect-punctuation {
+    color: var(--syn-punctuation);
+  }
+  .syntect-regexp,
+  .syntect-markup.syntect-raw {
+    color: var(--syn-string);
+  }
+  .syntect-markup.syntect-heading {
+    color: var(--syn-function);
+    font-weight: 600;
+  }
+  .syntect-markup.syntect-bold {
+    font-weight: 600;
+  }
+  .syntect-markup.syntect-italic {
+    font-style: italic;
+  }
+  .syntect-markup.syntect-underline.syntect-link {
+    color: var(--syn-constant);
+    text-decoration: underline;
+  }
+  .syntect-markup.syntect-inserted,
+  .syntect-punctuation.syntect-inserted {
+    color: var(--syn-entity);
+  }
+  .syntect-markup.syntect-deleted,
+  .syntect-punctuation.syntect-deleted {
+    color: var(--syn-keyword);
+  }
+  .syntect-markup.syntect-changed,
+  .syntect-punctuation.syntect-changed {
+    color: var(--syn-constant);
+  }
+  .syntect-meta.syntect-range.syntect-diff,
+  .syntect-punctuation.syntect-range.syntect-diff {
+    color: var(--syn-function);
+  }
+
+  /* --- layout --- */
+  .markdown-body--poem {
+    line-height: 1.9;
+    letter-spacing: 0.02em;
+  }
+
+  .markdown-body--poem p:not(:where([data-solid-island] *)) {
+    max-width: 42rem;
+    margin: auto auto 1.8em;
+    text-align: center;
+  }
+
+  .markdown-body--poem h1:not(:where([data-solid-island] *)),
+  .markdown-body--poem h2:not(:where([data-solid-island] *)),
+  .markdown-body--poem h3:not(:where([data-solid-island] *)) {
+    border-bottom: 0;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .markdown-body--poem blockquote:not(:where([data-solid-island] *)) {
+    border-left: 0;
+    padding-left: 0;
+    text-align: center;
+    color: var(--md-fg);
+  }
+
+  /* --- Other styles --- */
+
+  /* Mask layer lifted on mouseover ("黑幕" in Chinese) */
+  .markdown-body .heimu:not(:where([data-solid-island] *)) {
+    border-radius: 0.125rem;
+    padding: 0.125rem;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    color: #000;
+    background: #000;
+    /* force overwrite */
+    filter: brightness(0);
+  }
+
+  .markdown-body .heimu:hover:not(:where([data-solid-island] *)),
+  .markdown-body .heimu:active:not(:where([data-solid-island] *)) {
+    color: inherit;
+    background: transparent;
+    filter: none;
+  }
+
+  /* Image zoom */
+  .markdown-body img:not(:where([data-solid-island] *)) {
+    transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .markdown-body img.is-zoomable:not(:where([data-solid-island] *)) {
+    cursor: zoom-in;
+  }
+
+  .markdown-body:has(img.is-zoomed) {
+    backdrop-filter: none !important;
+  }
+
+  .markdown-body img.is-zoomed:not(:where([data-solid-island] *)) {
+    cursor: zoom-out;
+    position: relative;
+    z-index: 1001;
+    background-color: var(--md-bg);
+  }
+
+  #zoom-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 1000;
+  }
+
+  #zoom-overlay.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Task lists */
+  .markdown-body .contains-task-list:not(:where([data-solid-island] *)) {
+    padding-left: 0;
+    list-style-type: none;
+  }
+
+  .markdown-body .contains-task-list .contains-task-list:not(:where([data-solid-island] *)) {
+    padding-left: 1.6em;
+  }
+
+  .markdown-body .task-list-item:not(:where([data-solid-island] *)) {
+    display: flex;
+    align-items: flex-start;
+    margin-top: 0.25em;
+  }
+
+  .markdown-body .task-list-item + .task-list-item:not(:where([data-solid-island] *)) {
+    margin-top: 0.25em;
+  }
+
+  .markdown-body .task-list-item-checkbox:not(:where([data-solid-island] *)) {
+    margin: 0.35em 0.5ch 0 0.2em;
+    flex-shrink: 0;
+    cursor: default;
+  }
+
+  /* Completed task style */
+  .markdown-body .task-list-item:has(input:checked):not(:where([data-solid-island] *)) {
+    color: var(--md-blockquote-fg);
+    text-decoration: line-through;
+    text-decoration-color: var(--md-border);
+  }
+
+  .markdown-body .task-list-item:has(input:checked) a:not(:where([data-solid-island] *)) {
+    text-decoration-line: line-through;
+    text-decoration-color: var(--md-border);
+  }
+
+  /* terminal */
+  .markdown-body .terminal:not(:where([data-solid-island] *)) {
+    overflow: hidden;
+    margin-block: 1em;
+    border: 1px solid var(--md-border);
+    border-radius: 8px;
+    background: var(--md-pre-bg);
+  }
+
+  .markdown-body .terminal-title:not(:where([data-solid-island] *)) {
+    padding: 0.55rem 1rem;
+    border-bottom: 1px solid var(--md-border);
+    color: var(--syn-comment);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+  }
+
+  .markdown-body .terminal pre:not(:where([data-solid-island] *)) {
+    padding: 0.3rem 1rem;
+    margin: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .markdown-body .terminal pre:first-of-type:not(:where([data-solid-island] *)) {
+    padding-top: 1rem;
+  }
+
+  .markdown-body .terminal pre:last-of-type:not(:where([data-solid-island] *)) {
+    padding-bottom: 1rem;
+  }
+
+  .markdown-body.is-decorated .terminal pre:not(:where([data-solid-island] *))::before,
+  .markdown-body.is-decorated .terminal pre:not(:where([data-solid-island] *))::after {
+    display: none;
+    content: none;
+    margin: 0;
+  }
+
+  .markdown-body.is-decorated
+    .terminal
+    pre:is(
+      [data-language="command"],
+      [data-language="bash"],
+      [data-language="sh"],
+      [data-language="zsh"],
+      [data-language="fish"]
+    ):not(:where([data-solid-island] *))::before {
+    display: inline;
+    content: var(--terminal-prompt, "$ ");
+    color: var(--syn-variable);
+    opacity: 1;
+  }
+
+  .markdown-body
+    .terminal
+    pre:is(
+      [data-language="bash"],
+      [data-language="sh"],
+      [data-language="zsh"],
+      [data-language="fish"]
+    )
+    .syntect-meta.syntect-function-call
+    > .syntect-function:not(:where([data-solid-island] *)) {
+    color: var(--terminal-command);
+  }
+
+  .markdown-body .terminal pre[data-language="error"]:not(:where([data-solid-island] *)) {
+    color: #f87171;
+  }
+
+  /* Code expansion */
+  .markdown-body .code-expander:not(:where([data-solid-island] *)) {
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 1em;
+    border-radius: 6px;
+    background: var(--md-pre-bg);
+  }
+
+  .markdown-body .code-expander--terminal:not(:where([data-solid-island] *)) {
+    border: 1px solid var(--md-border);
+    border-radius: 8px;
+  }
+
+  .markdown-body .code-expander__viewport:not(:where([data-solid-island] *)) {
+    position: relative;
+  }
+
+  .markdown-body
+    .code-expander.is-collapsed
+    .code-expander__viewport:not(:where([data-solid-island] *)) {
+    overflow: hidden;
+    /* this set by js */
+    max-height: var(--code-preview-height);
+  }
+
+  .markdown-body
+    .code-expander.is-collapsed
+    .code-expander__viewport:not(:where([data-solid-island] *))::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2.5rem;
+    pointer-events: none;
+    /* -1px, avoid last pixel transparent */
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      var(--md-pre-bg) calc(100% - 1px),
+      var(--md-pre-bg)
+    );
+  }
+
+  .markdown-body .code-expander__viewport > pre:not(:where([data-solid-island] *)),
+  .markdown-body .code-expander__viewport > .terminal:not(:where([data-solid-island] *)) {
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .markdown-body .code-expander__viewport > .terminal:not(:where([data-solid-island] *)) {
+    border: 0;
+  }
+
+  .markdown-body .code-expander__toggle:not(:where([data-solid-island] *)) {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1rem;
+    border: 0;
+    border-top: 1px solid var(--md-border);
+    color: var(--md-link);
+    background: var(--md-pre-bg);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background-color 0.1s;
+  }
+
+  .markdown-body .code-expander__toggle:not(:where([data-solid-island] *))::after {
+    content: "↑";
+  }
+
+  .markdown-body
+    .code-expander.is-collapsed
+    .code-expander__toggle:not(:where([data-solid-island] *))::after {
+    content: "↓";
+  }
+
+  .markdown-body .code-expander__toggle:hover:not(:where([data-solid-island] *)) {
+    background: var(--md-code-bg);
+  }
+
+  .markdown-body .code-expander__toggle:focus-visible:not(:where([data-solid-island] *)) {
+    outline: 2px solid var(--md-link);
+    outline-offset: -2px;
+  }
+
+  /* Spoiler */
+  .markdown-body details.spoiler:not(:where([data-solid-island] *)) {
+    overflow: hidden;
+    margin-block: 1em;
+    padding-inline: 1rem;
+    border: 1px solid var(--md-border);
+    border-radius: 8px;
+    background: var(--md-pre-bg);
+  }
+
+  .markdown-body details.spoiler > summary:not(:where([data-solid-island] *)) {
+    display: flex;
+    align-items: baseline;
+    gap: 0.65em;
+    list-style: none;
+    margin-inline: -1rem;
+    padding: 0.55rem 1rem;
+    color: var(--md-fg);
+    /* LXGW Wenkai has a poor readability in small size */
+    /* Maple Mono may fallback to a fuzzy font when display Chinese */
+    /* tall browser use the system UI font */
+    font-family: system-ui, sans-serif;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 180ms ease;
+  }
+
+  .markdown-body details.spoiler > summary:not(:where([data-solid-island] *))::before {
+    content: "";
+    flex: none;
+    width: 0.6em;
+    height: 0.7em;
+    background: currentColor;
+    clip-path: polygon(15% 0, 100% 50%, 15% 100%);
+    transform: rotate(0deg);
+    transition: transform 180ms ease;
+  }
+
+  .markdown-body details.spoiler[open] > summary:not(:where([data-solid-island] *))::before {
+    transform: rotate(90deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .markdown-body details.spoiler > summary:not(:where([data-solid-island] *)),
+    .markdown-body details.spoiler > summary:not(:where([data-solid-island] *))::before {
+      transition: none;
+    }
+  }
+
+  .markdown-body details.spoiler > summary:hover:not(:where([data-solid-island] *)) {
+    background: var(--md-spoiler-hover-bg);
+  }
+
+  .markdown-body details.spoiler > summary:focus-visible:not(:where([data-solid-island] *)) {
+    outline: 2px solid var(--md-link);
+    outline-offset: -2px;
+  }
+
+  .markdown-body details.spoiler[open]:not(:where([data-solid-island] *)) {
+    padding-bottom: 1rem;
+  }
+
+  .markdown-body details.spoiler[open] > summary:not(:where([data-solid-island] *)) {
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--md-border);
+  }
+
+  .markdown-body details.spoiler > summary + *:not(:where([data-solid-island] *)) {
+    margin-top: 0;
+  }
+
+  .markdown-body details.spoiler > :last-child:not(:where([data-solid-island] *)) {
+    margin-bottom: 0;
+  }
 }

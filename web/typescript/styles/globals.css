@@ -1,8 +1,9 @@
+@import "./layers.css";
 @import "tailwindcss" source(none);
 
-@import "./base.css";
-@import "./navbar.css";
-@import "./footer.css";
+@import "./layout.css" layer(components);
+@import "./navbar.css" layer(components);
+@import "./footer.css" layer(components);
 
 @source "../../../templates/";
 @source "../../../accounts/templates/";
