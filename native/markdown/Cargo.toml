@@ -13,7 +13,8 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 ammonia = "4.2"
 html-escape = "0.3"
-lol_html = "=3.0"
+html5ever = "0.40"
+lol_html = "3.0"
 markdown-it-rs = { path = "upstream", default-features = false, features = [
     "linkify",
     "syntect",

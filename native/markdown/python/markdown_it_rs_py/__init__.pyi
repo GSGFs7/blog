@@ -27,6 +27,7 @@ class RenderPlan:
 
 class MarkdownIt:
     def __init__(self) -> None: ...
+    def strip_markdown(self, src: str) -> str: ...
     def prepare(
         self,
         src: str,

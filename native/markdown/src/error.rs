@@ -10,6 +10,7 @@ pub(crate) enum MarkdownError {
     FrontmatterFloatsMustBeFinite,
     UnsupportedFrontmatterValue,
     RewriteFailed,
+    TextExtractionFailed,
 }
 
 impl MarkdownError {
@@ -34,6 +35,9 @@ impl MarkdownError {
                 PyValueError::new_err("unsupported frontmatter value")
             }
             MarkdownError::RewriteFailed => PyRuntimeError::new_err("markdown HTML rewrite failed"),
+            MarkdownError::TextExtractionFailed => {
+                PyRuntimeError::new_err("markdown text extraction failed")
+            }
         }
     }
 }

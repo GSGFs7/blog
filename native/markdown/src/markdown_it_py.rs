@@ -10,7 +10,8 @@ use markdown_it::plugins::cmark::inline::newline::Softbreak;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::builder::build;
+use crate::builder::{build, build_text};
+use crate::error::MarkdownError;
 use crate::frontmatter;
 use crate::image_optimizer::extract_checksum;
 use crate::types::PyRenderPlan;
@@ -18,6 +19,7 @@ use crate::types::PyRenderPlan;
 #[pyclass(name = "MarkdownIt")]
 pub(crate) struct PyMarkdownIt {
     inner: Arc<MarkdownIt>,
+    text_parser: MarkdownIt,
 }
 
 #[pymethods]
@@ -26,7 +28,14 @@ impl PyMarkdownIt {
     fn new() -> Self {
         Self {
             inner: Arc::new(build()),
+            text_parser: build_text(),
         }
+    }
+
+    fn strip_markdown(&self, py: Python<'_>, src: &str) -> PyResult<String> {
+        let src = src.to_owned();
+        py.detach(|| crate::text::extract(&self.text_parser.parse(&src)))
+            .map_err(|_| MarkdownError::TextExtractionFailed.into_pyerr())
     }
 
     #[pyo3(signature = (src, *, include_toc = false, include_frontmatter = false, image_picture_source_prefixes = Vec::new()))]

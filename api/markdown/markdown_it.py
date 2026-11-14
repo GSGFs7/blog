@@ -9,6 +9,9 @@ from .islands import music_placeholder
 class Markdown:
     md = MarkdownIt()
 
+    def strip_markdown(self, markdown: str) -> str:
+        return self.md.strip_markdown(markdown)
+
     def render(self, markdown: str) -> str:
         """markdown -> HTML"""
         plan = self.md.prepare(

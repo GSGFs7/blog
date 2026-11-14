@@ -1,0 +1,3 @@
+[toolchain]
+channel = "stable"  # ngihtly RA well report some fake error about PyO3
+components = ["rust-analyzer", "rust-src", "clippy", "rustfmt"]

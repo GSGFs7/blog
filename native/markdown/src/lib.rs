@@ -14,6 +14,7 @@ mod suffix;
 mod terminal;
 #[cfg(test)]
 mod test_support;
+mod text;
 pub(crate) mod types;
 mod utils;
 
