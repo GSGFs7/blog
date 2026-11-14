@@ -31,6 +31,7 @@ async function observePageFade(page: Page): Promise<void> {
 
 test("fades HTMX history cache misses", async ({ page }) => {
   await page.goto("/test");
+  await expect.poll(() => page.evaluate(() => "htmx" in window)).toBe(true);
   await navigateToAbout(page);
   await page.evaluate(() => sessionStorage.removeItem("htmx-history-cache"));
   await observePageFade(page);
