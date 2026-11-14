@@ -132,6 +132,29 @@ class TestPost(TestCase):
                 slug="123",
             )
 
+    def test_slug_is_normalized_on_save(self):
+        post = Post.objects.create(
+            title="normalize slug test",
+            content="normalize slug content",
+            slug="Hello World_test!!",
+        )
+        self.assertEqual(post.slug, "Hello-World-test")
+
+    def test_invalid_slug_falls_back_to_title(self):
+        post = Post.objects.create(
+            title="Fallback Title",
+            content="fallback slug content",
+            slug="!!!",
+        )
+        self.assertEqual(post.slug, "fallback-title")
+
+    def test_frontmatter_slug_is_normalized(self):
+        post = Post.objects.create(
+            title="frontmatter slug test",
+            content="---\nslug: Custom Slug\n---\ncontent",
+        )
+        self.assertEqual(post.slug, "Custom-Slug")
+
     def test_unpublished_post_not_in_api(self):
         draft = Post.objects.create(
             title="draft post",

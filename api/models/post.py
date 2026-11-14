@@ -7,7 +7,7 @@ from django.utils.translation import gettext_lazy
 from pgvector.django import HnswIndex, VectorField
 
 from api.constants import POST_RESERVED_SLUGS
-from api.utils import chinese_slugify, extract_metadata
+from api.utils import chinese_slugify, extract_metadata, normalize_slug
 
 from .base import BaseModel
 from .category import Category
@@ -128,8 +128,8 @@ class Post(BaseModel):
             self.title = post_metadata.get("title") or ""
 
         # === slug ===
-        if not self.slug:
-            self.slug = post_metadata.get("slug")
+        slug = self.slug or post_metadata.get("slug")
+        self.slug = normalize_slug(str(slug)) if slug else ""
         if not self.slug and self.title:
             self.slug = chinese_slugify(self.title)
         if self.slug in POST_RESERVED_SLUGS:

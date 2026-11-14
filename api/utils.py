@@ -1,12 +1,13 @@
 import copy
 import hashlib
-import html
 import re
 from functools import wraps
 from typing import Any, Dict, List, Optional, TypedDict
 
-import yaml
 from django.utils.text import Truncator
+from markdown_it_rs_py import MarkdownIt
+
+_MARKDOWN = MarkdownIt()
 
 
 class MetadataResult(TypedDict):
@@ -21,161 +22,12 @@ class MetadataResult(TypedDict):
     layout: Optional[str]
 
 
-def remove_html_tags(text: str) -> str:
-    """
-    Remove HTML tags from a string.
-
-    Args:
-        text (str): The input string containing HTML tags.
-
-    Returns:
-        str: The input string with HTML tags removed.
-    """
-    # Remove script and style tags with their content
-    text = re.sub(
-        r"<script[^>]*>[\s\S]*?</\s*script[^>]*>", "", text, flags=re.IGNORECASE
-    )
-    text = re.sub(
-        r"<style[^>]*>[\s\S]*?</\s*style[^>]*>", "", text, flags=re.IGNORECASE
-    )
-
-    # Remove HTML comments
-    text = re.sub(r"<!--[\s\S]*?-->", "", text)
-
-    # Remove CDATA sections
-    text = re.sub(r"<!\[CDATA\[[\s\S]*?]]>", "", text)
-
-    # Remove DOCTYPE declarations
-    text = re.sub(r"<!DOCTYPE[^>]*>", "", text, flags=re.IGNORECASE)
-
-    # Remove all other HTML tags (including self-closing tags)
-    text = re.sub(r"<[^>]+>", "", text)
-
-    return text
-
-
-def remove_markdown(text: str) -> str:
-    """
-    Remove Markdown syntax from a string.
-
-    Args:
-        text (str): The input string containing Markdown syntax.
-
-    Returns:
-        str: The input string with Markdown syntax removed.
-    """
-    # Remove front matter first (to avoid interfering with other patterns)
-    text = re.sub(r"^---\s*\n(.*?)\n---\s*\n", "", text, flags=re.DOTALL)
-
-    # Remove math blocks (do this before inline patterns)
-    text = re.sub(r"\$\$[\s\S]*?\$\$", "", text)
-    text = re.sub(r"\\\[[\s\S]*?\\\]", "", text)
-
-    # Remove code blocks (fenced and indented)
-    text = re.sub(r"```[\s\S]*?```", "", text)
-    text = re.sub(r"~~~[\s\S]*?~~~", "", text)
-    text = re.sub(r"(?m)^ {4,}.*$", "", text)
-
-    # Remove inline math
-    text = re.sub(r"\$[^$\n]+\$", "", text)
-    text = re.sub(r"\\\([^)]+\\\)", "", text)
-
-    # Remove images (complete removal, not just alt text)
-    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", text)
-
-    # Remove links (keep link text)
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-
-    # Remove headers
-    text = re.sub(r"^#+\s+", "", text, flags=re.MULTILINE)
-
-    # Remove horizontal rules first (exactly 3 or more of the same character)
-    # Do this before emphasis to avoid *** being interpreted as emphasis
-    text = re.sub(r"^([-*_])\1\1+\s*$", "", text, flags=re.MULTILINE)
-
-    # Remove emphasis (bold, italic, strikethrough)
-    # Handle nested emphasis by removing markers from outside in
-    text = re.sub(r"(\*\*\*|___)(.*?)\1", r"\2", text, flags=re.DOTALL)  # bold+italic
-    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text, flags=re.DOTALL)  # bold
-    text = re.sub(r"([*_])(.*?)\1", r"\2", text, flags=re.DOTALL)  # italic
-    text = re.sub(r"~~(.*?)~~", r"\1", text, flags=re.DOTALL)  # strikethrough
-
-    # Remove inline code (keep content)
-    text = re.sub(r"`([^`]+)`", r"\1", text)
-
-    # Remove blockquotes
-    text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
-
-    # Remove list markers
-    text = re.sub(r"^[\s]*[-*+]\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^[\s]*\d+\.\s+", "", text, flags=re.MULTILINE)
-
-    # Clean up extra whitespace
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-def remove_code_blocks(text: str) -> str:
-    """
-    Remove code blocks from a string.
-
-    Args:
-        text (str): The input string containing code blocks.
-
-    Returns:
-        str: The input string with code blocks removed.
-    """
-    # Remove HTML pre blocks (they are block-level)
-    text = re.sub(r"<pre[\s\S]*?</pre>", "", text, flags=re.IGNORECASE)
-
-    # Remove fenced code blocks (backticks and tildes)
-    text = re.sub(r"```[\s\S]*?```", "", text)
-    text = re.sub(r"~~~[\s\S]*?~~~", "", text)
-
-    # Remove indented code blocks (4 spaces or 1 tab at start of line)
-    text = re.sub(r"(?m)^(?: {4,}|\t).*$", "", text)
-
-    # Remove inline code (keep content) - both Markdown and HTML
-    text = re.sub(r"`([^`]+)`", r"\1", text)
-    # Handle HTML code tags with or without attributes
-    text = re.sub(r"<code[^>]*>([^<]+)</code>", r"\1", text, flags=re.IGNORECASE)
-
-    # Clean up extra whitespace
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
 def extract_front_matter(text: str) -> Dict[str, Any]:
-    """
-    Extract front matter from a string.
-
-    Args:
-        text (str): The input string containing front matter.
-
-    Returns:
-        Dict[str, Any]: The extracted front matter as a dictionary,
-                        or empty dict if no valid front matter found.
-    """
-
-    front_matter_pattern = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-    matched = front_matter_pattern.match(text)
-
-    if matched:
-        yaml_content = matched.group(1)
-        try:
-            front_matter = yaml.safe_load(yaml_content)
-            if front_matter is None:
-                return {}
-            # Ensure we return a dictionary, not a string or other type
-            if isinstance(front_matter, dict):
-                return front_matter
-            else:
-                return {}
-        except yaml.YAMLError:
-            return {}
-
-    # If not have front matter
-    return {}
+    try:
+        plan = _MARKDOWN.prepare(text, include_frontmatter=True)
+    except ValueError:
+        return {}
+    return plan.frontmatter or {}
 
 
 def extract_first_image(text: str) -> Optional[str]:
@@ -211,19 +63,20 @@ def extract_description(text: str, front_matter: Dict[str, Any]) -> str:
     if isinstance(explicit, str) and explicit.strip():
         return Truncator(" ".join(explicit.split())).chars(150)
 
-    text = remove_code_blocks(text)
-    text = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
-    text = re.sub(r"\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]", "", text)
+    text = re.sub(
+        r"\A(?:---|\+\+\+)\s*\n.*?\n(?:---|\+\+\+)\s*\n",
+        "",
+        text,
+        count=1,
+        flags=re.DOTALL,
+    )
     paragraphs = []
     list_items = []
     current = []
 
     def flush():
         if current:
-            cleaned = remove_html_tags(remove_markdown(" ".join(current)))
-            cleaned = html.unescape(cleaned)
-            cleaned = re.sub(r"\\([\\`*_{}\[\]()#+.!|>-])", r"\1", cleaned)
-            cleaned = " ".join(cleaned.split())
+            cleaned = " ".join(_MARKDOWN.strip_markdown("\n".join(current)).split())
             if cleaned:
                 paragraphs.append(cleaned)
             current.clear()
@@ -236,9 +89,7 @@ def extract_description(text: str, front_matter: Dict[str, Any]) -> str:
             flush()
         elif re.match(r"^(?:[-*+] |\d+[.)] )", stripped):
             flush()
-            cleaned = " ".join(remove_html_tags(remove_markdown(stripped)).split())
-            if cleaned:
-                list_items.append(cleaned)
+            list_items.append(stripped)
         elif stripped.startswith("|") or stripped.endswith("|"):
             flush()
         elif re.match(r"^([-*_])\1\1+\s*$", stripped):
@@ -246,7 +97,9 @@ def extract_description(text: str, front_matter: Dict[str, Any]) -> str:
         else:
             current.append(stripped)
     flush()
-    return Truncator(" ".join(paragraphs or list_items)).chars(150)
+    if not paragraphs and list_items:
+        paragraphs = _MARKDOWN.strip_markdown("\n".join(list_items)).split()
+    return Truncator(" ".join(paragraphs)).chars(150)
 
 
 def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
@@ -284,10 +137,7 @@ def extract_metadata(text: str, num_keywords=5) -> MetadataResult:
 
     description = extract_description(text, front_matter)
 
-    # Remove HTML tags and Markdown syntax
-    text = remove_code_blocks(text)
-    text = remove_markdown(text)
-    text = remove_html_tags(text)
+    text = _MARKDOWN.strip_markdown(text)
 
     # === tags ===
     tags_list: List[str] = []
@@ -430,6 +280,11 @@ def chinese_slugify(title: str, max_length: int = 50) -> str:
         slug = slug[:available_length] + "-" + hash_suffix
 
     return slug or "untitled"
+
+
+def normalize_slug(value: str) -> str:
+    value = re.sub(r"[\W_]+", "-", value)
+    return re.sub(r"-{2,}", "-", value).strip("-")
 
 
 # TODO: refactor this, Cognitive Complexity 117
