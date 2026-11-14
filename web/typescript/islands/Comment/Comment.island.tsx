@@ -1,3 +1,4 @@
+import { CommentInput } from "./CommentInput";
 import { CommentList } from "./CommentList";
 
 export function Comment(props: Readonly<{ id?: unknown }>) {
@@ -10,6 +11,8 @@ export function Comment(props: Readonly<{ id?: unknown }>) {
       </div>
 
       <CommentList postId={postId} />
+
+      <CommentInput />
     </div>
   );
 }
