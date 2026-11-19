@@ -1,1 +1,3 @@
 * eol=lf
+
+native/markdown/upstream/fuzz/seeds/common/crlf.md -text !eol
