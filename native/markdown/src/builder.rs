@@ -49,5 +49,6 @@ fn build_common() -> MarkdownIt {
         render_terminal,
     );
     crate::solid_island::add(&mut inner);
+    crate::spoiler::add_inline(&mut inner);
     inner
 }
