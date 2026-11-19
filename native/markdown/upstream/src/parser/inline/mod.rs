@@ -149,14 +149,12 @@ impl std::fmt::Debug for InlineRunRunner {
     }
 }
 
-struct DynamicRuleTag;
-
 #[derive(Debug, Clone)]
 pub(crate) struct InlineRuleFns {
     pub(crate) run: InlineRunRunner,
     pub(crate) check: InlineCheckRunner,
     pub(crate) marker: char,
-    pub(crate) type_id: std::any::TypeId,
+    pub(crate) literal: bool,
 }
 
 impl InlineRuleFns {
@@ -172,7 +170,7 @@ fn inline_rule_fns<T: InlineRule>() -> InlineRuleFns {
         run: InlineRunRunner::Static(T::run),
         check: InlineCheckRunner::Static(T::check),
         marker: T::MARKER,
-        type_id: std::any::TypeId::of::<T>(),
+        literal: std::any::TypeId::of::<T>() == std::any::TypeId::of::<TextScanner>(),
     }
 }
 
@@ -198,6 +196,7 @@ pub struct InlineParser {
 }
 
 impl InlineParser {
+    /// Create an empty inline rule chain.
     pub fn new() -> Self {
         Self::default()
     }
@@ -244,10 +243,12 @@ impl InlineParser {
         RuleBuilder::new(self.add_rule_entry::<T>())
     }
 
+    /// Return whether a rule of type `T` is currently registered.
     pub fn has_rule<T: InlineRule>(&self) -> bool {
         self.ruler.contains(RuleMark::of::<T>())
     }
 
+    /// Remove the rule of type `T`, if present.
     pub fn remove_rule<T: InlineRule>(&mut self) {
         self.rules.take();
         if std::any::TypeId::of::<T>() != std::any::TypeId::of::<TextScanner>() {
@@ -284,7 +285,7 @@ impl InlineParser {
                     run: InlineRunRunner::Dynamic(run),
                     check: InlineCheckRunner::Dynamic(check),
                     marker,
-                    type_id: std::any::TypeId::of::<DynamicRuleTag>(),
+                    literal: false,
                 },
             },
         );
