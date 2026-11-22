@@ -43,7 +43,7 @@ pub(crate) fn extract(document: &Document) -> Result<String, lol_html::errors::R
 
         if let Some(raw) = node.cast::<HtmlInline>() {
             if matches!(event, StructuralEvent::Leaf(_) | StructuralEvent::Enter(_)) {
-                apply_inline_html(&raw.content, &mut suppressed, &mut text);
+                apply_inline_html(raw.as_str(), &mut suppressed, &mut text);
             }
             continue;
         }
@@ -67,12 +67,12 @@ pub(crate) fn extract(document: &Document) -> Result<String, lol_html::errors::R
         }
 
         if let Some(value) = node.cast::<Text>() {
-            text.push_str(&value.content);
+            text.push_str(value.as_str());
         } else if let Some(value) = node.cast::<TextSpecial>() {
-            text.push_str(&value.content);
+            text.push_str(value.content());
         } else if let Some(raw) = node.cast::<HtmlBlock>() {
             newline(&mut text);
-            text.push_str(&html_to_text(&raw.content)?);
+            text.push_str(&html_to_text(raw.as_str())?);
             newline(&mut text);
         } else if node.is::<Softbreak>() || node.is::<Hardbreak>() {
             newline(&mut text);

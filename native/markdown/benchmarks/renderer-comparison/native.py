@@ -29,7 +29,7 @@ for _ in range(repeats):
 print(
     json.dumps(
         {
-            "engine": "rust render in this project",
+            "engine": "rust renderer in this project",
             "version": "workspace",
             "samples_ms": samples_ms,
             "output_bytes": output_bytes,

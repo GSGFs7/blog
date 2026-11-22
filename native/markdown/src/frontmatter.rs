@@ -35,8 +35,8 @@ pub(crate) fn parse(document: &Document) -> Result<Option<FrontMatterValue>, Mar
     };
 
     let value = match frontmatter.kind {
-        FrontMatterKind::Yaml => parse_yaml(&frontmatter.raw)?,
-        FrontMatterKind::Toml => parse_toml(&frontmatter.raw)?,
+        FrontMatterKind::Yaml => parse_yaml(frontmatter.raw())?,
+        FrontMatterKind::Toml => parse_toml(frontmatter.raw())?,
     };
     Ok(Some(value))
 }

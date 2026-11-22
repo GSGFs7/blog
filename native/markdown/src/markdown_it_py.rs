@@ -145,9 +145,9 @@ fn collect_text(document: &Document, root: NodeId) -> String {
         };
 
         if let Some(value) = node.cast::<Text>() {
-            text.push_str(&value.content);
+            text.push_str(value.as_str());
         } else if let Some(value) = node.cast::<TextSpecial>() {
-            text.push_str(&value.content);
+            text.push_str(value.content());
         } else if node.is::<Softbreak>() {
             text.push('\n');
         }
