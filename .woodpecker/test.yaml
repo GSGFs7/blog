@@ -42,10 +42,11 @@ steps:
       REMOTE_EMBEDDING_MODEL_NAME: embeddinggemma-300m
       UV_VENV_COPY: "1"
       UV_LINK_MODE: "copy"
+      RUSTUP_TOOLCHAIN: nightly
     commands:
       # env setup
       - pacman -Syu base-devel uv git python perl-image-exiftool nodejs pnpm chromium firefox rustup --noconfirm
-      - rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - rustup toolchain install nightly --profile minimal --component rustfmt,clippy
       - rustup default nightly
       - ln -s /usr/bin/vendor_perl/exiftool /usr/bin/exiftool # fix exiftool path
       - pnpm install --frozen-lockfile
