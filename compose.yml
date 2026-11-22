@@ -47,7 +47,6 @@ services:
       blog-redis:
         condition: service_started
 
-
   blog-celery:
     <<: *blog-app
     container_name: blog-celery
