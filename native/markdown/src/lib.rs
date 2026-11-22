@@ -1,3 +1,4 @@
+mod annotation;
 pub(crate) mod builder;
 mod code_language;
 mod domain_wrapper;

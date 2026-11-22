@@ -1058,4 +1058,45 @@
   .markdown-body details.spoiler > :last-child:not(:where([data-solid-island] *)) {
     margin-bottom: 0;
   }
+
+  /* Annotation */
+  /* web/typescript/core/behaviors/implementations/annotation.ts */
+  .markdown-body .md-note:not(:where([data-solid-island] *)) {
+    text-decoration-line: underline;
+    text-decoration-style: dashed;
+    text-decoration-color: var(--md-blockquote-fg);
+    text-underline-offset: 0.2em;
+    cursor: help;
+  }
+
+  .markdown-body .md-note:focus-visible:not(:where([data-solid-island] *)) {
+    outline: 2px solid var(--md-link);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  .md-note__tooltip {
+    position: fixed;
+    z-index: 1000;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(24rem, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px);
+    overflow: auto;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid #444c56;
+    border-radius: 0.5rem;
+    color: #fff;
+    background: #24292f;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+    font-family: system-ui, sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .md-note__tooltip[hidden] {
+    display: none;
+  }
 }
