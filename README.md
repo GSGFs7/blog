@@ -84,7 +84,7 @@
 │   ├── templates/      # 页面模板
 │   ├── templatetags/   # 模板标签
 │   ├── typescript/     # 前端源码
-│   ├── e2e/            # e2e测试
+│   ├── e2e/            # e2e 测试
 │   └── tests/          # 视图测试
 ├── templates/          # 共享与 Admin 模板
 ├── scripts/            # 运维与构建脚本
