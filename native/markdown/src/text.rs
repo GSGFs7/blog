@@ -3,9 +3,16 @@ use std::collections::HashSet;
 
 use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{
-    BufferQueue, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
+    BufferQueue,
+    TagKind,
+    Token,
+    TokenSink,
+    TokenSinkResult,
+    Tokenizer,
+    TokenizerOpts,
 };
-use lol_html::{RewriteStrSettings, element, html_content::ContentType, rewrite_str};
+use lol_html::html_content::ContentType;
+use lol_html::{RewriteStrSettings, element, rewrite_str};
 use markdown_it::document::{Document, Node, StructuralEvent, Text, TextSpecial};
 use markdown_it::plugins::cmark::block::blockquote::Blockquote;
 use markdown_it::plugins::cmark::block::heading::ATXHeading;

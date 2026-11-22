@@ -1,6 +1,9 @@
 use markdown_it::common::utils::unescape_all;
 use markdown_it::parser::inline::helpers::paired_span::{
-    self, EscapePolicy, NestingPolicy, PairOptions,
+    self,
+    EscapePolicy,
+    NestingPolicy,
+    PairOptions,
 };
 use markdown_it::plugin::PluginSpec;
 
