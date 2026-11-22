@@ -3,38 +3,31 @@
 //! `<https://example.org>`
 //!
 //! <https://spec.commonmark.org/0.30/#autolinks>
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use regex::Regex;
 
 use crate::MarkdownIt;
-use crate::document::{Node, TextSpecial};
-use crate::links::LinkFormatter;
+use crate::document::TextSpecial;
+use crate::links::{LinkFormatter, prepare_link_destination};
 use crate::parser::inline::{InlineRule, InlineState};
-use crate::render::{NodeRenderer, RenderContext, TransparentRenderer, render_html_link};
+use crate::render::{LinkHtmlRenderer, LinkValue, TransparentRenderer};
 
 #[derive(Debug)]
 pub struct Autolink {
     pub url: String,
 }
 
-struct AutolinkRenderer;
-
-impl NodeRenderer<Autolink> for AutolinkRenderer {
-    fn render(
-        &self,
-        node: &Node,
-        link: &Autolink,
-        context: &mut RenderContext<'_>,
-        output: &mut crate::render::Writer,
-    ) {
-        render_html_link(node, &link.url, None, context, output);
+impl LinkValue for Autolink {
+    fn href(&self) -> &str {
+        &self.url
     }
 }
 
 pub fn add(md: &mut MarkdownIt) {
     md.inline.add_rule::<AutolinkScanner>();
-    md.add_renderer::<Autolink, _>("html", AutolinkRenderer);
+    md.add_renderer::<Autolink, _>("html", LinkHtmlRenderer::<Autolink>::new());
     md.add_renderer::<Autolink, _>("text", TransparentRenderer);
 }
 
@@ -83,11 +76,11 @@ impl InlineRule for AutolinkScanner {
         #[cfg(feature = "sourcemap")]
         let start = state.pos;
 
-        let child = state.document.create_node(TextSpecial {
-            content: matched.label.clone(),
-            markup: matched.label,
-            info: "autolink",
-        });
+        let child = state.document.create_node(TextSpecial::new(
+            matched.label.clone(),
+            matched.label,
+            "autolink",
+        ));
 
         #[cfg(feature = "sourcemap")]
         {
@@ -121,12 +114,12 @@ fn scan_autolink(src: &str, formatter: &dyn LinkFormatter) -> Option<AutolinkMat
         return None;
     }
 
-    let destination = if is_uri {
-        formatter.normalize_link(raw)
+    let source = if is_uri {
+        Cow::Borrowed(raw)
     } else {
-        formatter.normalize_link(&format!("mailto:{raw}"))
+        Cow::Owned(format!("mailto:{raw}"))
     };
-    formatter.validate_link(&destination)?;
+    let destination = prepare_link_destination(formatter, &source)?;
 
     Some(AutolinkMatch {
         consumed: label_end + 1,
@@ -186,6 +179,10 @@ mod tests {
             (
                 "<foo.bar@example.com>",
                 "<p><a href=\"mailto:foo.bar@example.com\">foo.bar@example.com</a></p>",
+            ),
+            (
+                "<xn--n3h@xn--n3h.net>",
+                "<p><a href=\"mailto:xn--n3h@xn--n3h.net\">xn--n3h@xn--n3h.net</a></p>",
             ),
             (
                 "<foo+bar@example.com>",
@@ -260,7 +257,7 @@ mod tests {
                 found = true;
                 assert_eq!(node.srcmap().unwrap().get_byte_offsets(), (start, end + 1));
             } else if let Some(text) = node.cast::<crate::document::TextSpecial>() {
-                assert_eq!(text.content, "ab:é�x");
+                assert_eq!(text.content(), "ab:é�x");
                 assert_eq!(node.srcmap().unwrap().get_byte_offsets(), (start + 1, end));
             }
         }
@@ -288,7 +285,7 @@ mod tests {
                     Some(("autolink", node.srcmap()?.get_byte_offsets()))
                 } else if node
                     .cast::<TextSpecial>()
-                    .is_some_and(|text| text.info == "autolink")
+                    .is_some_and(|text| text.info() == "autolink")
                 {
                     Some(("label", node.srcmap()?.get_byte_offsets()))
                 } else {

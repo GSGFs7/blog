@@ -106,6 +106,30 @@ const regressions = [
   '!["alt" can\'t](/img) "outside"',
   '"one\n\ntwo"',
   '- "one\n- two"',
+  // Image labels accept brackets that contain a link.
+  '![[[x](url)] tail](img)',
+  '![![x](url)] tail](img)',
+  // A trailing entity newline keeps the blank line before the next block of a
+  // tight list item.
+  '- x&#10;\n  a | b\n  --- | ---',
+  '- x&#10;\n  - nested',
+  '- x&#10;\n  1. ordered',
+  '- x&#10;\n  > quote',
+  '- x&#10;\n  # heading',
+  '- x&#10;\n  ---',
+  '- x&#10;',
+  // Tables take precedence over multiline reference definition titles.
+  '[r]: /u "a | b\n--- | ---\nx | y"\n\n[r]',
+  '[r]: /u "a | b\nx | y"\n\n[r]',
+  // Table cells and reference labels follow JavaScript's `\s`.
+  ...['\uFEFF', '\u0085', '\u00A0', '\u2028'].flatMap((space) => [
+    `| a${space}| b |\n| --- | --- |\n| c${space}| d |`,
+    `${space}| a | b |\n| --- | --- |\n| c | d |\n${space}\nplain`,
+    `[x${space}y]\n\n[x y]: /url`,
+    `[${space}x${space}]\n\n[x]: /url`,
+    `[x${space}y]\n\n[x${space}y]: /url`,
+    `[r]: /u "${space}title${space}"\n\n[r]`,
+  ]),
 ];
 
 // Probe either side of the configured 3 / 20 / 100 nesting limits.
@@ -115,6 +139,9 @@ const nesting = [2, 3, 4, 19, 20, 21, 99, 100, 101].flatMap((depth) => [
   Array.from({ length: depth }, (_, i) => '> '.repeat(i) + '- > item').join('\n'),
   '*a **b '.repeat(depth) + 'leaf' + ' b** a*'.repeat(depth),
   '['.repeat(depth) + 'leaf' + ']'.repeat(depth) + '(/url)',
+  '['.repeat(depth) + '[]()',
+  '[a'.repeat(depth) + '[]()',
+  '!['.repeat(depth) + '[]()',
   '!['.repeat(depth) + 'leaf' + '](/img)'.repeat(depth),
 ]);
 

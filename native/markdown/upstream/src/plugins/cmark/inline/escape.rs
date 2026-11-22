@@ -10,7 +10,7 @@ use crate::parser::inline::{InlineRule, InlineState};
 use crate::plugins::cmark::inline::newline::Hardbreak;
 
 pub fn add(md: &mut MarkdownIt) {
-    md.inline.add_rule::<EscapeScanner>();
+    md.inline.add_pair_probe_reusable_rule::<EscapeScanner>();
 }
 
 #[derive(Clone, Copy)]
@@ -63,11 +63,11 @@ impl InlineRule for EscapeScanner {
         let len = matched.len();
         match matched {
             EscapeMatch::Space => Some((
-                Some(state.document.create_node(TextSpecial {
-                    content: "\\".into(),
-                    markup: "\\".into(),
-                    info: "escape",
-                })),
+                Some(
+                    state
+                        .document
+                        .create_node(TextSpecial::new("\\", "\\", "escape")),
+                ),
                 len,
             )),
             EscapeMatch::Hardbreak { .. } => {
@@ -81,11 +81,11 @@ impl InlineRule for EscapeScanner {
                     markup.clone()
                 };
                 Some((
-                    Some(state.document.create_node(TextSpecial {
-                        content,
-                        markup,
-                        info: "escape",
-                    })),
+                    Some(
+                        state
+                            .document
+                            .create_node(TextSpecial::new(content, markup, "escape")),
+                    ),
                     len,
                 ))
             }

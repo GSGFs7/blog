@@ -1,3 +1,5 @@
+// show readme in doc
+#![doc = include_str!("../README.md")]
 // for bragging rights
 #![forbid(unsafe_code)]
 //
@@ -10,6 +12,7 @@
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::collapsible_match)]
 //
+#![warn(unreachable_pub)]
 // package is markdown-it-rs, but lib name is markdown-it.
 // add this to tall rust-analyzer use markdown-it-rs as doc url.
 // https://doc.rust-lang.org/rustdoc/write-documentation/the-doc-attribute.html#html_root_url
@@ -17,12 +20,15 @@
 
 pub mod common;
 pub mod document;
+#[doc(hidden)]
 pub mod examples;
 pub mod links;
 mod markdown_it;
 pub mod parser;
 pub mod plugin;
 pub mod plugins;
+pub mod presets;
+pub mod reference;
 pub mod render;
 
 pub use markdown_it::MarkdownIt;
