@@ -235,7 +235,7 @@ class Image(BaseModel):
         ContentType,
         on_delete=models.CASCADE,
     )
-    uploader_id = models.PositiveIntegerField()
+    uploader_id = models.CharField(max_length=36)
     uploader = GenericForeignKey("uploader_type", "uploader_id")
 
     # Markdown meta info

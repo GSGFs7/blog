@@ -1,11 +1,12 @@
 from typing import Optional
+from uuid import UUID
 
 from ninja import Schema
 
 
 class ImageUploadRequestSchema(Schema):
     uploader_type: str
-    uploader_id: int
+    uploader_id: UUID
     alt_text: Optional[str] = None
     description: Optional[str] = None
 

@@ -23,6 +23,7 @@ def main():
         + "More article content below the anchor.\n\n" * 25
     )
     post = SimpleNamespace(
+        id=1,
         title="Navigation fixture",
         slug="e2e-navigation",
         content_html=html,

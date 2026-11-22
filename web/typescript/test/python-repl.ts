@@ -1,7 +1,7 @@
 import { expect, vi } from "vitest";
 
-import { Terminal } from "../islands/PythonREPL/terminal";
-import { XtermBackend } from "../islands/PythonREPL/terminal-backend-xterm";
+import { Terminal } from "@/islands/PythonREPL/terminal";
+import { XtermBackend } from "@/islands/PythonREPL/terminal-backend-xterm";
 
 const xtermState = vi.hoisted(() => ({
   autoFlush: true,

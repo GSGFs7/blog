@@ -149,14 +149,13 @@ impl std::fmt::Debug for InlineRunRunner {
     }
 }
 
-struct DynamicRuleTag;
-
 #[derive(Debug, Clone)]
 pub(crate) struct InlineRuleFns {
     pub(crate) run: InlineRunRunner,
     pub(crate) check: InlineCheckRunner,
     pub(crate) marker: char,
-    pub(crate) type_id: std::any::TypeId,
+    pub(crate) literal: bool,
+    pub(crate) pair_probe_reusable: bool,
 }
 
 impl InlineRuleFns {
@@ -167,12 +166,14 @@ impl InlineRuleFns {
     }
 }
 
-fn inline_rule_fns<T: InlineRule>() -> InlineRuleFns {
+fn inline_rule_fns<T: InlineRule>(pair_probe_reusable: bool) -> InlineRuleFns {
+    let literal = std::any::TypeId::of::<T>() == std::any::TypeId::of::<TextScanner>();
     InlineRuleFns {
         run: InlineRunRunner::Static(T::run),
         check: InlineCheckRunner::Static(T::check),
         marker: T::MARKER,
-        type_id: std::any::TypeId::of::<T>(),
+        literal,
+        pair_probe_reusable: literal || pair_probe_reusable,
     }
 }
 
@@ -198,6 +199,7 @@ pub struct InlineParser {
 }
 
 impl InlineParser {
+    /// Create an empty inline rule chain.
     pub fn new() -> Self {
         Self::default()
     }
@@ -218,6 +220,7 @@ impl InlineParser {
 
     fn add_rule_entry<T: InlineRule>(
         &mut self,
+        pair_probe_reusable: bool,
     ) -> &mut crate::common::ruler::RuleItem<RuleMark, RuleEntry> {
         self.rules.take();
         if std::any::TypeId::of::<T>() != std::any::TypeId::of::<TextScanner>() {
@@ -230,7 +233,7 @@ impl InlineParser {
         let item = self.ruler.add(
             RuleMark::of::<T>(),
             RuleEntry {
-                fns: inline_rule_fns::<T>(),
+                fns: inline_rule_fns::<T>(pair_probe_reusable),
             },
         );
         for name in T::NAMES {
@@ -241,13 +244,23 @@ impl InlineParser {
 
     /// Register an inline syntax rule.
     pub fn add_rule<T: InlineRule>(&mut self) -> RuleBuilder<'_, RuleEntry> {
-        RuleBuilder::new(self.add_rule_entry::<T>())
+        RuleBuilder::new(self.add_rule_entry::<T>(false))
     }
 
+    /// Register a rule whose pair probe only depends on the source window and
+    /// pending text, with any scratch data affecting performance only.
+    pub(crate) fn add_pair_probe_reusable_rule<T: InlineRule>(
+        &mut self,
+    ) -> RuleBuilder<'_, RuleEntry> {
+        RuleBuilder::new(self.add_rule_entry::<T>(true))
+    }
+
+    /// Return whether a rule of type `T` is currently registered.
     pub fn has_rule<T: InlineRule>(&self) -> bool {
         self.ruler.contains(RuleMark::of::<T>())
     }
 
+    /// Remove the rule of type `T`, if present.
     pub fn remove_rule<T: InlineRule>(&mut self) {
         self.rules.take();
         if std::any::TypeId::of::<T>() != std::any::TypeId::of::<TextScanner>() {
@@ -284,7 +297,10 @@ impl InlineParser {
                     run: InlineRunRunner::Dynamic(run),
                     check: InlineCheckRunner::Dynamic(check),
                     marker,
-                    type_id: std::any::TypeId::of::<DynamicRuleTag>(),
+                    literal: false,
+                    // Leaves only see the remaining source and configuration.
+                    // Containers always decline during pair probing.
+                    pair_probe_reusable: true,
                 },
             },
         );

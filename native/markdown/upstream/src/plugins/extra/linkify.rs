@@ -2,35 +2,28 @@
 
 // TODO: refactor this
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use linkify::{LinkKind, Linkify};
 
 use crate::MarkdownIt;
-use crate::document::{Document, Node, NodeId, StructuralEvent, Text, TextSpecial};
-use crate::links::LinkFormatter;
+use crate::document::{Document, NodeId, StructuralEvent, Text, TextSpecial};
+use crate::links::{LinkFormatter, prepare_link_destination};
 use crate::parser::core::{CoreRule, CoreState};
 use crate::parser::inline::{InlineParserRule, InlineRule, InlineState};
 use crate::plugins::html::anchor_delta;
-use crate::render::{NodeRenderer, RenderContext, TransparentRenderer, render_html_link};
+use crate::render::{LinkHtmlRenderer, LinkValue, TransparentRenderer};
 
 #[derive(Debug)]
 pub struct Linkified {
     pub url: String,
 }
 
-struct LinkifiedRenderer;
-
-impl NodeRenderer<Linkified> for LinkifiedRenderer {
-    fn render(
-        &self,
-        node: &Node,
-        link: &Linkified,
-        context: &mut RenderContext<'_>,
-        output: &mut crate::render::Writer,
-    ) {
-        render_html_link(node, &link.url, None, context, output);
+impl LinkValue for Linkified {
+    fn href(&self) -> &str {
+        &self.url
     }
 }
 
@@ -57,7 +50,7 @@ pub fn add_with_options(md: &mut MarkdownIt, options: LinkifyOptions) {
     md.inline.add_rule::<LinkifyScanner>();
     md.inline.add_rule::<LinkifyFuzzyScanner>();
     md.inline.add_rule::<LinkifyEmailScanner>();
-    md.add_renderer::<Linkified, _>("html", LinkifiedRenderer);
+    md.add_renderer::<Linkified, _>("html", LinkHtmlRenderer::<Linkified>::new());
     md.add_renderer::<Linkified, _>("text", TransparentRenderer);
 }
 
@@ -154,7 +147,7 @@ fn collect_linkify_events(document: &Document, roots: &[NodeId]) -> Vec<(NodeId,
                 StructuralEvent::Exit(_) if protected => protected_depth -= 1,
                 StructuralEvent::Leaf(_) if protected_depth == 0 && !protected => {
                     if let Some(html) = node.cast::<HtmlInline>() {
-                        events.push((node.id(), anchor_delta(&html.content)));
+                        events.push((node.id(), anchor_delta(html.as_str())));
                     } else {
                         events.push((node.id(), 0));
                     }
@@ -212,19 +205,17 @@ fn linkify_text_node(
 ) -> Option<Vec<NodeId>> {
     let text = document.node(id).cast::<Text>()?;
 
-    if !fuzzy && !text.content.contains([':', '@', '/']) {
+    if !fuzzy && !text.as_str().contains([':', '@', '/']) {
         return None;
     }
 
-    let links = Linkify::new().links_with_fuzzy(&text.content, fuzzy);
+    let links = Linkify::new().links_with_fuzzy(text.as_str(), fuzzy);
     if links.is_empty() {
         return None;
     }
 
-    let content = text.content.clone();
+    let content = text.as_str().to_owned();
     let preceded_by_special = previous.is_some_and(|id| document.node(id).is::<TextSpecial>());
-    #[cfg(feature = "sourcemap")]
-    let source_map = document.node(id).srcmap();
     let mut nodes = Vec::new();
     let mut end = 0;
     for found in links {
@@ -245,29 +236,18 @@ fn linkify_text_node(
         };
 
         if found.start() > end {
-            let node = document.create_node(Text {
-                content: content[end..found.start()].to_owned(),
-            });
-            #[cfg(feature = "sourcemap")]
-            document.node_mut(node).set_srcmap(text_range_map(
-                source_map,
-                content.len(),
-                end,
-                found.start(),
-            ));
+            let node = document.create_node(Text::new(content[end..found.start()].to_owned()));
             nodes.push(node);
         }
 
-        #[cfg(feature = "sourcemap")]
-        let map = text_range_map(source_map, content.len(), found.start(), found.end());
+        // Splitting an existing text node invalidates its source map, so the
+        // generated nodes carry no map instead of a guessed sub-range.
         let node = create_linkified(
             document,
             link,
             #[cfg(feature = "sourcemap")]
-            map,
+            None,
         );
-        #[cfg(feature = "sourcemap")]
-        document.node_mut(node).set_srcmap(map);
         nodes.push(node);
         end = found.end();
     }
@@ -277,16 +257,7 @@ fn linkify_text_node(
     }
 
     if end < content.len() {
-        let node = document.create_node(Text {
-            content: content[end..].to_owned(),
-        });
-        #[cfg(feature = "sourcemap")]
-        document.node_mut(node).set_srcmap(text_range_map(
-            source_map,
-            content.len(),
-            end,
-            content.len(),
-        ));
+        let node = document.create_node(Text::new(content[end..].to_owned()));
         nodes.push(node);
     }
     Some(nodes)
@@ -320,20 +291,6 @@ fn rebuild_linkified_children(
         }
     }
     debug_assert!(replacements.is_empty());
-}
-
-#[cfg(feature = "sourcemap")]
-fn text_range_map(
-    map: Option<crate::common::sourcemap::SourcePos>,
-    text_len: usize,
-    start: usize,
-    end: usize,
-) -> Option<crate::common::sourcemap::SourcePos> {
-    let (source_start, source_end) = map?.get_byte_offsets();
-    // Multiline container prefixes can make the original span noncontiguous.
-    // Only derive subranges when text and source offsets correspond directly.
-    (source_end - source_start == text_len)
-        .then(|| crate::common::sourcemap::SourcePos::new(source_start + start, source_start + end))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -475,10 +432,35 @@ impl CandidateRange {
     }
 }
 
-#[derive(Debug, Clone)]
 struct PreparedLink {
     href: String,
-    content: String,
+    label: String,
+}
+
+/// Build the destination and label for a bare URL or email.
+///
+/// markdown-it's linkify normalizes the label from the full destination and
+/// then removes the scheme it injected (`mailto:` / `http://`), which differs
+/// from autolinks that normalize the text as written.
+fn prepare_link(
+    formatter: &dyn LinkFormatter,
+    mode: LinkifyMode,
+    url: &str,
+) -> Option<PreparedLink> {
+    let injected_prefix = mode.injected_prefix(url);
+    let source = match injected_prefix {
+        Some(prefix) => Cow::Owned(format!("{prefix}{url}")),
+        None => Cow::Borrowed(url),
+    };
+    let href = prepare_link_destination(formatter, &source)?;
+    let mut label = formatter.normalize_link_text(&source);
+    if let Some(prefix) = injected_prefix
+        && starts_with_ascii_case_insensitive(&label, prefix)
+    {
+        label.drain(..prefix.len());
+    }
+
+    Some(PreparedLink { href, label })
 }
 
 struct CandidateInput<'a> {
@@ -568,40 +550,12 @@ fn scan_candidate(input: CandidateInput<'_>, mode: LinkifyMode) -> Option<Candid
     Some(candidate)
 }
 
-fn prepare_link(
-    formatter: &dyn LinkFormatter,
-    mode: LinkifyMode,
-    url: &str,
-) -> Option<PreparedLink> {
-    let injected_prefix = mode.injected_prefix(url);
-    let href_source = match injected_prefix {
-        Some(prefix) => format!("{prefix}{url}"),
-        None => url.to_owned(),
-    };
-
-    let href = formatter.normalize_link(&href_source);
-    formatter.validate_link(&href)?;
-
-    let mut content = formatter.normalize_link_text(&href_source);
-    if let Some(prefix) = injected_prefix
-        && starts_with_ascii_case_insensitive(&content, prefix)
-    {
-        content.drain(..prefix.len());
-    }
-
-    Some(PreparedLink { href, content })
-}
-
 fn create_linkified(
     document: &mut Document,
     link: PreparedLink,
     #[cfg(feature = "sourcemap")] map: Option<crate::common::sourcemap::SourcePos>,
 ) -> NodeId {
-    let inner = document.create_node(TextSpecial {
-        content: link.content.clone(),
-        markup: link.content,
-        info: "autolink",
-    });
+    let inner = document.create_node(TextSpecial::new(link.label.clone(), link.label, "autolink"));
 
     #[cfg(feature = "sourcemap")]
     document.node_mut(inner).set_srcmap(map);

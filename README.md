@@ -6,10 +6,7 @@
 
 ## 运行
 
-> [!NOTE]  
-> Django 自带的后台在 `/not-admin` 而不是 `/admin`
-
-`python`版本: `3.14`, 使用 uv 作为包管理器
+`python`版本: `3.14`, 启动后访问 `localhost:8000`.
 
 1. 安装所需依赖
 
@@ -61,34 +58,38 @@
     ./manage.py runasgi
     ```
 
-## 可选依赖
-
-- **ExifTool**: 用于清理上传图片的 EXIF 元数据. 如果系统中安装了 `exiftool`, 后端会自动调用它来处理图片以保护隐私. 如果没有,
-  则使用 PIL 对图片进行重编码来去除 EXIF 信息.
-    - Arch Linux: `sudo pacman -S perl-image-exiftool`
-    - Debian/Ubuntu: `sudo apt install libimage-exiftool-perl`
-
 ## 目录
 
 ```text
 .
-├── api/            # Django app
-│   ├── backends/   # Django 后端
-│   ├── migrations/ # 数据库迁移
-│   ├── routers/    # 路由
-│   ├── tests/      # 测试
-│   ├── admin.py    # Django admin 设置
-│   ├── apps.py     # Django app 设置
-│   ├── models.py   # Django ORM
-│   ├── schemas.py  # schema 定义
-│   ├── signals.py  # Django 信号处理
-│   ├── tasks.py    # celery 任务
-│   └── urls.py     # URL 汇总
-├── blog/           # Django project
-├── scripts/        # 辅助脚本
-├── templates/      # Django 模板
-├── web/            # 前端 app
-└── manage.py       # Django cli
+├── accounts/           # 认证与账号管理 app
+├── api/                # 后端 app
+│   ├── backends/       # 外部服务后端
+│   ├── management/     # 管理命令
+│   ├── markdown/       # Markdown 渲染集成
+│   ├── middleware/     # 中间件
+│   ├── models/         # ORM 模型
+│   ├── routers/        # Ninja 路由
+│   ├── schemas/        # Schema 定义
+│   ├── services/       # 业务服务
+│   └── tests/          # 测试
+├── blog/               # Django 配置
+├── core/               # 共享内容
+├── media_service/      # 媒体 app
+├── native/             # 原生扩展
+│   ├── crc64nvme/      # CRC64-NVMe (C)
+│   └── markdown/       # Markdown 渲染器 (Rust)
+├── web/                # 前端 app
+│   ├── views/          # 页面视图
+│   ├── templates/      # 页面模板
+│   ├── templatetags/   # 模板标签
+│   ├── typescript/     # 前端源码
+│   ├── e2e/            # e2e 测试
+│   └── tests/          # 视图测试
+├── templates/          # 共享与 Admin 模板
+├── scripts/            # 运维与构建脚本
+├── compose.yml         # 本地容器编排
+└── manage.py           # Django CLI
 ```
 
 ## 接口文档

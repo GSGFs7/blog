@@ -10,7 +10,7 @@ use crate::parser::block::BlockParser;
 use crate::parser::core::{CoreRule, CoreRuleRunner, CoreState, RuleBuilder};
 use crate::parser::inline::InlineParser;
 use crate::plugin::MarkdownItBuilder;
-use crate::plugins::presets::{Preset, PresetConfig};
+use crate::presets::{Preset, PresetConfig};
 use crate::render::{
     DebugTreeRenderer,
     HtmlTextRenderer,
@@ -195,7 +195,7 @@ impl MarkdownIt {
     ///
     /// # Panics
     ///
-    /// Panics if a leaf node has no renderer for `format`.
+    /// Panics if a non-transparent leaf node has no renderer for `format`.
     pub fn render_document(&self, document: &Document, format: &str) -> String {
         self.renderers
             .render(document, format, &self.render_options)

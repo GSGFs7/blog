@@ -1,4 +1,5 @@
 from typing import IO
+from uuid import UUID
 
 from django.apps import apps
 from django.db import models
@@ -10,7 +11,9 @@ from media_service.models import Image, ImageResource
 
 class AsyncImageService:
     @staticmethod
-    async def get_uploader(uploader_type: str, uploader_id: int) -> models.Model:
+    async def get_uploader(
+        uploader_type: str, uploader_id: int | str | UUID
+    ) -> models.Model:
         model_class = apps.get_model(uploader_type)
         return await model_class.objects.aget(pk=uploader_id)
 
@@ -30,7 +33,7 @@ class AsyncImageService:
 
 class SyncImageService:
     @staticmethod
-    def get_uploader(uploader_type: str, uploader_id: int) -> models.Model:
+    def get_uploader(uploader_type: str, uploader_id: int | str | UUID) -> models.Model:
         model_class = apps.get_model(uploader_type)
         return model_class.objects.get(pk=uploader_id)
 

@@ -2,7 +2,8 @@
 
 import type { Component } from "solid-js";
 
-import type { ComponentProps } from "../types";
+import type { ComponentProps } from "@/types";
+
 import Counter from "./Counter";
 import MusicTrack from "./MusicPlayer/MusicTrack.island";
 import WIP from "./WIP";

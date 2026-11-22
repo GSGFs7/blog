@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { runPageSwap } from "../test/page-lifecycle";
+import { runPageSwap } from "@/test/page-lifecycle";
+
 import { bootstrap, cleanup, setupIslands } from "./bootstrap";
 import { APP_PAGE_EVENT, emitPageEvent } from "./navigation";
 

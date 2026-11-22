@@ -29,6 +29,32 @@ class TestMarkdownPostProcess(SimpleTestCase):
             self.assertNotIn("data-solid-ssr", html)
             self.assertNotIn("bad()", html)
 
+    def test_annotation_renders_in_all_paths(self):
+        source = '前[**术语**]{说明 <script>bad()</script> "引号"}后'
+        for html in (
+            self.md.render(source),
+            self.md.render_with_toc(source)[0],
+            self.md.render_with_frontmatter(source)[1],
+        ):
+            self.assertIn('class="md-note"', html)
+            self.assertIn('tabindex="0"', html)
+            self.assertIn("<strong>术语</strong>", html)
+            self.assertIn("&lt;script&gt;bad()&lt;/script&gt; &quot;引号&quot;", html)
+            self.assertNotIn("<script>", html)
+        self.assertEqual(self.md.strip_markdown(source), "前术语后")
+
+    def test_inline_spoiler_renders_in_all_paths(self):
+        source = "前 ||**结局**|| 后"
+        for html in (
+            self.md.render(source),
+            self.md.render_with_toc(source)[0],
+            self.md.render_with_frontmatter(source)[1],
+        ):
+            self.assertHTMLEqual(
+                html, '<p>前 <span class="heimu"><strong>结局</strong></span> 后</p>'
+            )
+        self.assertEqual(self.md.strip_markdown(source), "前 结局 后")
+
     def test_spoiler_is_collapsed_and_renders_markdown(self):
         html = self.md.render(":::spoiler\n**结局**\n\n- 第一项\n- 第二项\n:::")
 

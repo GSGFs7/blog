@@ -6,115 +6,11 @@ from api.utils import (
     extract_first_image,
     extract_front_matter,
     extract_metadata,
-    remove_code_blocks,
-    remove_html_tags,
-    remove_markdown,
+    normalize_slug,
 )
 
 
 class TestUtils(TestCase):
-    def test_remove_html_tags(self):
-        test_cases = [
-            ("<p>Hello World</p>", "Hello World"),
-            ("<h1>Title</h1>", "Title"),
-            ("<div><span>Text</span></div>", "Text"),
-            ("No tags here", "No tags here"),
-            ("<img src='test.jpg'>", ""),
-            ("<a href='#'>Link</a>", "Link"),
-            ("<p>Hello <strong>World</strong></p>", "Hello World"),
-            ("Self-closing: <br/> test", "Self-closing:  test"),
-            ("Multiple: <p>one</p><p>two</p>", "Multiple: onetwo"),
-            ("With attributes: <p class='test'>text</p>", "With attributes: text"),
-            ("Nested: <div><p><span>deep</span></p></div>", "Nested: deep"),
-            (
-                "Mixed: text <b>bold</b> and <i>italic</i>",
-                "Mixed: text bold and italic",
-            ),
-            ("Script tag: <script>alert('xss')</script>", "Script tag: "),
-            ("Style tag: <style>body {color: red;}</style>", "Style tag: "),
-            ("Comment: <!-- comment -->text", "Comment: text"),
-            (
-                "Multiple comments: <!-- one -->text<!-- two -->",
-                "Multiple comments: text",
-            ),
-            (
-                "Complex: <div id='main' class='container'><p>Hello</p></div>",
-                "Complex: Hello",
-            ),
-        ]
-
-        for input_text, expected in test_cases:
-            with self.subTest(input_text=input_text):
-                result = remove_html_tags(input_text)
-                self.assertEqual(result, expected)
-
-    def test_remove_markdown(self):
-        test_cases = [
-            ("# Header", "Header"),
-            ("## Subheader", "Subheader"),
-            ("### Level 3", "Level 3"),
-            ("#### Level 4", "Level 4"),
-            ("**bold**", "bold"),
-            ("__bold__", "bold"),
-            ("*italic*", "italic"),
-            ("_italic_", "italic"),
-            ("***bold italic***", "bold italic"),
-            ("___bold italic___", "bold italic"),
-            ("`inline code`", "inline code"),
-            ("~~strikethrough~~", "strikethrough"),
-            ("[link text](https://example.com)", "link text"),
-            ("![alt text](image.jpg)", ""),
-            ("---\ntitle: test\n---\ncontent", "content"),
-            ("**bold** and `code` and *italic*", "bold and code and italic"),
-            ("- List item 1\n- List item 2", "List item 1\nList item 2"),
-            ("1. Ordered 1\n2. Ordered 2", "Ordered 1\nOrdered 2"),
-            ("> Blockquote text", "Blockquote text"),
-            ("```python\nprint('hello')\n```", ""),
-            ("~~~\ncode block\n~~~", ""),
-            ("    indented code", ""),
-            ("\tindented with tab", "indented with tab"),
-            ("---\nHorizontal rule\n***", "Horizontal rule"),
-            ("Nested **bold *italic*** text", "Nested bold italic text"),
-            ("[link](url) and ![image](img.jpg)", "link and "),
-            ("# Header with `code` and **bold**", "Header with code and bold"),
-        ]
-
-        for input_text, expected in test_cases:
-            with self.subTest(input_text=input_text[:50]):
-                result = remove_markdown(input_text)
-                self.assertEqual(result.strip(), expected.strip())
-
-    def test_remove_code_blocks(self):
-        test_cases = [
-            ("```python\nprint('hello')\n```", ""),
-            ("~~~\ncode block\n~~~", ""),
-            ("`inline code`", "inline code"),
-            ("<pre><code>HTML code</code></pre>", ""),
-            ("<CODE>uppercase</CODE>", "uppercase"),
-            ("Text before ```code``` text after", "Text before  text after"),
-            ("`code1` and `code2`", "code1 and code2"),
-            ("No code here", "No code here"),
-            ("<code>inline html code</code>", "inline html code"),
-            (
-                "Mixed: text ```code``` more text `inline`",
-                "Mixed: text  more text inline",
-            ),
-            ("Nested: <pre>```markdown```</pre>", "Nested: "),
-            ("Multiple:\n```one```\ntext\n~~~two~~~", "Multiple:\n\ntext"),
-            ("With language: ```python\ndef foo():\n    pass\n```", "With language: "),
-            (
-                "Backticks in text: here are some ``` in text",
-                "Backticks in text: here are some ``` in text",
-            ),
-            ("Empty code block: ```\n```", "Empty code block: "),
-            ("<pre>\n  <code>\n    nested\n  </code>\n</pre>", ""),
-        ]
-
-        for input_text, expected in test_cases:
-            with self.subTest(input_text=input_text[:50]):
-                result = remove_code_blocks(input_text)
-                self.assertEqual(result.strip(), expected.strip())
-
     def test_extract_front_matter(self):
         test_cases = [
             (
@@ -303,6 +199,23 @@ Some content here.
                 result = chinese_slugify(input_text)
                 self.assertEqual(result, expected)
 
+    def test_normalize_slug(self):
+        test_cases = [
+            ("Hello World", "Hello-World"),
+            ("  Leading and trailing  ", "Leading-and-trailing"),
+            ("Multiple   spaces", "Multiple-spaces"),
+            ("under_score", "under-score"),
+            ("already-slugged", "already-slugged"),
+            ("a---b", "a-b"),
+            ("Special!@#$%^&*()Chars", "Special-Chars"),
+            ("中文 标题", "中文-标题"),
+            ("!!!", ""),
+        ]
+
+        for input_text, expected in test_cases:
+            with self.subTest(input_text=input_text):
+                self.assertEqual(normalize_slug(input_text), expected)
+
     def test_chinese_slugify_max_length(self):
         long_title = "这是一个非常长的中文标题需要被截断" * 10
         result = chinese_slugify(long_title, max_length=50)
@@ -433,26 +346,3 @@ Body text that should not replace it.
             extract_metadata(source)["description"],
             "A hand-written summary of the post.",
         )
-
-    def test_remove_html_tags_edge_cases(self):
-        test_cases = [
-            ("<p>Hello<br>World</p>", "HelloWorld"),
-            ("<p>Hello<br/>World</p>", "HelloWorld"),
-            ("<p>Hello<br />World</p>", "HelloWorld"),
-            ("<p>Hello<!-- comment -->World</p>", "HelloWorld"),
-            ("<p attr='value'>Text</p>", "Text"),
-            ("Unclosed tag: <p>text", "Unclosed tag: text"),
-            (
-                "Multiple lines: <div>\n  <p>text</p>\n</div>",
-                "Multiple lines: \n  text\n",
-            ),
-            ("Doctype: <!DOCTYPE html><html>text</html>", "Doctype: text"),
-            ("CDATA: <![CDATA[content]]>text", "CDATA: text"),
-            ("Mixed case: <DIV>text</DIV>", "Mixed case: text"),
-            ("Weird spacing: < p >text< / p >", "Weird spacing: text"),
-        ]
-
-        for input_text, expected in test_cases:
-            with self.subTest(input_text=input_text):
-                result = remove_html_tags(input_text)
-                self.assertEqual(result, expected)

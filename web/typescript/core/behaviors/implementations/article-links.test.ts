@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 
-import { runPageSwap } from "../../../test/page-lifecycle";
+import { runPageSwap } from "@/test/page-lifecycle";
+
 import { setupBehaviors } from "../manager";
 import { waitForBehaviorMount } from "../test-utils";
 

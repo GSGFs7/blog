@@ -18,7 +18,7 @@ from api.models import (
     Post,
     Tag,
 )
-from api.utils import chinese_slugify, extract_metadata
+from api.utils import chinese_slugify, extract_metadata, normalize_slug
 from api.widgets import MarkdownEditorWidget
 
 
@@ -90,24 +90,18 @@ class PostAdminForm(forms.ModelForm):
                 )
 
         # === slug ===
-        if not cleaned_data.get("slug"):
-            cleaned_data["slug"] = metadata.get("slug") or chinese_slugify(
-                str(cleaned_data.get("title", ""))
+        slug = cleaned_data.get("slug") or metadata.get("slug")
+        if not slug:
+            slug = chinese_slugify(str(cleaned_data.get("title", "")))
+        slug = normalize_slug(str(slug))
+        cleaned_data["slug"] = slug
+        if not slug:
+            errors["slug"] = (
+                "Slug field cannot be empty and cannot be automatically generated."
             )
-            if not cleaned_data.get("slug"):
-                errors["slug"] = (
-                    "Slug field cannot be empty and cannot be automatically generated."
-                )
-            if (
-                Post.objects.filter(slug=cleaned_data.get("slug"))
-                .exclude(pk=self.instance.pk)
-                .exists()
-            ):
-                errors["slug"] = "The slug already exists."
-        if (
-            cleaned_data.get("slug") in POST_RESERVED_SLUGS
-            or str(cleaned_data.get("slug")).isdigit()
-        ):
+        elif Post.objects.filter(slug=slug).exclude(pk=self.instance.pk).exists():
+            errors["slug"] = "The slug already exists."
+        if slug in POST_RESERVED_SLUGS or slug.isdigit():
             errors["slug"] = (
                 "Slug is reserved or purely numeric. Please choose another."
             )

@@ -4,6 +4,7 @@ from django.conf import settings
 def site_meta(request):
     """put site meta info here"""
     return {
+        "DEBUG": settings.DEBUG,
         "SITE_TITLE": "GSGFs's blog",
         "SITE_DESCRIPTION": (
             "GSGFs's personal blog — writing about programming, technology, and life."

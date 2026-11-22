@@ -140,10 +140,15 @@ impl PluginSpec {
 
     /// Start an inline container belonging to this plugin.
     ///
-    /// A container parses a body as independent inline children and attaches
-    /// them to a payload node. Call `.parse(...)` and register a renderer with
-    /// `.html_tag(...)`, `.render_html(...)`, `.render_text(...)` or
-    /// `.render_with(...)`, then `.finish()`.
+    /// The parser returns a payload and records zero or more parts as
+    /// independent inline children. Use
+    /// [`InlineContainerState`](crate::plugin::InlineContainerState) for cursor
+    /// and part-recording methods; each recorded range becomes an
+    /// [`InlineContainerPart`](crate::plugin::InlineContainerPart). Call
+    /// `.parse(...)`, register a renderer with `.html_tag(...)`,
+    /// `.render_html(...)`, `.render_text(...)`, or `.render_with(...)`, then
+    /// `.finish()`. See [`InlineContainerBuilder::parse`] for a multi-part
+    /// example.
     ///
     /// ```
     /// use markdown_it::MarkdownIt;
@@ -162,8 +167,9 @@ impl PluginSpec {
     ///         }
     ///
     ///         let end = source.find('}')?;
-    ///         cx.advance(end + 1);
-    ///         Some((Span, 1..end))
+    ///         cx.part(1..end); // mark as a content part
+    ///         cx.advance_bytes(end + 1); // advance cursor
+    ///         Some(Span)
     ///     })
     ///     .render_html(|_, html| {
     ///         let children = html.render_children();
@@ -180,10 +186,8 @@ impl PluginSpec {
     /// );
     /// ```
     ///
-    /// The `find('}')` above is only a simple example. It matches the first
-    /// closing brace, does not support nested paired delimiters, and does not
-    /// skip `}` inside code spans or escapes. Plugins with those requirements
-    /// need a more careful source scanner or the low-level rule API.
+    /// `find('}')` is only a simple scanner: it does not handle nested pairs,
+    /// code spans, or escapes. Use `PairOptions` or a low-level rule for those.
     ///
     /// Missing callbacks are rejected:
     ///
@@ -196,8 +200,8 @@ impl PluginSpec {
     /// PluginSpec::new("span")
     ///     .inline_container::<Span>("span")
     ///     .parse(|cx| {
-    ///         cx.advance(1);
-    ///         Some((Span, 0..0))
+    ///         cx.advance_bytes(1);
+    ///         Some(Span)
     ///     })
     ///     .finish(); // no renderer
     /// ```
@@ -319,8 +323,8 @@ impl PluginSpec {
     ///         let close = (1..cx.remaining_lines())
     ///             .find(|&line| cx.line(line) == Some("%%%"))?;
     ///
-    ///         // return plugin type & cursor state
-    ///         Some(BlockContainerParse::new(Spoiler, close - 1).close_lines(1))
+    ///         // return payload and layout
+    ///         Some(BlockContainerParse::new(Spoiler).closed_at(close))
     ///     })
     ///     .html_tag("details")
     ///     .finish();
@@ -342,7 +346,7 @@ impl PluginSpec {
     ///
     /// PluginSpec::new("admonition")
     ///     .block_container::<Admonition>("admonition")
-    ///     .parse(|_| Some(BlockContainerParse::new(Admonition, 0)))
+    ///     .parse(|_| Some(BlockContainerParse::new(Admonition)))
     ///     .finish(); // no renderer
     /// ```
     ///
@@ -444,9 +448,7 @@ impl PluginSpec {
     /// let plugin = PluginSpec::new("prefix").transform("prefix", |document, _md| {
     ///     let paragraph = document.children(document.root())[0];
     ///     let first = document.children(paragraph)[0];
-    ///     let prefix = document.create_node(Text {
-    ///         content: "> ".into(),
-    ///     });
+    ///     let prefix = document.create_node(Text::new("> "));
     ///     document.insert_before(first, prefix);
     /// });
     ///

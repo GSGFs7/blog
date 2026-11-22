@@ -1,6 +1,6 @@
 {% extends "web/layout/base.html" %}
 
-{% load vite static %}
+{% load vite static solid_islands %}
 
 {% block title %}{{ title }}{% endblock %}
 
@@ -52,4 +52,9 @@
       {{ content_html|safe }}
     </article>
   {% endwith %}
+
+  {% if DEBUG %}
+  {# TODO: comment #}
+    {% solid_island "Comment" id=post_id %}
+  {% endif %}
 {% endblock %}

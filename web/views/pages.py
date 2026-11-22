@@ -159,6 +159,7 @@ async def blog_post_slug(request: HttpRequest, post_slug: str) -> HttpResponse:
         "content_update_at": post.content_update_at,
         "category_name": post.category.name if post.category_id else "",
         "tag_names": [t.name for t in post.tags.all()],
+        "post_id": post.id,
     }
     response = TemplateResponse(
         request,

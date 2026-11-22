@@ -1,4 +1,5 @@
-import { APP_PAGE_EVENT } from "../navigation";
+import { APP_PAGE_EVENT } from "@/core/navigation";
+
 import type { Behavior, BehaviorContext, BehaviorDefinition, BehaviorFactory } from "./types";
 
 const rootContainsSelector = (root: ParentNode, selector: string): boolean => {

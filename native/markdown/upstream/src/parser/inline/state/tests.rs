@@ -38,6 +38,8 @@ impl<'a> InlineState<'a> {
             scan_hooks: Cow::Owned(OnceCell::new()),
             root_ext: None,
             link_level,
+            suppress_bracket_links: false,
+            suppress_inline_containers: false,
             ruleset,
             nodes: Vec::new(),
             document,
@@ -53,19 +55,21 @@ fn scan<'s>(state: &'s mut InlineState<'_>, range: Range<usize>) -> Option<Inlin
 
 fn check_rule(check: InlineCheckFn) -> InlineRuleFns {
     InlineRuleFns {
-        type_id: std::any::TypeId::of::<()>(),
         run: InlineRunRunner::Static(panic_run),
         check: InlineCheckRunner::Static(check),
         marker: '\0',
+        literal: false,
+        pair_probe_reusable: false,
     }
 }
 
 fn run_rule_with_marker(run: InlineRunFn, marker: char) -> InlineRuleFns {
     InlineRuleFns {
-        type_id: std::any::TypeId::of::<()>(),
         run: InlineRunRunner::Static(run),
         check: InlineCheckRunner::Static(panic_check),
         marker,
+        literal: false,
+        pair_probe_reusable: false,
     }
 }
 
@@ -104,10 +108,10 @@ fn parent_state<'a>(
         scan_hooks: Cow::Owned(OnceCell::new()),
         root_ext: None,
         link_level: 2,
+        suppress_bracket_links: false,
+        suppress_inline_containers: false,
         ruleset,
-        nodes: vec![document.create_node(Text {
-            content: "sentinel".into(),
-        })],
+        nodes: vec![document.create_node(Text::new("sentinel"))],
         document,
         pending_text: Some((0, 3)),
     }
@@ -133,6 +137,8 @@ fn check_state<'a>(
         scan_hooks: Cow::Owned(OnceCell::new()),
         root_ext: None,
         link_level: 0,
+        suppress_bracket_links: false,
+        suppress_inline_containers: false,
         ruleset,
         nodes: vec![],
         document,
@@ -190,10 +196,10 @@ fn finishing_nodes_preserves_source_and_byte_mapping() {
         scan_hooks: Cow::Owned(OnceCell::new()),
         root_ext: None,
         link_level: 1,
+        suppress_bracket_links: false,
+        suppress_inline_containers: false,
         ruleset: &ruleset,
-        nodes: vec![document.create_node(Text {
-            content: "x".to_owned(),
-        })],
+        nodes: vec![document.create_node(Text::new("x"))],
         document: &mut document,
         pending_text: Some((4, 7)),
     };
@@ -211,7 +217,7 @@ fn finishing_nodes_preserves_source_and_byte_mapping() {
             .node(state.nodes[1])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         "雪"
     );
     #[cfg(feature = "sourcemap")]
@@ -234,7 +240,7 @@ fn finish_callbacks_see_flushed_nodes_in_registration_order() {
     state.on_finish(|state| {
         let node = state.document.node(state.nodes()[0]);
         assert!(node.parent().is_none());
-        assert_eq!(node.cast::<Text>().unwrap().content, "plain");
+        assert_eq!(node.cast::<Text>().unwrap().as_str(), "plain");
         let root = state.document.root();
         state.document.node_mut(root).ext_mut().insert(vec![1u8]);
     });
@@ -340,7 +346,7 @@ fn top_level_plain_text_finishes_without_temporary_markers() {
     );
     assert_eq!(nodes.len(), 1);
     assert_eq!(
-        document.node(nodes[0]).cast::<Text>().unwrap().content,
+        document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
         "plain"
     );
     #[cfg(feature = "sourcemap")]
@@ -367,7 +373,7 @@ fn subrange_preserves_parent_whitespace_and_multiline_mapping() {
             .node(nodes[0])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         " 雪\n次 "
     );
     #[cfg(feature = "sourcemap")]
@@ -390,7 +396,7 @@ fn subrange_preserves_parent_whitespace_and_multiline_mapping() {
             .node(state.nodes[0])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         "sentinel"
     );
     assert_eq!(state.inline_ext.get::<SessionScratch>().unwrap().0, 41);
@@ -433,7 +439,7 @@ fn subrange_at_nesting_limit_emits_literal_text() {
             .node(nodes[0])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         "{ 雪\n次 }"
     );
 }
@@ -444,7 +450,7 @@ fn normal_parse_does_not_call_check() {
     fn emit(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         let content = state.remaining().to_owned();
         Some((
-            Some(state.document.create_node(Text { content })),
+            Some(state.document.create_node(Text::new(content))),
             state.remaining().len(),
         ))
     }
@@ -462,7 +468,10 @@ fn normal_parse_does_not_call_check() {
         None,
     );
     assert_eq!(nodes.len(), 1);
-    assert_eq!(document.node(nodes[0]).cast::<Text>().unwrap().content, "x");
+    assert_eq!(
+        document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
+        "x"
+    );
 }
 
 #[test]
@@ -477,7 +486,7 @@ fn run_dispatch_skips_non_matching_markers() {
     fn consume_all(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         let content = state.remaining().to_owned();
         Some((
-            Some(state.document.create_node(Text { content })),
+            Some(state.document.create_node(Text::new(content))),
             state.remaining().len(),
         ))
     }
@@ -502,7 +511,7 @@ fn run_dispatch_skips_non_matching_markers() {
         );
         assert_eq!(nodes.len(), 1);
         assert_eq!(
-            document.node(nodes[0]).cast::<Text>().unwrap().content,
+            document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
             source
         );
     }
@@ -514,16 +523,14 @@ fn run_dispatch_matches_unicode_marker() {
     fn consume_snow(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         assert!(state.remaining().starts_with('雪'));
         Some((
-            Some(state.document.create_node(Text {
-                content: "雪".to_owned(),
-            })),
+            Some(state.document.create_node(Text::new("雪"))),
             '雪'.len_utf8(),
         ))
     }
     fn consume_all(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         let content = state.remaining().to_owned();
         Some((
-            Some(state.document.create_node(Text { content })),
+            Some(state.document.create_node(Text::new(content))),
             state.remaining().len(),
         ))
     }
@@ -546,10 +553,13 @@ fn run_dispatch_matches_unicode_marker() {
     );
     assert_eq!(nodes.len(), 2);
     assert_eq!(
-        document.node(nodes[0]).cast::<Text>().unwrap().content,
+        document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
         "雪"
     );
-    assert_eq!(document.node(nodes[1]).cast::<Text>().unwrap().content, "x");
+    assert_eq!(
+        document.node(nodes[1]).cast::<Text>().unwrap().as_str(),
+        "x"
+    );
 
     let nodes = InlineState::parse(
         &mut document,
@@ -561,7 +571,7 @@ fn run_dispatch_matches_unicode_marker() {
     );
     assert_eq!(nodes.len(), 1);
     assert_eq!(
-        document.node(nodes[0]).cast::<Text>().unwrap().content,
+        document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
         "xx"
     );
 }
@@ -573,17 +583,12 @@ fn run_dispatch_preserves_wildcard_order() {
         if !state.remaining().starts_with('x') {
             return None;
         }
-        Some((
-            Some(state.document.create_node(Text {
-                content: "X".to_owned(),
-            })),
-            1,
-        ))
+        Some((Some(state.document.create_node(Text::new("X"))), 1))
     }
     fn consume_all(state: &mut InlineState<'_>) -> Option<(Option<NodeId>, usize)> {
         let content = state.remaining().to_owned();
         Some((
-            Some(state.document.create_node(Text { content })),
+            Some(state.document.create_node(Text::new(content))),
             state.remaining().len(),
         ))
     }
@@ -606,8 +611,14 @@ fn run_dispatch_preserves_wildcard_order() {
         None,
     );
     assert_eq!(nodes.len(), 2);
-    assert_eq!(document.node(nodes[0]).cast::<Text>().unwrap().content, "X");
-    assert_eq!(document.node(nodes[1]).cast::<Text>().unwrap().content, "y");
+    assert_eq!(
+        document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
+        "X"
+    );
+    assert_eq!(
+        document.node(nodes[1]).cast::<Text>().unwrap().as_str(),
+        "y"
+    );
 
     // A wildcard registered first must keep its position and win.
     let wildcard_first = RuleSet {
@@ -624,7 +635,7 @@ fn run_dispatch_preserves_wildcard_order() {
     );
     assert_eq!(nodes.len(), 1);
     assert_eq!(
-        document.node(nodes[0]).cast::<Text>().unwrap().content,
+        document.node(nodes[0]).cast::<Text>().unwrap().as_str(),
         "xy"
     );
 }
@@ -735,16 +746,18 @@ fn check_no_match_falls_through_to_lower_priority_rules() {
         runs: vec![],
         checks: vec![
             InlineRuleFns {
-                type_id: std::any::TypeId::of::<()>(),
                 run: InlineRunRunner::Static(panic_run),
                 check: InlineCheckRunner::Static(|_| None),
                 marker: 'x',
+                literal: false,
+                pair_probe_reusable: false,
             },
             InlineRuleFns {
-                type_id: std::any::TypeId::of::<()>(),
                 run: InlineRunRunner::Static(panic_run),
                 check: InlineCheckRunner::Static(|_| Some(1)),
                 marker: 'x',
+                literal: false,
+                pair_probe_reusable: false,
             },
         ],
     };
@@ -763,10 +776,11 @@ fn check_dispatch_skips_non_matching_markers() {
     let ruleset = RuleSet {
         runs: vec![],
         checks: vec![InlineRuleFns {
-            type_id: std::any::TypeId::of::<()>(),
             run: InlineRunRunner::Static(panic_run),
             check: InlineCheckRunner::Static(|_| panic!("marker must filter check dispatch")),
             marker: 'y',
+            literal: false,
+            pair_probe_reusable: false,
         }],
     };
     let mut state = check_state(&mut document, &md, &ruleset, "x");
@@ -919,9 +933,7 @@ fn check_matches_and_no_matches_keep_scratch_and_effects_private() {
         .node_mut(state.nodes[0])
         .ext_mut()
         .insert(17u8);
-    let child = state.document.create_node(Text {
-        content: "child".into(),
-    });
+    let child = state.document.create_node(Text::new("child"));
     state.document.push_child(state.nodes[0], child);
     let before = check_parent_snapshot(&state);
 
@@ -993,10 +1005,11 @@ fn recursive_check_validates_ranges_and_empty_suffixes() {
     let no_match = RuleSet {
         runs: vec![],
         checks: vec![InlineRuleFns {
-            type_id: std::any::TypeId::of::<()>(),
             run: InlineRunRunner::Static(panic_run),
             check: InlineCheckRunner::Static(|_| None),
             marker: 'x',
+            literal: false,
+            pair_probe_reusable: false,
         }],
     };
     let mut state = check_state(&mut document, &md, &no_match, "x");
@@ -1136,10 +1149,11 @@ fn recursive_check_same_range_terminates_at_depth_limit() {
     let ruleset = RuleSet {
         runs: vec![],
         checks: vec![InlineRuleFns {
-            type_id: std::any::TypeId::of::<()>(),
             run: InlineRunRunner::Static(panic_run),
             check: InlineCheckRunner::Static(same_range),
             marker: '#',
+            literal: false,
+            pair_probe_reusable: false,
         }],
     };
     let mut state = check_state(&mut document, &md, &ruleset, "#");
@@ -1177,10 +1191,11 @@ fn recursive_check_long_chain_is_linear_and_stack_safe() {
     let ruleset = RuleSet {
         runs: vec![],
         checks: vec![InlineRuleFns {
-            type_id: std::any::TypeId::of::<()>(),
             run: InlineRunRunner::Static(panic_run),
             check: InlineCheckRunner::Static(nested),
             marker: '^',
+            literal: false,
+            pair_probe_reusable: false,
         }],
     };
     let source = "^".repeat(CHAIN) + "x";
@@ -1205,12 +1220,13 @@ fn check_dispatch_keeps_wildcard_position() {
         checks: vec![
             check_rule(|_| Some(1)),
             InlineRuleFns {
-                type_id: std::any::TypeId::of::<()>(),
                 run: InlineRunRunner::Static(panic_run),
                 check: InlineCheckRunner::Static(|_| {
                     panic!("specific rule must not run after a wildcard match")
                 }),
                 marker: 'x',
+                literal: false,
+                pair_probe_reusable: false,
             },
         ],
     };
@@ -1445,9 +1461,7 @@ fn check_emphasis_defers_to_later_same_marker_rule() {
 fn check_emphasis_defers_for_unicode_marker() {
     let mut document = Document::new("", crate::document::Root::new(""));
     fn node(document: &mut Document) -> NodeId {
-        document.create_node(Text {
-            content: String::new(),
-        })
+        document.create_node(Text::new(""))
     }
 
     let mut md = MarkdownIt::empty();
@@ -1468,9 +1482,7 @@ fn check_html_special_cutoff_is_shared_across_sessions() {
     let ruleset = md.inline.rules();
     let mut state = check_state(&mut document, &md, ruleset, "<!-- [ -->");
     state.inline_ext.insert(SessionScratch(41));
-    let node = state.document.create_node(Text {
-        content: "sentinel".into(),
-    });
+    let node = state.document.create_node(Text::new("sentinel"));
     state.nodes.push(node);
     let before = check_parent_snapshot(&state);
 
@@ -1505,7 +1517,6 @@ fn invalid_check_length_panics_and_preserves_pending() {
         runs: vec![],
         checks: vec![
             InlineRuleFns {
-                type_id: std::any::TypeId::of::<()>(),
                 run: InlineRunRunner::Static(panic_run),
                 check: InlineCheckRunner::Static(|context| {
                     if context.remaining() == "aa" {
@@ -1516,21 +1527,22 @@ fn invalid_check_length_panics_and_preserves_pending() {
                     }
                 }),
                 marker: 'a',
+                literal: false,
+                pair_probe_reusable: false,
             },
             InlineRuleFns {
-                type_id: std::any::TypeId::of::<()>(),
                 run: InlineRunRunner::Static(panic_run),
                 check: InlineCheckRunner::Static(|_| Some(0)),
                 marker: 'a',
+                literal: false,
+                pair_probe_reusable: false,
             },
         ],
     };
     let mut state = check_state(&mut document, &md, &ruleset, "aa");
     state.link_level = 2;
     state.inline_ext.insert(SessionScratch(41));
-    let node = state.document.create_node(Text {
-        content: "sentinel".into(),
-    });
+    let node = state.document.create_node(Text::new("sentinel"));
     state.nodes.push(node);
     let before = check_parent_snapshot(&state);
     let mut context = scan(&mut state, 0..2).unwrap();
@@ -1668,9 +1680,7 @@ fn child_link_level_override_is_isolated() {
         state.inline_ext.insert(SessionScratch(0));
         state.link_level = 99;
         Some((
-            Some(state.document.create_node(Text {
-                content: initial.to_string(),
-            })),
+            Some(state.document.create_node(Text::new(initial.to_string()))),
             len,
         ))
     }
@@ -1689,7 +1699,7 @@ fn child_link_level_override_is_isolated() {
             .node(inherited[0])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         "2"
     );
 
@@ -1704,7 +1714,7 @@ fn child_link_level_override_is_isolated() {
                 .node(children[0])
                 .cast::<Text>()
                 .unwrap()
-                .content,
+                .as_str(),
             level.to_string()
         );
         #[cfg(feature = "sourcemap")]
@@ -1724,7 +1734,7 @@ fn child_link_level_override_is_isolated() {
             .node(state.nodes[0])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         "sentinel"
     );
 }
@@ -1764,7 +1774,7 @@ fn child_link_level_override_keeps_range_and_depth_rules() {
             .node(children[0])
             .cast::<Text>()
             .unwrap()
-            .content,
+            .as_str(),
         "{ 雪\n次 }"
     );
     assert_eq!(state.link_level, 2);
@@ -1932,4 +1942,216 @@ fn check_rejects_window_change_on_match() {
     };
     let mut state = check_state(&mut document, &md, &ruleset, "xy");
     state.skip_token();
+}
+
+#[test]
+fn contextual_pair_scan_preserves_parent_cursor_text_and_arena() {
+    use crate::parser::inline::helpers::paired_span::{self, PairOptions};
+
+    let source = "前@[包含 `]` 的文字]尾";
+    let md = MarkdownIt::new();
+    let mut document = Document::new(source, crate::document::Root::new(source));
+    let ruleset = md.inline.rules();
+    let mut state = InlineState::new(&mut document, source, 0, source.len(), &md, ruleset, 0, 0);
+    state.push_text(0, "前".len());
+    let arena_len = state.document.len();
+    for _ in 0..2 {
+        let matched =
+            paired_span::scan_inline(&mut state, "前@".len(), &PairOptions::new("[", "]")).unwrap();
+        assert_eq!(
+            &source["前@".len() + matched.body.start.."前@".len() + matched.body.end],
+            "包含 `]` 的文字"
+        );
+        assert_eq!(matched.consumed, "[包含 `]` 的文字]".len());
+        assert_eq!(state.pos, 0);
+        assert_eq!(state.pos_max, source.len());
+        assert_eq!(state.depth, 0);
+        assert_eq!(state.trailing_text(), "前");
+        assert!(state.nodes().is_empty());
+        assert_eq!(state.document.len(), arena_len);
+    }
+    assert!(
+        paired_span::scan_inline(&mut state, "前@".len(), &PairOptions::new("[", "missing"))
+            .is_none()
+    );
+    assert_eq!(state.pos, 0);
+    assert_eq!(state.trailing_text(), "前");
+    assert_eq!(state.document.len(), arena_len);
+}
+
+#[test]
+fn contextual_and_literal_scans_agree_without_opaque_constructs() {
+    use crate::parser::inline::helpers::paired_span::{
+        self,
+        EscapePolicy,
+        NestingPolicy,
+        PairOptions,
+    };
+
+    let md = MarkdownIt::new();
+    let ruleset = md.inline.rules();
+    let sources = [
+        "«a»",
+        "«a«b»»",
+        "«a\\»b»",
+        "«»",
+        "«a\nb»",
+        "«a»tail",
+        "«a",
+        "a»",
+        "«🦀»",
+        "«a«b»",
+    ];
+    for source in sources {
+        for escape in [EscapePolicy::None, EscapePolicy::Backslash] {
+            for nesting in [NestingPolicy::None, NestingPolicy::SamePair] {
+                for allow_empty in [false, true] {
+                    for allow_line_breaks in [false, true] {
+                        let options = PairOptions::new("«", "»")
+                            .escape(escape)
+                            .nesting(nesting)
+                            .allow_empty(allow_empty)
+                            .allow_line_breaks(allow_line_breaks);
+                        let mut document =
+                            Document::new(source, crate::document::Root::new(source));
+                        let mut state = InlineState::new(
+                            &mut document,
+                            source,
+                            0,
+                            source.len(),
+                            &md,
+                            ruleset,
+                            0,
+                            0,
+                        );
+                        let expected = paired_span::scan(source, &options);
+                        assert_eq!(
+                            paired_span::scan_inline(&mut state, 0, &options),
+                            expected,
+                            "{source:?} {options:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn contextual_pair_closer_index_respects_child_window_ends() {
+    use crate::parser::inline::helpers::paired_span::{self, PairOptions};
+
+    let source = format!("@[{}]]", "雪".repeat(32));
+    let source = source.as_str();
+    let md = MarkdownIt::new();
+    let mut document = Document::new(source, crate::document::Root::new(source));
+    let ruleset = md.inline.rules();
+    let mut state = InlineState::new(&mut document, source, 0, source.len(), &md, ruleset, 0, 0);
+    let options = PairOptions::new("[", "]]");
+    assert!(paired_span::scan_inline(&mut state, 1, &options).is_some());
+    for end in [source.len() - 2, source.len() - 1] {
+        let mut child = state.child_state(0..end).unwrap();
+        assert!(paired_span::scan_inline(&mut child, 1, &options).is_none());
+    }
+    assert!(paired_span::scan_inline(&mut state, 1, &options).is_some());
+}
+
+#[test]
+fn cached_pair_failure_keeps_closers_visible_from_other_starts_and_windows() {
+    use crate::parser::inline::helpers::paired_span::{self, PairOptions};
+
+    let source = format!("«outer «second `{}«inner»` tail", "x".repeat(64));
+    let source = source.as_str();
+    let md = MarkdownIt::new();
+    let mut document = Document::new(source, crate::document::Root::new(source));
+    let ruleset = md.inline.rules();
+    let mut state = InlineState::new(&mut document, source, 0, source.len(), &md, ruleset, 0, 0);
+    let options = PairOptions::new("«", "»");
+    let second = source.find("«second").unwrap();
+    let inner = source.find("«inner").unwrap();
+    let closer_end = inner + "«inner»".len();
+
+    // The first failure indexes raw closers and the second caches a failed
+    // suffix. From inside the code span its closer is visible.
+    assert!(paired_span::scan_inline(&mut state, 0, &options).is_none());
+    assert!(paired_span::scan_inline(&mut state, second, &options).is_none());
+    assert_eq!(
+        paired_span::scan_inline(&mut state, inner, &options)
+            .unwrap()
+            .consumed,
+        "«inner»".len()
+    );
+
+    // A shorter window omits the closing backtick and exposes that same closer.
+    let mut child = state.child_state(0..closer_end).unwrap();
+    assert_eq!(
+        paired_span::scan_inline(&mut child, second, &options)
+            .unwrap()
+            .consumed,
+        closer_end - second
+    );
+}
+
+#[test]
+fn probe_token_until_shortens_only_literal_rules() {
+    fn ruleset(literal: bool) -> RuleSet {
+        RuleSet {
+            runs: vec![],
+            checks: vec![InlineRuleFns {
+                run: InlineRunRunner::Static(panic_run),
+                check: InlineCheckRunner::Static(|state| {
+                    let len = state.remaining().len();
+                    state.push_text(state.pos, state.pos + len);
+                    Some(len)
+                }),
+                marker: '\0',
+                literal,
+                pair_probe_reusable: literal,
+            }],
+        }
+    }
+
+    let md = MarkdownIt::new();
+    for (literal, expected_len, expected_text) in [(false, 4, ""), (true, 2, "ab")] {
+        let ruleset = ruleset(literal);
+        let mut document = Document::new("", crate::document::Root::new(""));
+        let mut state = check_state(&mut document, &md, &ruleset, "abcd");
+        assert_eq!(
+            state.probe_token_until(|_| 2),
+            Some((expected_len, literal)),
+            "{literal}"
+        );
+        assert_eq!(state.trailing_text(), expected_text, "{literal}");
+        assert_eq!(state.pos, expected_len, "{literal}");
+    }
+}
+
+#[cfg(feature = "sourcemap")]
+#[test]
+fn get_map_treats_malformed_mappings_as_missing() {
+    let md = MarkdownIt::empty();
+    let ruleset = md.inline.rules();
+    let source = " abcdefgh";
+    for (mapping, expected) in [
+        (vec![], None),
+        (vec![(1, 0)], None),
+        (vec![(0, 0), (2, 2), (1, 1)], None),
+        (vec![(0, 4), (2, 0)], None),
+        (vec![(0, usize::MAX)], None),
+        (vec![(0, 0), (2, 4)], Some((1, 6))),
+    ] {
+        let mut document = Document::new(source, crate::document::Root::new(source));
+        let nodes = InlineState::parse(&mut document, " abc".into(), mapping, &md, ruleset, None);
+        let [text] = nodes.as_slice() else {
+            panic!("expected one text node");
+        };
+        assert_eq!(document.text(*text), Some("abc"));
+        assert_eq!(
+            document
+                .node(*text)
+                .srcmap()
+                .map(|map| map.get_byte_offsets()),
+            expected
+        );
+    }
 }

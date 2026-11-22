@@ -6,6 +6,7 @@ test("uses HTMX for boosted page navigation", async ({ page }) => {
     "content",
     "htmx",
   );
+  await expect.poll(() => page.evaluate(() => "htmx" in window)).toBe(true);
 
   const htmxRequest = page.waitForRequest(
     (request) =>

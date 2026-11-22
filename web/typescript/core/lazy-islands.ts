@@ -1,4 +1,5 @@
-import { COMPONENTS } from "../islands";
+import { COMPONENTS } from "@/islands";
+
 import { APP_PAGE_EVENT, type PageSwapDetail } from "./navigation";
 
 const ISLAND_SELECTOR = "[data-solid-island]";

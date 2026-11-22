@@ -33,7 +33,7 @@ impl Word {
             .find(|ch: char| !ch.is_ascii_alphabetic())
             .unwrap_or(rest.len());
         let word = cx.remaining_slice(1..end + 1)?.to_owned();
-        cx.advance(end + 1).then_some(Word(word))
+        cx.advance_bytes(end + 1).then_some(Word(word))
     }
 
     fn render_html(&self, html: &mut Html) {
@@ -92,7 +92,13 @@ fn same_local_inline_name_in_child_plugins_has_independent_ordering() {
         let container = PluginSpec::new("container")
             .inline_container::<Container>("run")
             .marker('@')
-            .parse(|cx| cx.consume("@").then_some((Container, 1..1)))
+            .parse(|cx| {
+                if !cx.consume("@") {
+                    return None;
+                }
+                cx.part_at(1..1);
+                Some(Container)
+            })
             .html_tag("span")
             .finish();
         let (group, delayed, before, after) = if container_first {
@@ -363,8 +369,9 @@ fn span() -> PluginSpec {
                 return None;
             }
             let end = source.find('}')?;
-            cx.advance(end + 1);
-            Some((Span, 1..end))
+            cx.part(1..end);
+            cx.advance_bytes(end + 1);
+            Some(Span)
         })
         .html_tag("span")
         .finish()
@@ -398,8 +405,9 @@ fn failed_inline_container_match_does_not_leave_child_nodes() {
             if cx.source_slice(1..end)?.contains("no") {
                 return None;
             }
-            cx.advance(end + 1);
-            Some((Reject, 1..end))
+            cx.part(1..end);
+            cx.advance_bytes(end + 1);
+            Some(Reject)
         })
         .html_tag("span")
         .finish();
@@ -424,8 +432,9 @@ fn configured_inline_container_can_render_children_in_callbacks() {
                 return None;
             }
             let end = source.find("]")?;
-            cx.advance(end + 1);
-            Some((Boxed("note".into()), 2..end))
+            cx.part(2..end);
+            cx.advance_bytes(end + 1);
+            Some(Boxed("note".into()))
         })
         .render_html(|value, html| {
             let children = html.render_children();
@@ -471,17 +480,18 @@ fn inline_container_cursor_rejects_utf8_splits_and_out_of_bounds() {
                 return None;
             }
 
-            assert!(cx.advance(1));
-            assert_eq!(cx.consumed(), 1);
+            assert!(cx.advance_bytes(1));
+            assert_eq!(cx.consumed_bytes(), 1);
             // Splitting the UTF-8 encoding of 雪 must fail without moving.
-            assert!(!cx.advance(1));
-            assert_eq!(cx.consumed(), 1);
-            assert!(!cx.advance(usize::MAX));
-            assert_eq!(cx.consumed(), 1);
+            assert!(!cx.advance_bytes(1));
+            assert_eq!(cx.consumed_bytes(), 1);
+            assert!(!cx.advance_bytes(usize::MAX));
+            assert_eq!(cx.consumed_bytes(), 1);
 
-            assert!(cx.advance('雪'.len_utf8()));
+            assert!(cx.advance_bytes('雪'.len_utf8()));
             assert!(cx.consume("}"));
-            Some((Bound, 1..4))
+            cx.part_at(1..4);
+            Some(Bound)
         })
         .html_tag("span")
         .finish();
@@ -499,15 +509,16 @@ fn range_plugin(range: std::ops::Range<usize>) -> PluginSpec {
             if !source.starts_with('{') {
                 return None;
             }
-            cx.advance(1);
-            Some((Span, range.clone()))
+            cx.part_at(range.clone());
+            cx.advance_bytes(1);
+            Some(Span)
         })
         .html_tag("span")
         .finish()
 }
 
 #[test]
-#[should_panic(expected = "invalid child range")]
+#[should_panic(expected = "invalid part range")]
 fn inline_container_rejects_reversed_child_range() {
     MarkdownIt::builder()
         .plugin(range_plugin(std::ops::Range { start: 2, end: 1 }))
@@ -516,7 +527,7 @@ fn inline_container_rejects_reversed_child_range() {
 }
 
 #[test]
-#[should_panic(expected = "invalid child range")]
+#[should_panic(expected = "invalid part range")]
 fn inline_container_rejects_out_of_bounds_child_range() {
     MarkdownIt::builder()
         .plugin(range_plugin(0..100))
@@ -525,7 +536,7 @@ fn inline_container_rejects_out_of_bounds_child_range() {
 }
 
 #[test]
-#[should_panic(expected = "invalid child range")]
+#[should_panic(expected = "invalid part range")]
 fn inline_container_rejects_overflow_sized_child_range() {
     MarkdownIt::builder()
         .plugin(range_plugin(1..usize::MAX))
@@ -539,7 +550,10 @@ fn configured_inline_container_rejects_zero_length_success() {
     let empty = PluginSpec::new("empty")
         .inline_container::<Span>("empty")
         .marker('{')
-        .parse(|_| Some((Span, 0..0)))
+        .parse(|cx| {
+            cx.part_at(0..0);
+            Some(Span)
+        })
         .html_tag("span")
         .finish();
 
@@ -559,6 +573,29 @@ fn inline_container_check_skips_child_source_during_link_scanning() {
 
 #[cfg(feature = "sourcemap")]
 #[test]
+fn container_html_exposes_original_source() {
+    let plugin = PluginSpec::new("source-text")
+        .inline_container::<Span>("source-text")
+        .marker('{')
+        .parse(|cx| {
+            let source = cx.source();
+            let end = source.find('}')?;
+            cx.part(1..end);
+            cx.advance_bytes(end + 1);
+            Some(Span)
+        })
+        .render_html(|_, html| {
+            let source = html.source_text().unwrap().to_owned();
+            assert_eq!(source, "{雪}");
+            html.text(source);
+        })
+        .finish();
+    let md = MarkdownIt::builder().plugin(plugin).build();
+    assert_eq!(md.render("前{雪}后"), "<p>前{雪}后</p>\n");
+}
+
+#[cfg(feature = "sourcemap")]
+#[test]
 fn inline_container_keeps_source_maps_of_container_and_children() {
     let document = MarkdownIt::builder()
         .plugin(span())
@@ -566,7 +603,9 @@ fn inline_container_keeps_source_maps_of_container_and_children() {
         .parse("前{雪}后");
     let paragraph = document.children(document.root())[0];
     let container = document.children(paragraph)[1];
-    let child = document.children(container)[0];
+    let part = document.children(container)[0];
+    let child = document.children(part)[0];
+    assert!(document.value::<InlineContainerPart>(part).is_some());
     assert_eq!(
         document
             .node(container)
@@ -574,6 +613,10 @@ fn inline_container_keeps_source_maps_of_container_and_children() {
             .unwrap()
             .get_byte_offsets(),
         (3, 8)
+    );
+    assert_eq!(
+        document.node(part).srcmap().unwrap().get_byte_offsets(),
+        (4, 7)
     );
     assert_eq!(
         document.node(child).srcmap().unwrap().get_byte_offsets(),
@@ -710,7 +753,8 @@ fn admonition(interrupts_paragraph: bool) -> PluginSpec {
             let close = (1..cx.remaining_lines()).find(|&line| cx.line(line) == Some(":::"));
             let body_end = close.unwrap_or(cx.remaining_lines());
             Some(
-                BlockContainerParse::new(Admonition(title), body_end - 1)
+                BlockContainerParse::new(Admonition(title))
+                    .body_until(body_end)
                     .close_lines(usize::from(close.is_some())),
             )
         })
@@ -786,8 +830,8 @@ fn configured_block_container_strips_content_indent() {
             }
             let close = (1..cx.remaining_lines()).find(|&line| cx.line(line) == Some("%%%"))?;
             Some(
-                BlockContainerParse::new(Indented, close - 1)
-                    .close_lines(1)
+                BlockContainerParse::new(Indented)
+                    .closed_at(close)
                     .content_indent(2),
             )
         })
@@ -816,7 +860,7 @@ fn block_container_and_leaf_share_installation_order() {
         .parse(|cx| {
             cx.line(0)?
                 .starts_with("!!")
-                .then_some(BlockContainerParse::new(First, 0))
+                .then_some(BlockContainerParse::new(First))
         })
         .render_html(|_, html| {
             html.element("p").class("first").text("first");
@@ -828,7 +872,7 @@ fn block_container_and_leaf_share_installation_order() {
         .parse(|cx| {
             cx.line(0)?
                 .starts_with("!!")
-                .then_some(BlockContainerParse::new(Second, 0))
+                .then_some(BlockContainerParse::new(Second))
         })
         .render_html(|_, html| {
             html.element("p").class("second").text("second");
@@ -854,7 +898,7 @@ fn configured_block_container_rejects_layout_past_outdent_window() {
             // The block window inside the list item ends before `outside`.
             // These line counts would pass against state.line_max but cross the
             // outdent and swallow the following blocks.
-            Some(BlockContainerParse::new(CrossOutdent, 3))
+            Some(BlockContainerParse::new(CrossOutdent).body_lines(3))
         })
         .html_tag("div")
         .finish();
@@ -873,7 +917,7 @@ fn configured_block_container_rejects_zero_opening_lines() {
 
     let container = PluginSpec::new("empty")
         .block_container::<Empty>("empty")
-        .parse(|_| Some(BlockContainerParse::new(Empty, 1).open_lines(0)))
+        .parse(|_| Some(BlockContainerParse::new(Empty).body_lines(1).open_lines(0)))
         .html_tag("div")
         .finish();
 
@@ -1121,9 +1165,7 @@ fn transform_runs_after_inline_and_can_rewrite_document() {
         assert!(document.node(first).is::<Em>());
         flag.store(true, Ordering::SeqCst);
 
-        let prefix = document.create_node(Text {
-            content: "> ".into(),
-        });
+        let prefix = document.create_node(Text::new("> "));
         document.insert_before(first, prefix);
     });
 
@@ -1454,10 +1496,11 @@ fn inline_container_source_reference_survives_cursor_advance() {
                 return None;
             }
             let end = source.find('}')?;
-            if !cx.advance(end) {
+            if !cx.advance_bytes(end) {
                 return None;
             }
-            Some((Span, 1..end))
+            cx.part_at(1..end);
+            Some(Span)
         })
         .html_tag("span")
         .finish();

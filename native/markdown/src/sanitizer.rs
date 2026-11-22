@@ -153,6 +153,8 @@ fn build_sanitizer() -> Builder<'static> {
             "span",
             &[
                 "data-caption",
+                "data-note",
+                "tabindex",
                 "data-domain",
                 "style",
                 "data-solid-island",

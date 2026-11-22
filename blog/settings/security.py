@@ -61,7 +61,15 @@ CSP_POLICY = {
     # xterm.js needs inline style
     "style-src": [CSP.SELF, CSP.UNSAFE_INLINE, STATIC_CDN_ORIGIN],
     "style-src-attr": [CSP.UNSAFE_INLINE],
-    "img-src": [CSP.SELF, "data:", "blob:", IMAGE_CDN_ORIGIN, STATIC_CDN_ORIGIN],
+    "img-src": [
+        CSP.SELF,
+        "data:",
+        "blob:",
+        IMAGE_CDN_ORIGIN,
+        STATIC_CDN_ORIGIN,
+        # TODO: avatar transfer
+        # "avatars.githubusercontent.com",
+    ],
     "font-src": [CSP.SELF, "data:", STATIC_CDN_ORIGIN],
     "connect-src": [CSP.SELF, "blob:", STATIC_CDN_ORIGIN, MUSIC_CDN_ORIGIN],
     "worker-src": [CSP.SELF, "blob:", STATIC_CDN_ORIGIN],

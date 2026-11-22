@@ -1,3 +1,4 @@
+import { createAnnotationBehavior } from "./implementations/annotation";
 import { createArticleLinkBehavior } from "./implementations/article-links";
 import { createBlogHeaderBehavior } from "./implementations/blog-header";
 import { createCodeExpanderBehavior } from "./implementations/code-expander";
@@ -35,5 +36,9 @@ export const behaviorRegistry = [
   {
     selector: ".markdown-body em, .markdown-body i",
     inline: createItalicEmojiBehavior,
+  },
+  {
+    selector: ".markdown-body [data-note]",
+    inline: createAnnotationBehavior,
   },
 ] satisfies readonly BehaviorDefinition[];

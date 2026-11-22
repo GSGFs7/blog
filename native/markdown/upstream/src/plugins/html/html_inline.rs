@@ -22,8 +22,6 @@ pub fn add(md: &mut MarkdownIt) {
 /// Source-wide state for special HTML scanning.
 #[derive(Debug, Default)]
 struct HtmlSpecialScan {
-    /// Set once a special HTML token lacks a closing delimiter.
-    disabled: bool,
     /// Cached `<!/<?` starts, shared across nested inline sessions.
     starts: Option<Vec<usize>>,
 }
@@ -39,11 +37,12 @@ fn source_has_special_html(source: &str) -> bool {
 }
 
 fn special_html_scan_hook(state: &InlineState<'_>, start: usize, end: usize) -> bool {
-    let mut shared = state.shared_ext();
-    let scan = shared.get_or_insert_default::<HtmlSpecialScan>();
-    if scan.disabled {
+    if state.special_scan_disabled() {
         return false;
     }
+
+    let mut shared = state.shared_ext();
+    let scan = shared.get_or_insert_default::<HtmlSpecialScan>();
     let starts = scan
         .starts
         .get_or_insert_with(|| special_html_starts(&state.src).collect());
@@ -51,23 +50,28 @@ fn special_html_scan_hook(state: &InlineState<'_>, start: usize, end: usize) -> 
     starts.get(next).is_some_and(|&pos| pos < end)
 }
 
-fn special_html_disabled(state: &InlineState<'_>) -> bool {
-    state
-        .shared_ext()
-        .get::<HtmlSpecialScan>()
-        .is_some_and(|scan| scan.disabled)
-}
-
-fn disable_special_html(state: &InlineState<'_>) {
-    state
-        .shared_ext()
-        .get_or_insert_default::<HtmlSpecialScan>()
-        .disabled = true;
-}
-
 #[derive(Debug)]
 pub struct HtmlInline {
-    pub content: String,
+    content: String,
+}
+
+impl HtmlInline {
+    /// Create a raw inline HTML payload.
+    pub fn new(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+        }
+    }
+
+    /// Borrow the raw inline HTML.
+    pub fn as_str(&self) -> &str {
+        &self.content
+    }
+
+    /// Replace the raw inline HTML.
+    pub fn set_content(&mut self, content: impl Into<String>) {
+        self.content = content.into();
+    }
 }
 
 struct HtmlInlineRenderer;
@@ -108,9 +112,7 @@ impl InlineRule for HtmlInlineScanner {
         let (source, document) = state.remaining_and_document();
 
         Some((
-            Some(document.create_node(HtmlInline {
-                content: source[..matched.consumed].to_owned(),
-            })),
+            Some(document.create_node(HtmlInline::new(source[..matched.consumed].to_owned()))),
             matched.consumed,
         ))
     }
@@ -178,12 +180,12 @@ fn scan_special(state: &mut InlineState<'_>, pos: usize) -> Option<usize> {
         return None;
     };
 
-    if special_html_disabled(state) {
+    if state.special_scan_disabled() {
         return None;
     }
 
     let Some(offset) = src[start..pos_max].find(terminator) else {
-        disable_special_html(state);
+        state.disable_special_scan();
         return None;
     };
 

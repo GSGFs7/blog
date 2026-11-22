@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { cleanup, type IslandElement } from "../../../bootstrap";
+import { cleanup, type IslandElement } from "@/core/bootstrap";
+
 import {
   APP_PAGE_EVENT,
   type PageNavigationDetail,
