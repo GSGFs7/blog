@@ -1,45 +1,108 @@
 # this file used in local dev only
 # use `podman-compose up -d "blog-redis" "blog-postgres" "blog-pgbouncer"` start dependent services quickly
 
+x-blog-app: &blog-app
+  image: blog-dev:latest
+  working_dir: /app
+  volumes:
+    - .:/app
+    - django_venv:/opt/venv
+    - uv_cache:/root/.cache/uv
+  env_file:
+    - .env
+  environment: &blog-env
+    DEBUG: ${DEBUG}
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+    DJANGO_LOGLEVEL: ${DJANGO_LOGLEVEL}
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-127.0.0.1,localhost},blog-django
+    DATABASE_ENGINE: ${DATABASE_ENGINE}
+    DATABASE_NAME: ${DATABASE_NAME}
+    DATABASE_USER: ${DATABASE_USER}
+    DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+    DATABASE_HOST: blog-pgbouncer
+    DATABASE_PORT: 6432
+    DATABASE_CONN_MAX_AGE: 0
+    DATABASE_USE_PGBOUNCER: "True"
+  networks:
+    - blog-network
+
 services:
   blog-django:
+    <<: *blog-app
     build:
       context: .
-      dockerfile: .config/docker/Dockerfile
-      secrets:
-        - hf_token
-      args:
-        - MODEL_NAME=${MODEL_NAME}
-        - SENTENCE_TRANSFORMERS_HOME=${SENTENCE_TRANSFORMERS_HOME}
-    # image: django
+      dockerfile: .config/docker/dev.Dockerfile
     container_name: blog-django
-    working_dir: /app
     mem_limit: 6G
     cpus: 2
     ports:
       - "8000:8000"
+    command:
+      - sh
+      - -c
+      - uv sync --frozen --no-install-project && exec uvicorn blog.asgi:application --host 0.0.0.0 --port 8000 --reload
     depends_on:
       blog-pgbouncer:
         condition: service_healthy
       blog-redis:
         condition: service_started
-      blog-litellm:
+
+
+  blog-celery:
+    <<: *blog-app
+    container_name: blog-celery
+    command:
+      - sh
+      - -c
+      - until [ -x /opt/venv/bin/celery ]; do sleep 1; done && exec celery -A blog worker -Q celery,images --loglevel=info
+    depends_on:
+      blog-django:
         condition: service_started
-    env_file:
-      - .env
-    environment:
-      DEBUG: ${DEBUG}
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
-      DJANGO_LOGLEVEL: ${DJANGO_LOGLEVEL}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
-      DATABASE_ENGINE: ${DATABASE_ENGINE}
-      DATABASE_NAME: ${DATABASE_NAME}
-      DATABASE_USER: ${DATABASE_USER}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_HOST: blog-pgbouncer
-      DATABASE_PORT: 6432
-      DATABASE_CONN_MAX_AGE: 0
-      DATABASE_USE_PGBOUNCER: "True"
+      blog-redis:
+        condition: service_started
+      blog-pgbouncer:
+        condition: service_healthy
+
+  blog-celery-beat:
+    <<: *blog-app
+    container_name: blog-celery-beat
+    command:
+      - sh
+      - -c
+      - until [ -x /opt/venv/bin/celery ]; do sleep 1; done && exec celery -A blog beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      blog-django:
+        condition: service_started
+      blog-redis:
+        condition: service_started
+      blog-pgbouncer:
+        condition: service_healthy
+
+  blog-flower:
+    <<: *blog-app
+    profiles: ["tools"]
+    container_name: blog-flower
+    ports:
+      - "5555:5555"
+    command:
+      - sh
+      - -c
+      - until [ -x /opt/venv/bin/celery ]; do sleep 1; done && exec celery -A blog flower --address=0.0.0.0 --port=5555
+    depends_on:
+      blog-django:
+        condition: service_started
+      blog-redis:
+        condition: service_started
+
+  blog-vite:
+    image: blog-dev:latest
+    container_name: blog-vite
+    working_dir: /app
+    ports:
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
+    volumes:
+      - .:/app
+    command: ["pnpm", "exec", "vite", "--host", "0.0.0.0"]
     networks:
       - blog-network
 
@@ -117,6 +180,7 @@ services:
       start_period: 5s
 
   blog-llama-cpp:
+    profiles: ["ai"]
     image: ghcr.io/ggml-org/llama.cpp:server
     container_name: blog-llama-cpp
     volumes:
@@ -136,10 +200,14 @@ services:
     restart: always
 
   blog-litellm:
-    image: docker.litellm.ai/berriai/litellm:main-latest
+    profiles: ["ai"]
+    image: docker.litellm.ai/berriai/litellm:v1.105.1
     container_name: blog-litellm
+    environment:
+      LITELLM_MASTER_KEY: ${REMOTE_EMBEDDING_API_KEY:-sk-1234}
+      LITELLM_DANGEROUSLY_PERMIT_WEAK_OR_UNSET_MASTER_KEY: "true"
     volumes:
-      - ./.config/litellm/config.yaml:/app/config.yaml
+      - ./.config/litellm/config.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--port", "4000", "--debug"]
     ports:
       - "4000:4000"
@@ -150,32 +218,37 @@ services:
     restart: always
 
   blog-prometheus:
+    profiles: ["monitoring"]
     image: prom/prometheus:latest
     container_name: blog-prometheus
     volumes:
-      - ./.config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    # ports:
-    #   - "9090:9090"
-    # networks:
-    #   - blog-network
-    network_mode: host # access service outside the container
+      - ./.config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"
+    networks:
+      - blog-network
 
   blog-grafana:
+    profiles: ["monitoring"]
     image: grafana/grafana:latest
     container_name: blog-grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=123456 # NOTE: change passwd
+    volumes:
+      - ./.config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./.config/k8s/monitoring/blog-django.json:/var/lib/grafana/dashboards/blog-django.json:ro
     depends_on:
       - blog-prometheus
-    # ports:
-    #  - "3030:3000"
-    # networks:
-    #   - blog-network
-    network_mode: host
+    ports:
+      - "3030:3000"
+    networks:
+      - blog-network
 
 volumes:
   postgres_data:
   redis_date:
+  django_venv:
+  uv_cache:
 
 networks:
   blog-network:

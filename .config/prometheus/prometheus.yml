@@ -5,4 +5,13 @@ scrape_configs:
   - job_name: "blog-django"
     metrics_path: "/prometheus/metrics"
     static_configs:
-      - targets: ["localhost:8000"]
+      - targets: ["blog-django:8000"]
+        labels:
+          namespace: "blog"
+          service: "blog-django"
+          pod: "local-dev"
+
+  - job_name: "blog-flower"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["blog-flower:5555"]
