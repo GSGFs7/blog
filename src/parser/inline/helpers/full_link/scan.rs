@@ -12,8 +12,7 @@ use super::config::InlineTargetFallback;
 use super::reference::ParseLinkResult;
 use super::target::{LinkTargetScan, scan_link_target};
 use crate::parser::inline::{InlineState, RuleSet};
-use crate::plugins::cmark::block::reference::{DefaultReferenceMap, ReferenceMap};
-use crate::plugins::html::html_inline::special_html_disabled;
+use crate::reference::ReferenceMap;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Candidate {
@@ -28,14 +27,35 @@ pub(crate) struct Candidate {
 pub(crate) struct Outcome {
     candidate: Option<Candidate>,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
+}
+
+/// Where a label probe ended.
+#[derive(Debug, Clone, Copy)]
+enum LabelEnd {
+    /// The label closed at this offset.
+    Close(usize),
+    /// A nested bracket link appeared where nested links are not allowed, so
+    /// the label can only fail for an enclosing probe that forbids links.
+    BlockedByLink,
+    /// The label never closed, or the probe hit the nesting cutoff.
+    Unclosed,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LabelOutcome {
-    close: Option<usize>,
+    end: LabelEnd,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
+}
+
+impl LabelOutcome {
+    fn close(&self) -> Option<usize> {
+        match self.end {
+            LabelEnd::Close(pos) => Some(pos),
+            LabelEnd::BlockedByLink | LabelEnd::Unclosed => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,7 +65,7 @@ struct CandidateKey {
     enable_nested: bool,
     fallback: InlineTargetFallback,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,8 +73,27 @@ struct LabelKey {
     start: usize,
     end: usize,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
     enable_nested: bool,
+}
+
+impl LabelKey {
+    /// Key for the label body that starts directly after the `[` at `opener`.
+    fn after(
+        opener: usize,
+        end: usize,
+        link_level: i32,
+        special_scan_disabled: bool,
+        enable_nested: bool,
+    ) -> Self {
+        Self {
+            start: opener + 1,
+            end,
+            link_level,
+            special_scan_disabled,
+            enable_nested,
+        }
+    }
 }
 
 /// A successful probe at a deeper nesting level also fits a shallower budget.
@@ -66,6 +105,16 @@ struct DepthCached<T> {
     depth: u32,
     epoch: usize,
     outcome: T,
+}
+
+#[derive(Debug)]
+struct PlainBrackets {
+    closes: std::collections::HashMap<usize, (usize, usize)>,
+    /// Opening brackets before any syntax other than literal text.
+    leading_openers: Vec<usize>,
+    /// Number of leading openers whose labels failed at a recorded cutoff.
+    rejected_openers: usize,
+    source_len: usize,
 }
 
 /// Recognition results and cutoff history shared over one inline source.
@@ -80,9 +129,8 @@ pub(crate) struct LinkScanCache {
     /// Earliest prefix that has already been scanned to the end of the source
     /// solely to preserve HTML side effects.
     forced_suffix_start: Option<usize>,
-    /// Optional raw bracket index for plain sources: open -> (close, max depth).
-    plain_closes: Option<std::collections::HashMap<usize, (usize, usize)>>,
-    plain_closes_ready: bool,
+    plain_brackets: Option<PlainBrackets>,
+    plain_brackets_ready: bool,
     /// Windows whose scan hit the nesting limit. markdown-it exposes this as a
     /// source-wide cutoff: a later, shallower probe over the same window still
     /// fails.
@@ -108,15 +156,15 @@ impl LinkScanCache {
     }
 
     fn label(&self, key: LabelKey, depth: u32) -> Option<LabelOutcome> {
-        if let Some(outcome) = self.failed_labels.get(&key) {
-            return Some(*outcome);
+        if let Some(outcome) = self.failed_label(key) {
+            return Some(outcome);
         }
         let cached = self.labels.get(&key)?;
         (depth <= cached.depth && cached.epoch == self.cutoffs.len()).then_some(cached.outcome)
     }
 
     fn insert_label(&mut self, key: LabelKey, depth: u32, outcome: LabelOutcome) {
-        if outcome.close.is_none() {
+        if outcome.close().is_none() {
             self.failed_labels.insert(key, outcome);
         } else {
             self.labels.insert(
@@ -128,6 +176,58 @@ impl LinkScanCache {
                 },
             );
         }
+    }
+
+    fn failed_label(&self, key: LabelKey) -> Option<LabelOutcome> {
+        self.failed_labels.get(&key).copied().or_else(|| {
+            let plain = self.plain_brackets.as_ref()?;
+            let last = *plain
+                .leading_openers
+                .get(plain.rejected_openers.checked_sub(1)?)?;
+            (!key.enable_nested
+                && key.link_level == 0
+                && !key.special_scan_disabled
+                && key.end == plain.source_len
+                && (plain.leading_openers[0] + 1..=last + 1).contains(&key.start))
+            .then_some(LabelOutcome {
+                end: LabelEnd::Unclosed,
+                link_level: 0,
+                special_scan_disabled: false,
+            })
+        })
+    }
+
+    /// A run of literal text and opening brackets descends exactly once per
+    /// opener. Record the first body that exceeds the budget, together with
+    /// the enclosing failures, without starting a probe session per opener.
+    fn reject_leading_openers(&mut self, start: usize, budget: usize) -> bool {
+        let Some(plain) = self.plain_brackets.as_mut() else {
+            return false;
+        };
+        let openers = &plain.leading_openers;
+        let rejected = plain.rejected_openers;
+        if rejected > 0 && start <= openers[rejected - 1] {
+            return true;
+        }
+        if openers.get(rejected) != Some(&start)
+            || plain.closes.is_empty()
+            || !self.failed_labels.is_empty()
+            || self.cutoffs.last().is_some_and(|&(pos, _)| pos > start)
+        {
+            return false;
+        }
+        let Some(cutoff_index) = rejected.checked_add(budget) else {
+            return false;
+        };
+        // Keep another opener after the cutoff so its body cannot be empty.
+        if cutoff_index >= openers.len().saturating_sub(1) {
+            return false;
+        }
+        let cutoff = openers[cutoff_index] + 1;
+        let end = plain.source_len;
+        plain.rejected_openers = cutoff_index + 1;
+        self.insert_cutoff(cutoff, end);
+        true
     }
 
     fn cutoff(&self, start: usize, end: usize) -> bool {
@@ -152,8 +252,8 @@ impl LinkScanCache {
         rules: &RuleSet,
         start: usize,
     ) -> Option<Option<(usize, usize)>> {
-        if !self.plain_closes_ready {
-            self.plain_closes_ready = true;
+        if !self.plain_brackets_ready {
+            self.plain_brackets_ready = true;
             if plain_source_supported(source, rules) {
                 let mut open: Vec<(usize, usize, usize)> = Vec::new();
                 let mut closes = std::collections::HashMap::new();
@@ -174,12 +274,34 @@ impl LinkScanCache {
                         _ => {}
                     }
                 }
-                self.plain_closes = Some(closes);
+                // Save the positions only where avoiding probe sessions can
+                // offset building another index.
+                let leading_openers = if source.len() >= 512
+                    && rules
+                        .checks
+                        .iter()
+                        .all(|rule| rule.marker != '\0' || rule.literal)
+                {
+                    source
+                        .bytes()
+                        .enumerate()
+                        .take_while(|&(_, byte)| byte == b'[' || byte.is_ascii_alphanumeric())
+                        .filter_map(|(pos, byte)| (byte == b'[').then_some(pos))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                self.plain_brackets = Some(PlainBrackets {
+                    closes,
+                    leading_openers,
+                    rejected_openers: 0,
+                    source_len: source.len(),
+                });
             }
         }
-        self.plain_closes
+        self.plain_brackets
             .as_ref()
-            .map(|closes| closes.get(&start).copied())
+            .map(|plain| plain.closes.get(&start).copied())
     }
 
     fn forced_suffix_scanned(&mut self, start: usize) -> bool {
@@ -252,11 +374,7 @@ fn candidate_preflight(
     // Cheap rejection for the common pathological case: no raw `]` in the
     // remaining window means no label can close at any nesting level.
     let label_start = start + 1;
-    let may_have_reference = references.is_some_and(|references| {
-        references
-            .downcast_ref::<DefaultReferenceMap>()
-            .is_none_or(|map| map.iter().next().is_some())
-    });
+    let may_have_reference = references.is_some_and(|references| !references.is_empty());
     let has_target = may_have_reference || {
         let source = state.src.as_ref();
         state
@@ -309,7 +427,7 @@ fn scan_candidate_abs(
     references: Option<&ReferenceMap>,
     depth: u32,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
     retain: bool,
 ) -> Outcome {
     // Impossible candidates need only the source indexes. Do not retain a
@@ -318,7 +436,7 @@ fn scan_candidate_abs(
         return Outcome {
             candidate: None,
             link_level,
-            html_disabled: special_html_disabled(state),
+            special_scan_disabled: state.special_scan_disabled(),
         };
     };
     let key = CandidateKey {
@@ -327,7 +445,7 @@ fn scan_candidate_abs(
         enable_nested,
         fallback,
         link_level,
-        html_disabled,
+        special_scan_disabled,
     };
     if let Some(outcome) = {
         state
@@ -346,7 +464,7 @@ fn scan_candidate_abs(
         references,
         depth,
         link_level,
-        html_disabled,
+        special_scan_disabled,
         may_have_reference,
     );
     // Only nested probes populate this cache: overlapping label scans can
@@ -372,76 +490,69 @@ fn scan_candidate_abs_inner(
     references: Option<&ReferenceMap>,
     depth: u32,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
     may_have_reference: bool,
 ) -> Outcome {
     let end_max = state.pos_max;
-    let fail = |link_level, html_disabled| Outcome {
+    let fail = |link_level, special_scan_disabled| Outcome {
         candidate: None,
         link_level,
-        html_disabled,
+        special_scan_disabled,
     };
 
     let label_start = start + 1;
-    let plain = state.scan_limit_cache.borrow_mut().link_scan.plain_close(
-        state.src.as_ref(),
-        state.ruleset,
-        start,
-    );
-    let (close, link_level, html_disabled) = match plain {
-        Some(Some((close, max_depth))) if close < end_max => {
-            let max_nesting = state.markdown_it().max_nesting;
-            if close != label_start && depth.saturating_add(max_depth as u32) > max_nesting {
-                let budget = max_nesting.saturating_sub(depth) as usize;
-                state
-                    .scan_limit_cache
-                    .borrow_mut()
-                    .link_scan
-                    .insert_cutoff(start.saturating_add(budget), end_max);
-                return fail(link_level, html_disabled);
-            }
+    let budget = state.markdown_it().max_nesting.saturating_sub(depth) as usize;
+    let plain = {
+        let mut shared = state.scan_limit_cache.borrow_mut();
+        let plain = shared
+            .link_scan
+            .plain_close(state.src.as_ref(), state.ruleset, start);
+        if plain.is_some()
+            && depth == 0
+            && !enable_nested
+            && !may_have_reference
+            && link_level == 0
+            && !special_scan_disabled
+            && end_max == state.src.len()
+            && shared.link_scan.reject_leading_openers(start, budget)
+        {
+            return fail(link_level, special_scan_disabled);
+        }
+        plain
+    };
+    // `Some(close)` when raw bracket pairing alone decides the label end;
+    // `None` when only a real scan can tell how the nesting budget is spent.
+    let paired = match plain {
+        Some(Some((close, _))) if close >= end_max => {
+            return fail(link_level, special_scan_disabled);
+        }
+        // An empty label cannot be cut off, so it never needs the cutoff check.
+        Some(Some((close, _))) if close == label_start => Some(close),
+        Some(Some((close, max_depth))) if max_depth <= budget => {
             if state
                 .scan_limit_cache
                 .borrow()
                 .link_scan
-                .cutoff_before(start, end_max, close)
+                .cutoff_before(label_start, end_max, close)
             {
-                return fail(link_level, html_disabled);
+                return fail(link_level, special_scan_disabled);
             }
-            let inner_has_target = close > label_start
-                && memchr::memchr(b'(', &state.src.as_bytes()[label_start..close]).is_some();
-            if close > label_start && (inner_has_target || may_have_reference) {
-                let label = scan_label(
-                    state,
-                    label_start,
-                    end_max,
-                    references,
-                    depth.saturating_add(1),
-                    link_level,
-                    html_disabled,
-                    enable_nested,
-                );
-                let Some(close) = label.close else {
-                    return fail(label.link_level, label.html_disabled);
-                };
-                (close, label.link_level, label.html_disabled)
+            // A target inside the label may consume brackets differently than
+            // plain pairing does, so only skip the scan when neither an inline
+            // target nor a reference can appear inside it.
+            let inner_has_target =
+                memchr::memchr(b'(', &state.src.as_bytes()[label_start..close]).is_some();
+            if inner_has_target || may_have_reference {
+                None
             } else {
-                (close, link_level, html_disabled)
+                Some(close)
             }
         }
-        Some(Some(_)) => return fail(link_level, html_disabled),
-        Some(None) => {
-            let budget = state.markdown_it().max_nesting.saturating_sub(depth) as usize;
-            let cutoff = start.saturating_add(budget);
-            if cutoff < end_max && state.src.as_bytes().get(cutoff) == Some(&b'[') {
-                state
-                    .scan_limit_cache
-                    .borrow_mut()
-                    .link_scan
-                    .insert_cutoff(cutoff, end_max);
-            }
-            return fail(link_level, html_disabled);
-        }
+        // Raw pairing cannot determine where a scan will spend its nesting budget.
+        _ => None,
+    };
+    let (close, link_level, special_scan_disabled) = match paired {
+        Some(close) => (close, link_level, special_scan_disabled),
         None => {
             let label = scan_label(
                 state,
@@ -450,13 +561,13 @@ fn scan_candidate_abs_inner(
                 references,
                 depth.saturating_add(1),
                 link_level,
-                html_disabled,
+                special_scan_disabled,
                 enable_nested,
             );
-            let Some(close) = label.close else {
-                return fail(label.link_level, label.html_disabled);
+            let Some(close) = label.close() else {
+                return fail(label.link_level, label.special_scan_disabled);
             };
-            (close, label.link_level, label.html_disabled)
+            (close, label.link_level, label.special_scan_disabled)
         }
     };
     let md = state.markdown_it();
@@ -476,12 +587,12 @@ fn scan_candidate_abs_inner(
                 title: target.title,
             }),
             link_level,
-            html_disabled,
+            special_scan_disabled,
         },
-        LinkTargetScan::Reject => fail(link_level, html_disabled),
+        LinkTargetScan::Reject => fail(link_level, special_scan_disabled),
         LinkTargetScan::Reference { resume } => {
             let Some(references) = references else {
-                return fail(link_level, html_disabled);
+                return fail(link_level, special_scan_disabled);
             };
 
             let explicit = if state.src.as_bytes().get(resume) == Some(&b'[') && resume < end_max {
@@ -492,15 +603,15 @@ fn scan_candidate_abs_inner(
                     Some(references),
                     depth.saturating_add(1),
                     link_level,
-                    html_disabled,
+                    special_scan_disabled,
                     true,
                 );
-                reference.close.map(|close| (close, reference))
+                reference.close().map(|close| (close, reference))
             } else {
                 None
             };
 
-            let (label, end, link_level, html_disabled) = match explicit {
+            let (label, end, link_level, special_scan_disabled) = match explicit {
                 Some((reference_close, reference)) => {
                     let label = if reference_close == resume + 1 {
                         let source = state.src.as_ref();
@@ -513,7 +624,7 @@ fn scan_candidate_abs_inner(
                         label,
                         reference_close + 1,
                         reference.link_level,
-                        reference.html_disabled,
+                        reference.special_scan_disabled,
                     )
                 }
                 None => {
@@ -522,13 +633,13 @@ fn scan_candidate_abs_inner(
                         &source[label_start..close],
                         close + 1,
                         link_level,
-                        html_disabled,
+                        special_scan_disabled,
                     )
                 }
             };
 
             let Some((href, title)) = references.get(label) else {
-                return fail(link_level, html_disabled);
+                return fail(link_level, special_scan_disabled);
             };
             Outcome {
                 candidate: Some(Candidate {
@@ -539,7 +650,7 @@ fn scan_candidate_abs_inner(
                     title: title.map(str::to_owned),
                 }),
                 link_level,
-                html_disabled,
+                special_scan_disabled,
             }
         }
     }
@@ -554,14 +665,14 @@ fn scan_label(
     references: Option<&ReferenceMap>,
     depth: u32,
     link_level: i32,
-    html_disabled: bool,
+    special_scan_disabled: bool,
     enable_nested: bool,
 ) -> LabelOutcome {
     let key = LabelKey {
         start,
         end: end_max,
         link_level,
-        html_disabled,
+        special_scan_disabled,
         enable_nested,
     };
     if let Some(outcome) = { state.scan_limit_cache.borrow().link_scan.label(key, depth) } {
@@ -575,7 +686,7 @@ fn scan_label(
         references,
         depth,
         link_level,
-        html_disabled,
+        special_scan_disabled,
         enable_nested,
     );
     state
@@ -594,20 +705,20 @@ fn scan_label_inner(
     references: Option<&ReferenceMap>,
     depth: u32,
     mut link_level: i32,
-    mut html_disabled: bool,
+    mut special_scan_disabled: bool,
     enable_nested: bool,
 ) -> LabelOutcome {
-    let fail = |link_level, html_disabled| LabelOutcome {
-        close: None,
+    let fail = |link_level, special_scan_disabled| LabelOutcome {
+        end: LabelEnd::Unclosed,
         link_level,
-        html_disabled,
+        special_scan_disabled,
     };
 
     if state.src.as_bytes().get(start) == Some(&b']') {
         return LabelOutcome {
-            close: Some(start),
+            end: LabelEnd::Close(start),
             link_level,
-            html_disabled,
+            special_scan_disabled,
         };
     }
 
@@ -617,7 +728,7 @@ fn scan_label_inner(
             .borrow_mut()
             .link_scan
             .insert_cutoff(start, end_max);
-        return fail(link_level, html_disabled);
+        return fail(link_level, special_scan_disabled);
     }
 
     // One child per label, rather than one per token: checks share pending
@@ -625,7 +736,7 @@ fn scan_label_inner(
     let Some(mut session) =
         state.child_state_at(start - state.pos..end_max - state.pos, depth, link_level)
     else {
-        return fail(link_level, html_disabled);
+        return fail(link_level, special_scan_disabled);
     };
     session.suppress_bracket_links = true;
     let state = &mut session;
@@ -638,9 +749,9 @@ fn scan_label_inner(
             level -= 1;
             if level == 0 {
                 return LabelOutcome {
-                    close: Some(pos),
+                    end: LabelEnd::Close(pos),
                     link_level,
-                    html_disabled,
+                    special_scan_disabled,
                 };
             }
             state.advance_probe(1, true);
@@ -653,7 +764,7 @@ fn scan_label_inner(
             .link_scan
             .cutoff(pos, end_max)
         {
-            return fail(link_level, html_disabled);
+            return fail(link_level, special_scan_disabled);
         }
 
         if ch == '[' {
@@ -661,44 +772,48 @@ fn scan_label_inner(
             // HTML inside it may change the returned link level or disable
             // special HTML; looking up that returned context misses the failure
             // and rescans the same unclosed suffix at every enclosing opener.
-            let nested_label = LabelKey {
-                start: pos + 1,
-                end: end_max,
+            let nested_allows_links = false;
+            let nested_label = LabelKey::after(
+                pos,
+                end_max,
                 link_level,
-                html_disabled,
-                enable_nested,
-            };
+                special_scan_disabled,
+                nested_allows_links,
+            );
             let nested = scan_candidate_abs(
                 state,
                 pos,
-                false,
+                nested_allows_links,
                 InlineTargetFallback::Reference,
                 references,
                 depth,
                 link_level,
-                html_disabled,
+                special_scan_disabled,
                 true,
             );
             link_level = nested.link_level;
-            html_disabled = nested.html_disabled;
+            special_scan_disabled = nested.special_scan_disabled;
             state.link_level = link_level;
             if let Some(candidate) = nested.candidate {
                 if !enable_nested {
-                    return fail(link_level, html_disabled);
+                    return LabelOutcome {
+                        end: LabelEnd::BlockedByLink,
+                        ..fail(link_level, special_scan_disabled)
+                    };
                 }
                 state.advance_probe(candidate.end - pos, false);
             } else {
-                // An uncloseable raw opener also blocks its enclosing label.
-                // Stop here instead of probing all the same inner openers at
-                // each enclosing depth on the way out of a nesting cutoff.
-                let unclosed = state
+                // A failed plain link label can terminate the outer scan too,
+                // unless this outer label accepts the link that blocked it.
+                let failed = state
                     .scan_limit_cache
                     .borrow()
                     .link_scan
-                    .failed_labels
-                    .contains_key(&nested_label);
-                if unclosed {
-                    return fail(link_level, html_disabled);
+                    .failed_label(nested_label);
+                if let Some(failed) = failed
+                    && (!enable_nested || !matches!(failed.end, LabelEnd::BlockedByLink))
+                {
+                    return LabelOutcome { ..failed };
                 }
                 level += 1;
                 state.advance_probe(1, true);
@@ -708,6 +823,8 @@ fn scan_label_inner(
 
         let image = ch == '!' && state.remaining().starts_with("![");
         if image {
+            let image_label =
+                LabelKey::after(pos + 1, end_max, link_level, special_scan_disabled, true);
             let nested = scan_candidate_abs(
                 state,
                 pos + 1,
@@ -716,14 +833,24 @@ fn scan_label_inner(
                 references,
                 depth,
                 link_level,
-                html_disabled,
+                special_scan_disabled,
                 true,
             );
             link_level = nested.link_level;
-            html_disabled = nested.html_disabled;
+            special_scan_disabled = nested.special_scan_disabled;
             state.link_level = link_level;
             if let Some(candidate) = nested.candidate {
                 state.advance_probe(candidate.end - pos, false);
+            } else if state
+                .scan_limit_cache
+                .borrow()
+                .link_scan
+                .failed_label(image_label)
+                .is_some()
+            {
+                // A label that fails even with nested links allowed also
+                // blocks the outer label when its opener is treated as raw.
+                return fail(link_level, special_scan_disabled);
             } else {
                 state.advance_probe(1, true);
             }
@@ -731,13 +858,13 @@ fn scan_label_inner(
         }
 
         if state.probe_token().is_none() {
-            return fail(link_level, html_disabled);
+            return fail(link_level, special_scan_disabled);
         }
         link_level = state.link_level;
-        html_disabled = special_html_disabled(state);
+        special_scan_disabled = state.special_scan_disabled();
     }
 
-    fail(link_level, html_disabled)
+    fail(link_level, special_scan_disabled)
 }
 
 /// Public-in-crate bridge used by `candidate.rs`. Positions in the returned
@@ -758,7 +885,7 @@ pub(super) fn scan_candidate(
         references,
         state.depth,
         state.link_level,
-        special_html_disabled(state),
+        state.special_scan_disabled(),
         false,
     );
     outcome.candidate.map(|candidate| ParseLinkResult {

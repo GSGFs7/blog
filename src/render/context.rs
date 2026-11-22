@@ -79,7 +79,9 @@ impl<'a> RenderContext<'a> {
     /// non-transparent leaf descendant has no renderer for the active format, or
     /// if a renderer or formatting implementation panics.
     pub fn render_children(&mut self, node: NodeId, output: &mut Writer) {
-        render_children_guarded(self.shared, self.ext, node, output);
+        for &child in self.shared.document.children(node) {
+            render_node(self.shared, self.ext, child, output);
+        }
     }
 }
 
@@ -90,41 +92,31 @@ pub(super) fn render_node(
     id: NodeId,
     output: &mut Writer,
 ) {
-    let node = shared.document.node(id);
-    let Some(renderer) = shared
-        .renderers
-        .and_then(|renderers| renderers.get(&node.type_id()))
-    else {
-        // Missing renderers are errors for real leaves, but internal transparent
-        // wrappers may be empty and still render as nothing.
-        assert!(
-            node.is_transparent() || !node.children().is_empty(),
-            "no {:?} renderer registered for leaf {} at {:?}",
-            shared.format,
-            node.name(),
-            id,
-        );
+    stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
+        let node = shared.document.node(id);
+        let Some(renderer) = shared
+            .renderers
+            .and_then(|renderers| renderers.get(&node.type_id()))
+        else {
+            // Missing renderers are errors for real leaves, but internal
+            // transparent wrappers may be empty and still render as nothing.
+            assert!(
+                node.is_transparent() || !node.children().is_empty(),
+                "no {:?} renderer registered for leaf {} at {:?}",
+                shared.format,
+                node.name(),
+                id,
+            );
 
-        // transparent downward traversal
-        render_children_guarded(shared, ext, id, output);
-        return;
-    };
+            // transparent downward traversal
+            for &child in shared.document.children(id) {
+                render_node(shared, ext, child, output);
+            }
+            return;
+        };
 
-    // render the shell (<h1>,<em>,...)
-    let mut context = RenderContext { shared, ext };
-    renderer.render(node, &mut context, output);
-}
-
-/// Render every direct child of `node`, growing the stack for deep trees.
-fn render_children_guarded(
-    shared: &RenderShared<'_>,
-    ext: &mut RenderExtSet,
-    node: NodeId,
-    output: &mut Writer,
-) {
-    for &child in shared.document.children(node) {
-        stacker::maybe_grow(64 * 1024, 1024 * 1024, || {
-            render_node(shared, ext, child, output);
-        });
-    }
+        // render the shell (<h1>,<em>,...)
+        let mut context = RenderContext { shared, ext };
+        renderer.render(node, &mut context, output);
+    });
 }

@@ -13,9 +13,6 @@ use crate::document::{Document, NodeId, Text};
 
 // TODO: adjust API visibility
 
-#[derive(Debug, Default)]
-struct FinishCallbacks(Vec<fn(&mut InlineState<'_>)>);
-
 /// Hooks selected once per full source and shared by child sessions.
 type ScanHookCache<'a> = Cow<'a, OnceCell<Vec<ScanHook>>>;
 
@@ -112,11 +109,6 @@ impl<'a> InlineState<'a> {
         RefMut::map(self.scan_limit_cache.borrow_mut(), |cache| &mut cache.ext)
     }
 
-    pub(super) fn scan_hooks(&self) -> &[ScanHook] {
-        self.scan_hooks
-            .get_or_init(|| super::select_scan_hooks(self.md, &self.src))
-    }
-
     /// Register a callback to run after this session's pending text is flushed.
     ///
     /// Callbacks run once, in registration order, before nodes attach to their
@@ -156,6 +148,14 @@ impl<'a> InlineState<'a> {
     ) -> Vec<NodeId> {
         #[cfg(not(feature = "sourcemap"))]
         let _ = mapping;
+        #[cfg(feature = "sourcemap")]
+        let mapping = if mapping.first().is_some_and(|&(offset, _)| offset != 0)
+            || !mapping.is_sorted_by_key(|&(offset, _)| offset)
+        {
+            Vec::new()
+        } else {
+            mapping
+        };
         let mut state = Self {
             pos: 0,
             pos_max: src.len(),
@@ -296,24 +296,29 @@ impl<'a> InlineState<'a> {
     /// through the normal dispatcher.
     pub(crate) fn probe_token(&mut self) -> Option<usize> {
         self.probe_token_until(|source| source.len())
+            .map(|(len, _)| len)
     }
 
     /// Like [`probe_token`](Self::probe_token), but stops literal text at the
     /// offset returned by `literal_length`; opaque rules keep their full span.
+    /// Also reports whether every attempted rule permits reuse of the result
+    /// in pair probes, including rules that declined to match.
     pub(crate) fn probe_token_until(
         &mut self,
         literal_length: impl FnOnce(&str) -> usize,
-    ) -> Option<usize> {
+    ) -> Option<(usize, bool)> {
         if self.pos == self.pos_max {
             return None;
         }
 
         let marker = self.remaining().chars().next().unwrap();
+        let mut reusable = true;
         for (rule_index, entry) in self.ruleset.checks.iter().enumerate() {
             if !entry.matches_marker(marker) {
                 continue;
             }
 
+            reusable &= entry.pair_probe_reusable;
             let check = |state: &mut InlineState<'_>| entry.check.call(state);
             #[cfg(debug_assertions)]
             let matched = super::validation::check_inline(self, rule_index, check);
@@ -337,13 +342,46 @@ impl<'a> InlineState<'a> {
                     self.pending_text = None;
                 }
                 self.pos += len;
-                return Some(len);
+                return Some((len, reusable));
             }
         }
 
         let len = marker.len_utf8();
         self.advance_probe(len, true);
-        Some(len)
+        Some((len, reusable))
+    }
+
+    /// Advance over a matched opaque inline construct at the cursor, if any.
+    ///
+    /// Same dispatch as [`probe_token`](Self::probe_token), but literal-text
+    /// matches are declined so a boundary scanner can tell a construct apart
+    /// from ordinary text without moving the cursor on failure.
+    pub(crate) fn probe_opaque_token(&mut self) -> Option<usize> {
+        if self.pos == self.pos_max {
+            return None;
+        }
+
+        let marker = self.remaining().chars().next().unwrap();
+        for (rule_index, entry) in self.ruleset.checks.iter().enumerate() {
+            if entry.literal || !entry.matches_marker(marker) {
+                continue;
+            }
+
+            let check = |state: &mut InlineState<'_>| entry.check.call(state);
+            #[cfg(debug_assertions)]
+            let matched = super::validation::check_inline(self, rule_index, check);
+            #[cfg(not(debug_assertions))]
+            let matched = check(self);
+
+            if let Some(len) = matched {
+                check_progress(rule_index, self.remaining(), len);
+                self.pending_text = None;
+                self.pos += len;
+                return Some(len);
+            }
+        }
+
+        None
     }
 
     /// Advance syntax owned by a boundary scanner, retaining literal runs but
@@ -394,16 +432,23 @@ impl<'a> InlineState<'a> {
         let Some((start, end)) = self.pending_text.take() else {
             return;
         };
-        let text = self.document.create_node(Text {
-            content: self.src[start..end].to_owned(),
-        });
+
+        let text = self
+            .document
+            .create_node(Text::new(self.src[start..end].to_owned()));
         #[cfg(feature = "sourcemap")]
-        let srcmap = self.get_map(start, end);
-        #[cfg(feature = "sourcemap")]
-        self.document.node_mut(text).set_srcmap(srcmap);
+        {
+            let srcmap = self.get_map(start, end);
+            self.document.node_mut(text).set_srcmap(srcmap);
+        }
         self.nodes.push(text);
     }
 
+    /// Map an inline source range to best-effort document byte offsets.
+    ///
+    /// Returns `None` if an endpoint cannot be mapped, arithmetic overflows,
+    /// or the mapped range is reversed. Callers can use `str::get` to check
+    /// document bounds and UTF-8 boundaries before slicing.
     #[cfg(feature = "sourcemap")]
     pub(crate) fn get_map(
         &self,
@@ -413,14 +458,33 @@ impl<'a> InlineState<'a> {
         let source_pos = |pos| {
             let line = match self.mapping.binary_search_by(|entry| entry.0.cmp(&pos)) {
                 Ok(index) => index,
-                Err(index) => index - 1,
+                Err(index) => index.checked_sub(1)?,
             };
-            self.mapping[line].1 + (pos - self.mapping[line].0)
+            let (dst, src) = *self.mapping.get(line)?;
+            src.checked_add(pos.checked_sub(dst)?)
         };
-        Some(crate::common::sourcemap::SourcePos::new(
-            source_pos(start),
-            source_pos(end),
-        ))
+        let start = source_pos(start)?;
+        let end = source_pos(end)?;
+        (start <= end).then(|| crate::common::sourcemap::SourcePos::new(start, end))
+    }
+
+    /// Whether a source-wide special scan has been abandoned.
+    pub(crate) fn special_scan_disabled(&self) -> bool {
+        self.shared_ext()
+            .get::<SpecialScanState>()
+            .is_some_and(|state| state.disabled)
+    }
+
+    /// Mark source-wide special scans as abandoned.
+    pub(crate) fn disable_special_scan(&self) {
+        self.shared_ext()
+            .get_or_insert_default::<SpecialScanState>()
+            .disabled = true;
+    }
+
+    pub(super) fn scan_hooks(&self) -> &[ScanHook] {
+        self.scan_hooks
+            .get_or_init(|| super::select_scan_hooks(self.md, &self.src))
     }
 
     /// Run this child session to completion and return its nodes.
@@ -582,7 +646,7 @@ impl<'a> InlineState<'a> {
                     content.drain(..start);
                 }
 
-                let text = self.document.create_node(Text { content });
+                let text = self.document.create_node(Text::new(content));
                 #[cfg(feature = "sourcemap")]
                 self.document.node_mut(text).set_srcmap(srcmap);
                 self.nodes.push(text);
@@ -598,6 +662,17 @@ impl<'a> InlineState<'a> {
 
         self.nodes
     }
+}
+
+#[derive(Debug, Default)]
+struct FinishCallbacks(Vec<fn(&mut InlineState<'_>)>);
+
+/// Set when a scanner gives up on an unterminated construct (for example an
+/// HTML comment without `-->`). Shared so nested sessions stop retrying the
+/// same scan; the construct itself is owned by the registering plugin.
+#[derive(Debug, Default)]
+struct SpecialScanState {
+    disabled: bool,
 }
 
 /// Per-inline state shared by nested boundary scans.

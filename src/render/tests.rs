@@ -122,9 +122,7 @@ fn generated_link_and_image_attrs_preserve_duplicates_and_escaping() {
                     )
                 };
                 let root = document.root();
-                let text = document.create_node(Text {
-                    content: "a & b".into(),
-                });
+                let text = document.create_node(Text::new("a & b"));
                 document.push_child(root, text);
                 let target = if image { "src" } else { "href" };
                 document.node_mut(root).attrs_mut().extend([
@@ -201,7 +199,7 @@ fn commonmark_block_renderers_match_render_api() {
 
     for mut md in [
         MarkdownIt::new(),
-        MarkdownIt::with_preset(crate::plugins::presets::Preset::CommonMark),
+        MarkdownIt::with_preset(crate::presets::Preset::CommonMark),
     ] {
         md.render_options.lang_prefix = Some("lang-".into());
         for source in sources {
@@ -292,9 +290,7 @@ fn inline_renderers_preserve_transform_attributes() {
 fn unknown_container_transparently_renders_children() {
     let md = MarkdownIt::empty();
     let mut document = Document::new("", UnknownContainer);
-    let text = document.create_node(Text {
-        content: "child".into(),
-    });
+    let text = document.create_node(Text::new("child"));
     document.push_child(document.root(), text);
 
     assert_eq!(md.render_document(&document, "html"), "child");

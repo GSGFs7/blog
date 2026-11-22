@@ -2,12 +2,14 @@
 //!
 //! <https://github.github.com/gfm/#tables-extension->
 use crate::MarkdownIt;
+use crate::common::utils::{is_js_blank, is_js_whitespace};
 use crate::document::{Node, NodeId};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::plugins::cmark::block::blockquote::{BlockquoteInterrupt, BlockquoteScanner};
 use crate::plugins::cmark::block::fence::FenceScanner;
 use crate::plugins::cmark::block::heading::HeadingScanner;
 use crate::plugins::cmark::block::list::ListScanner;
+use crate::plugins::cmark::block::reference::ReferenceScanner;
 use crate::render::{
     NodeRenderer,
     PlainTextBlockRenderer,
@@ -206,6 +208,9 @@ pub fn add(md: &mut MarkdownIt) {
         .before::<FenceScanner>()
         .before::<BlockquoteScanner>()
         .before::<ListScanner>()
+        // A table header wins over a multiline reference definition title,
+        // matching the rule order in markdown-it.js.
+        .before::<ReferenceScanner>()
         .before::<HeadingScanner>();
     md.add_renderer::<Table, _>("html", TableRenderer);
     md.add_renderer::<TableHead, _>("html", TableHeadRenderer);
@@ -250,11 +255,11 @@ impl TableScanner {
 
         for (pos, ch) in line.char_indices() {
             match ch {
-                ' ' | '\t' if is_leading => {
-                    segment_start += 1;
+                ch if is_leading && is_js_whitespace(ch) => {
+                    segment_start = pos + ch.len_utf8();
                     #[cfg(feature = "sourcemap")]
                     {
-                        srcmap[0].1 += 1;
+                        srcmap[0].1 = segment_start;
                     }
                 }
                 '|' => {
@@ -299,11 +304,9 @@ impl TableScanner {
             srcmap,
         });
 
-        // trim trailing spaces
         for content in result.iter_mut() {
-            while content.str.ends_with([' ', '\t']) {
-                content.str.pop();
-            }
+            let trimmed_len = content.str.trim_end_matches(is_js_whitespace).len();
+            content.str.truncate(trimmed_len);
         }
 
         // remove last cell if empty
@@ -532,6 +535,11 @@ impl BlockRule for TableScanner {
             }
 
             let line = state.get_line(state.line);
+            // markdown-it.js breaks the body on `!lineText.trim()`, which is
+            // broader than `state.is_empty` (ASCII spaces and tabs only).
+            if is_js_blank(line) {
+                break;
+            }
             #[cfg(feature = "sourcemap")]
             let line_len = line.len();
 
@@ -600,6 +608,23 @@ mod tests {
     use super::{MAX_AUTOCOMPLETED_CELLS, TableScanner};
 
     #[test]
+    fn tables_take_precedence_over_multiline_reference_definitions() {
+        let md = crate::MarkdownIt::with_preset(crate::presets::Preset::MarkdownItDefault);
+        assert_eq!(
+            md.render("[r]: /u \"a | b\n--- | ---\nx | y\"\n\n[r]"),
+            concat!(
+                "<table>\n<thead>\n<tr>\n<th>[r]: /u &quot;a</th>\n<th>b</th>\n",
+                "</tr>\n</thead>\n<tbody>\n<tr>\n<td>x</td>\n<td>y&quot;</td>\n",
+                "</tr>\n</tbody>\n</table>\n<p>[r]</p>\n",
+            ),
+        );
+        assert_eq!(
+            md.render("[r]: /u \"a | b\nx | y\"\n\n[r]"),
+            "<p><a href=\"/u\" title=\"a | b\nx | y\">r</a></p>\n",
+        );
+    }
+
+    #[test]
     fn tables_take_precedence_over_blockquote_markers_in_headers() {
         for tables_first in [false, true] {
             let mut md = crate::MarkdownIt::empty();
@@ -665,6 +690,21 @@ mod tests {
     }
 
     #[test]
+    fn table_whitespace_matches_javascript_trim() {
+        let md = crate::MarkdownIt::with_preset(crate::presets::Preset::MarkdownItDefault);
+        let source =
+            "\u{feff}| x\u{2028} | y |\n| --- | --- |\n| body\u{a0} | \u{85} |\n\u{feff}\nplain";
+        assert_eq!(
+            md.render(source),
+            concat!(
+                "<table>\n<thead>\n<tr>\n<th>x</th>\n<th>y</th>\n</tr>\n</thead>\n",
+                "<tbody>\n<tr>\n<td>body</td>\n<td>\u{85}</td>\n</tr>\n</tbody>\n",
+                "</table>\n<p>\u{feff}\nplain</p>\n",
+            ),
+        );
+    }
+
+    #[test]
     fn should_process_backslash_escapes() {
         assert_eq!(
             TableScanner::scan_row(r#"| foo\bar |"#)[0].str,
@@ -696,6 +736,10 @@ mod tests {
         assert_eq!(row[0].srcmap, vec![(0, 2)]);
         assert_eq!(row[1].str, "bar");
         assert_eq!(row[1].srcmap, vec![(0, 9)]);
+
+        let row = TableScanner::scan_row("\u{feff}| \u{a0}foo\\|bar\u{2028} |");
+        assert_eq!(row[0].str, "foo|bar");
+        assert_eq!(row[0].srcmap, vec![(0, 7), (3, 11)]);
     }
 
     #[test]
