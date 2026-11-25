@@ -745,23 +745,29 @@
   }
 
   /* Image zoom */
-  .markdown-body img:not(:where([data-solid-island] *)) {
-    transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
-  }
-
   .markdown-body img.is-zoomable:not(:where([data-solid-island] *)) {
     cursor: zoom-in;
   }
 
-  .markdown-body:has(img.is-zoomed) {
-    backdrop-filter: none !important;
+  .markdown-body img.is-zoomed:not(:where([data-solid-island] *)) {
+    visibility: hidden;
   }
 
-  .markdown-body img.is-zoomed:not(:where([data-solid-island] *)) {
+  .zoom-image {
+    position: absolute;
+    margin: 0;
+    max-width: none;
+    max-height: none;
+    box-sizing: border-box;
     cursor: zoom-out;
-    position: relative;
     z-index: 1001;
-    background-color: var(--md-bg);
+    transform-origin: center;
+    background-color: transparent;
+    transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  :where(html.dark, .dark) .zoom-image {
+    background-color: #1a1c25;
   }
 
   #zoom-overlay {
@@ -781,6 +787,13 @@
   #zoom-overlay.is-visible {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoom-image,
+    #zoom-overlay {
+      transition: none;
+    }
   }
 
   /* Task lists */
