@@ -39,7 +39,7 @@
 - Component stylesheets import `styles/layers.css` (relative to the file) and put rules in `@layer components`, or use `@import ... layer(components)` when global-only. Order is `theme, base, components, utilities`, with `base` reserved for element defaults. Lazy imports use the same layers; keep vendor styles separate.
 - Markdown owns prose typography, not island internals. Descendant selectors exclude `[data-solid-island] *` via `:not(:where([data-solid-island] *))` before pseudo-elements while preserving specificity (`styles/markdown.test.ts` enforces this); island wrappers may only take document-flow spacing, and islands set their own UI typography. Keep music and ModelViewer styles in the initial Markdown bundle so placeholders reserve space before JavaScript loads.
 - Use `aria-*` or `data-state` for interaction state, scope legacy `is-*` selectors to their component, and keep behavior hooks in `data-*` attributes. Use inline styles or custom properties for runtime values and CSS variables or `@theme` for shared design values.
-- Avoid `!important` for ownership conflicts; the zoom backdrop override is the intentional exception (disabling the article container's backdrop filter while zoomed).
+- Avoid `!important` for ownership conflicts.
 
 ## Verification
 

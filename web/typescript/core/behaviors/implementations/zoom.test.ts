@@ -34,9 +34,10 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-test("zooms an image and closes it with Escape", async () => {
+test("zooms an image in a body clone and closes it with Escape", async () => {
   vi.useFakeTimers();
-  document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
+  document.body.innerHTML =
+    '<article class="markdown-body"><img src="https://example.invalid/pic.png" alt="test"></article>';
   const image = document.querySelector("img")!;
   prepareImage(image);
   teardown = setupBehaviors();
@@ -44,12 +45,19 @@ test("zooms an image and closes it with Escape", async () => {
 
   expect(image).toHaveClass("is-zoomable");
   fireEvent.click(image);
+  const clone = document.querySelector<HTMLImageElement>("img.zoom-image");
+  expect(clone).not.toBeNull();
+  expect(clone?.parentElement).toBe(document.body);
+  expect(clone?.src).toBe("https://example.invalid/pic.png");
+  expect(clone?.alt).toBe("test");
   expect(image).toHaveClass("is-zoomed");
   expect(document.getElementById("zoom-overlay")).toHaveClass("is-visible");
 
   fireEvent.keyDown(window, { key: "Escape" });
   expect(document.getElementById("zoom-overlay")).not.toHaveClass("is-visible");
+  expect(clone?.style.transform).toBe("");
   vi.advanceTimersByTime(300);
+  expect(document.querySelector("img.zoom-image")).toBeNull();
   expect(image).not.toHaveClass("is-zoomed");
 });
 
@@ -78,9 +86,81 @@ test("uses the available screen width when zooming on mobile", async () => {
 
   fireEvent.click(image);
 
-  const scale = Number(image.style.transform.match(/scale\(([^)]+)\)/)?.[1]);
+  const clone = document.querySelector<HTMLImageElement>("img.zoom-image")!;
+  const scale = Number(clone.style.transform.match(/scale\(([^)]+)\)/)?.[1]);
   expect(scale).toBeCloseTo(343 / 311);
   expect(scale).toBeGreaterThan(1);
+});
+
+test("closes the zoomed image when clicking the clone", async () => {
+  vi.useFakeTimers();
+  document.body.innerHTML =
+    '<article class="markdown-body"><details class="spoiler" open><summary>spoiler</summary><img alt="hidden"></details></article>';
+  const image = document.querySelector("img")!;
+  prepareImage(image);
+  teardown = setupBehaviors();
+  await waitForBehaviorMount();
+
+  fireEvent.click(image);
+  const clone = document.querySelector<HTMLImageElement>("img.zoom-image")!;
+  expect(clone.parentElement).toBe(document.body);
+
+  fireEvent.click(clone);
+  expect(document.getElementById("zoom-overlay")).not.toHaveClass("is-visible");
+  vi.advanceTimersByTime(300);
+  expect(document.querySelector("img.zoom-image")).toBeNull();
+  expect(image).not.toHaveClass("is-zoomed");
+});
+
+test("tracks document coordinates across scroll and cleans up pending clones on quick reopen", async () => {
+  vi.useFakeTimers();
+  let scrollY = 200;
+  vi.spyOn(window, "scrollY", "get").mockImplementation(() => scrollY);
+  document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
+  const image = document.querySelector("img")!;
+  prepareImage(image);
+  const rectSpy = vi.spyOn(image, "getBoundingClientRect");
+  teardown = setupBehaviors();
+  await waitForBehaviorMount();
+
+  fireEvent.click(image);
+  const firstClone = document.querySelector<HTMLImageElement>("img.zoom-image")!;
+  expect(firstClone.style.top).toBe("300px");
+
+  scrollY = 260;
+  rectSpy.mockReturnValue({
+    bottom: 240,
+    height: 200,
+    left: 100,
+    right: 500,
+    top: 40,
+    width: 400,
+    x: 100,
+    y: 40,
+    toJSON: () => ({}),
+  });
+  fireEvent.scroll(window);
+  expect(firstClone.style.transform).toBe("");
+  expect(firstClone.style.pointerEvents).toBe("none");
+
+  fireEvent.click(image);
+  const clones = document.querySelectorAll("img.zoom-image");
+  expect(clones).toHaveLength(1);
+  expect(clones[0]).not.toBe(firstClone);
+  expect(firstClone).not.toBeInTheDocument();
+});
+
+test("ignores images inside Solid islands", async () => {
+  document.body.innerHTML =
+    '<article class="markdown-body"><div data-solid-island="MusicTrack"><img alt="cover"></div></article>';
+  const image = document.querySelector("img")!;
+  prepareImage(image);
+  teardown = setupBehaviors();
+  await waitForBehaviorMount();
+
+  expect(image).not.toHaveClass("is-zoomable");
+  fireEvent.click(image);
+  expect(document.querySelector("img.zoom-image")).toBeNull();
 });
 
 test("mounts swapped images once", async () => {
@@ -98,6 +178,7 @@ test("mounts swapped images once", async () => {
   fireEvent.click(image);
 
   expect(image).toHaveClass("is-zoomed");
+  expect(document.querySelector("img.zoom-image")).not.toBeNull();
   expect(document.getElementById("zoom-overlay")).toHaveClass("is-visible");
 });
 
@@ -122,7 +203,7 @@ test("recreates the overlay after page navigation", async () => {
   expect(replacementOverlay).toHaveClass("is-visible");
 });
 
-test("teardown restores the zoomed image and removes the overlay", async () => {
+test("teardown restores the zoomed image and removes the clone and overlay", async () => {
   document.body.innerHTML = '<article class="markdown-body"><img alt="test"></article>';
   const image = document.querySelector("img")!;
   prepareImage(image);
@@ -130,12 +211,13 @@ test("teardown restores the zoomed image and removes the overlay", async () => {
   await waitForBehaviorMount();
   expect(image).toHaveClass("is-zoomable");
   fireEvent.click(image);
+  expect(document.querySelector("img.zoom-image")).not.toBeNull();
 
   teardown();
   teardown = undefined;
 
   expect(image).not.toHaveClass("is-zoomed");
   expect(image).not.toHaveClass("is-zoomable");
-  expect(image.style.transform).toBe("");
+  expect(document.querySelector("img.zoom-image")).toBeNull();
   expect(document.getElementById("zoom-overlay")).not.toBeInTheDocument();
 });

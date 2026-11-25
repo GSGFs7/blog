@@ -1,10 +1,17 @@
 import { afterEach, expect, test } from "vitest";
 
+import { setupBehaviors } from "@/core/behaviors";
+
 import "./globals.css";
 import "./markdown.css";
 
+let teardown: (() => void) | undefined;
+
 afterEach(() => {
+  teardown?.();
+  teardown = undefined;
   document.body.replaceChildren();
+  window.scrollTo(0, 0);
 });
 
 function styleOf(root: Element, selector: string, pseudo?: string) {
@@ -65,34 +72,110 @@ test.each(["article", "poem"])("%s prose styles stop at island internals", (layo
   }
 });
 
-test("Markdown image transitions do not clobber island cover transitions", () => {
+test("Markdown image styles do not clobber island cover styles", () => {
   document.body.innerHTML = `
     <article class="markdown-body">
-      <img id="prose-image" alt="Prose">
+      <img id="prose-image" class="is-zoomable" alt="Prose">
       <span data-solid-island="MusicTrack">
-        <div class="music-track"><button class="music-cover"><img alt="Cover"></button></div>
+        <div class="music-track"><button class="music-cover"><img class="is-zoomable" alt="Cover"></button></div>
       </span>
     </article>
   `;
 
-  expect(getComputedStyle(document.querySelector("#prose-image")!).transitionProperty).toBe(
-    "transform",
-  );
+  expect(getComputedStyle(document.querySelector("#prose-image")!).cursor).toBe("zoom-in");
+  expect(getComputedStyle(document.querySelector(".music-cover img")!).cursor).not.toBe("zoom-in");
   expect(
     getComputedStyle(document.querySelector(".music-cover img")!).transitionProperty,
   ).toContain("filter");
 });
 
-test("zoom disables the article backdrop filter and restores it on close", () => {
+test("zoomed image inside a spoiler escapes overflow clipping and article backdrop-filter", async () => {
+  const svg =
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#3b82f6"/></svg>',
+    );
   document.body.innerHTML = `
-    <article class="markdown-body backdrop-blur-lg"><img alt="Prose"></article>
+    <article class="markdown-body backdrop-blur-lg" style="width: 320px; margin: 24px;">
+      <details class="spoiler" open>
+        <summary>spoiler</summary>
+        <img id="spoiler-image" src="${svg}" alt="Spoiler" style="width: 160px; height: 120px;">
+      </details>
+    </article>
   `;
+
   const article = document.querySelector("article")!;
-  const image = document.querySelector("img")!;
-  const initial = getComputedStyle(article).backdropFilter;
-  expect(initial).not.toBe("none");
-  image.classList.add("is-zoomed");
-  expect(getComputedStyle(article).backdropFilter).toBe("none");
-  image.classList.remove("is-zoomed");
-  expect(getComputedStyle(article).backdropFilter).toBe(initial);
+  const spoiler = document.querySelector<HTMLDetailsElement>("details.spoiler")!;
+  const image = document.querySelector<HTMLImageElement>("#spoiler-image")!;
+  if (!image.complete) {
+    await new Promise<void>((resolve) => {
+      image.addEventListener("load", () => resolve(), { once: true });
+    });
+  }
+
+  const initialBackdrop = getComputedStyle(article).backdropFilter;
+  expect(initialBackdrop).not.toBe("none");
+  expect(getComputedStyle(spoiler).overflow).toBe("hidden");
+
+  teardown = setupBehaviors();
+  image.click();
+
+  const clone = document.querySelector<HTMLImageElement>("img.zoom-image")!;
+  expect(clone).not.toBeNull();
+  expect(clone.parentElement).toBe(document.body);
+  expect(getComputedStyle(image).visibility).toBe("hidden");
+  expect(getComputedStyle(article).backdropFilter).toBe(initialBackdrop);
+
+  clone.style.transition = "none";
+  const spoilerRect = spoiler.getBoundingClientRect();
+  const cloneRect = clone.getBoundingClientRect();
+  expect(cloneRect.width).toBeGreaterThan(spoilerRect.width);
+  expect(cloneRect.height).toBeGreaterThan(spoilerRect.height);
+
+  const centerHit = document.elementFromPoint(
+    cloneRect.left + cloneRect.width / 2,
+    cloneRect.top + cloneRect.height / 2,
+  );
+  expect(centerHit).toBe(clone);
+});
+
+test("zoom clone stays aligned with the image while scrolling during close", async () => {
+  const svg =
+    "data:image/svg+xml," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#3b82f6"/></svg>',
+    );
+  document.body.innerHTML = `
+    <div style="height: 2000px; padding-top: 300px;">
+      <article class="markdown-body" style="width: 320px; margin: 0 auto;">
+        <img id="scroll-image" src="${svg}" alt="Scroll" style="width: 160px; height: 120px;">
+      </article>
+    </div>
+  `;
+
+  window.scrollTo(0, 150);
+  const image = document.querySelector<HTMLImageElement>("#scroll-image")!;
+  if (!image.complete) {
+    await new Promise<void>((resolve) => {
+      image.addEventListener("load", () => resolve(), { once: true });
+    });
+  }
+
+  teardown = setupBehaviors();
+  image.click();
+
+  const clone = document.querySelector<HTMLImageElement>("img.zoom-image")!;
+  expect(clone).not.toBeNull();
+
+  window.scrollTo(0, 220);
+  window.dispatchEvent(new Event("scroll"));
+  clone.style.transition = "none";
+
+  window.scrollTo(0, 320);
+  const cloneRect = clone.getBoundingClientRect();
+  const imageRect = image.getBoundingClientRect();
+  expect(cloneRect.top).toBeCloseTo(imageRect.top, 1);
+  expect(cloneRect.left).toBeCloseTo(imageRect.left, 1);
+  expect(cloneRect.width).toBeCloseTo(imageRect.width, 1);
+  expect(cloneRect.height).toBeCloseTo(imageRect.height, 1);
 });
