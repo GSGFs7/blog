@@ -141,7 +141,7 @@ services:
       start_interval: 5s
 
   blog-postgres:
-    image: pgvector/pgvector:pg18-trixie
+    image: ghcr.io/gsgfs7/pgvector-alpine:v0.8.7-pg19.0
     container_name: blog-postgres
     env_file:
       - .env
