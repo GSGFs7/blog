@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+#
 # this file used in local dev only
 # use `podman-compose up -d "blog-redis" "blog-postgres" "blog-pgbouncer"` start dependent services quickly
 
@@ -29,12 +31,10 @@ x-blog-app: &blog-app
 services:
   blog-django:
     <<: *blog-app
+    container_name: blog-django
     build:
       context: .
       dockerfile: .config/docker/dev.Dockerfile
-    container_name: blog-django
-    mem_limit: 6G
-    cpus: 2
     ports:
       - "8000:8000"
     command:
@@ -106,10 +106,10 @@ services:
       - blog-network
 
   blog-pgbouncer:
+    container_name: blog-pgbouncer
     build:
       context: .
       dockerfile: .config/k8s/containers/pgbouncer.Dockerfile
-    container_name: blog-pgbouncer
     environment:
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER}
@@ -232,7 +232,7 @@ services:
     image: grafana/grafana:latest
     container_name: blog-grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=123456 # NOTE: change passwd
+      - GF_SECURITY_ADMIN_PASSWORD=123456
     volumes:
       - ./.config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./.config/k8s/monitoring/blog-django.json:/var/lib/grafana/dashboards/blog-django.json:ro
@@ -252,8 +252,3 @@ volumes:
 networks:
   blog-network:
     driver: bridge
-
-secrets:
-  hf_token:
-    # You need to create this file
-    file: ./hf_token.txt

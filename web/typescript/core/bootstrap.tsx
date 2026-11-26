@@ -1,6 +1,6 @@
 // similar to Astro.js, a jsx component is an JS island
 
-import { render, hydrate } from "solid-js/web";
+import { render, hydrate } from "@solidjs/web";
 
 import type { ComponentProps, ComponentRegistry } from "@/types";
 

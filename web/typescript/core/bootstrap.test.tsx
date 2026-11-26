@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
 import { COMPONENTS } from "@/islands";
@@ -39,6 +40,7 @@ test("renders a non-SSR island with CSR", async () => {
   expect(island!.firstElementChild).not.toBe(placeholder);
 
   fireEvent.click(screen.getByRole("button"));
+  flush();
   expect(screen.getByText("Count: 1025")).toBeInTheDocument();
 });
 
@@ -50,6 +52,7 @@ test("bootstrap does not remount an already mounted island", async () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
   fireEvent.click(screen.getByRole("button"));
+  flush();
   expect(screen.getByText("Count: 1")).toBeInTheDocument();
 
   bootstrap();
@@ -71,6 +74,7 @@ test("cleanup and bootstrap only affect the swapped htmx target", async () => {
     expect(screen.getAllByRole("button")).toHaveLength(2);
   });
   fireEvent.click(screen.getAllByRole("button")[0]);
+  flush();
   expect(screen.getAllByText(/Count:/)[0]).toHaveTextContent("Count: 1");
   expect(screen.getAllByText(/Count:/)[1]).toHaveTextContent("Count: 0");
 
@@ -86,6 +90,7 @@ test("cleanup and bootstrap only affect the swapped htmx target", async () => {
     expect(screen.getAllByRole("button")).toHaveLength(2);
   });
 
+  flush();
   expect(screen.getAllByText(/Count:/)[0]).toHaveTextContent("Count: 1");
   expect(screen.getAllByText(/Count:/)[1]).toHaveTextContent("Count: 0");
 });

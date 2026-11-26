@@ -2,7 +2,7 @@ import { CommentInput } from "./CommentInput";
 import { CommentList } from "./CommentList";
 
 export function Comment(props: Readonly<{ id?: unknown }>) {
-  const postId = Number(props.id);
+  const postId = () => Number(props.id);
 
   return (
     <div class="mx-auto max-w-5xl">
@@ -10,7 +10,7 @@ export function Comment(props: Readonly<{ id?: unknown }>) {
         <span class="absolute top-0 left-[1%] -translate-y-4/7 text-2xl">Comment</span>
       </div>
 
-      <CommentList postId={postId} />
+      <CommentList postId={postId()} />
 
       <CommentInput />
     </div>

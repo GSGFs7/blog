@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup } from "solid-js";
+import { createEffect, createSignal, onSettled } from "solid-js";
 
 const { bootstrap, cleanup } = await import("@/core/bootstrap");
 
@@ -10,80 +10,83 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
   const tailwindCssUrl = props.textarea.dataset.tailwindCssUrl || "";
 
   const [source, setSource] = createSignal(props.textarea.value);
-  const [debouncedSource, setDebouncedSource] = createSignal(source());
+  const [debouncedSource, setDebouncedSource] = createSignal(props.textarea.value);
   const [previewHtml, setPreviewHtml] = createSignal("");
   const [isDark, setIsDark] = createSignal(true);
 
   // debounc 300ms
-  createEffect(() => {
-    const val = source();
-    const timer = setTimeout(() => setDebouncedSource(val), 300);
-    onCleanup(() => clearTimeout(timer));
-  });
+  createEffect(
+    () => source(),
+    (val) => {
+      const timer = setTimeout(() => setDebouncedSource(val), 300);
+      return () => clearTimeout(timer);
+    },
+  );
 
   // render markdown
-  createEffect(async () => {
-    const markdownRaw = debouncedSource();
-    if (!markdownRaw) {
-      setPreviewHtml("");
-      return;
-    }
-
-    const requestId = ++renderRequestId;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10_000);
-    onCleanup(() => {
-      clearTimeout(timeoutId);
-      controller.abort();
-    });
-
-    const markdownBody = markdownRaw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, "");
-    void (async () => {
-      try {
-        const res = await fetch("/api/markdown/render", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ markdown: markdownBody }),
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          throw new Error(`Markdown render failed: ${res.status}`);
-        }
-
-        const data = (await res.json()) as { html: string };
-        // avoid covered by old data
-        if (requestId === renderRequestId) {
-          setPreviewHtml(data.html);
-        }
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") {
-          return;
-        }
-        if (requestId === renderRequestId) {
-          console.error(e);
-        }
+  createEffect(
+    () => debouncedSource(),
+    (markdownRaw) => {
+      if (!markdownRaw) {
+        setPreviewHtml("");
+        return;
       }
-    })();
-  });
+
+      const requestId = ++renderRequestId;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+      const markdownBody = markdownRaw.replace(/^---\s*\n[\s\S]*?\n---\s*\n/, "");
+      void (async () => {
+        try {
+          const res = await fetch("/api/markdown/render", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ markdown: markdownBody }),
+            signal: controller.signal,
+          });
+          if (!res.ok) {
+            throw new Error(`Markdown render failed: ${res.status}`);
+          }
+
+          const data = (await res.json()) as { html: string };
+          // avoid covered by old data
+          if (requestId === renderRequestId) {
+            setPreviewHtml(data.html);
+          }
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") {
+            return;
+          }
+          if (requestId === renderRequestId) {
+            console.error(e);
+          }
+        }
+      })();
+
+      return () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      };
+    },
+  );
 
   // sync solid & hidden textarea state
-  createEffect(() => {
-    props.textarea.value = source();
-  });
-
-  // inject katex CSS into global head for `@font-face` support inside shadow DOM
-  createEffect(() => {
-    if (!document.head.querySelector(`link[href="${katexCssUrl}"]`)) {
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = katexCssUrl;
-      document.head.appendChild(link);
-    }
-  });
+  createEffect(
+    () => source(),
+    (val: string) => {
+      props.textarea.value = val;
+    },
+  );
 
   // prevent css pollution, use shadow DOM
-  createEffect(() => {
-    if (previewContainerRef) {
+  createEffect(
+    () => ({ dark: isDark(), html: previewHtml() }),
+    ({ dark, html }) => {
+      if (!previewContainerRef) {
+        return;
+      }
+
       let shadow = previewContainerRef.shadowRoot;
       if (!shadow) {
         // do not merge with HTML content update
@@ -98,17 +101,29 @@ export function AdminPostEditor(props: Readonly<{ textarea: HTMLTextAreaElement 
 
       // update content
       const container = shadow.getElementById("content-container");
-      if (container) {
-        cleanup(container);
-        container.className = isDark() ? "dark" : "";
-        container.innerHTML = `
-          <div class="markdown-body is-decorated">
-            ${previewHtml()}
-          </div>
-        `;
-        bootstrap(container);
-        onCleanup(() => cleanup(container));
+      if (!container) {
+        return;
       }
+
+      cleanup(container);
+      container.className = dark ? "dark" : "";
+      container.innerHTML = `
+        <div class="markdown-body is-decorated">
+          ${html}
+        </div>
+      `;
+      bootstrap(container);
+      return () => cleanup(container);
+    },
+  );
+
+  // inject katex CSS into global head for `@font-face` support inside shadow DOM
+  onSettled(() => {
+    if (!document.head.querySelector(`link[href="${katexCssUrl}"]`)) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = katexCssUrl;
+      document.head.appendChild(link);
     }
   });
 

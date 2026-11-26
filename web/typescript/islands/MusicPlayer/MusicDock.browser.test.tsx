@@ -1,4 +1,5 @@
 import { cleanup, render } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { afterEach, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 
@@ -11,36 +12,48 @@ const cover =
     '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#6b8f6b"/></svg>',
   );
 
+function mockMediaElement(playImpl: () => Promise<void> = async () => {}) {
+  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playImpl);
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   player.clear();
+  flush();
 });
 
 test("hovering the play button blurs the cover art behind it", async () => {
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   render(() => <MusicDock />);
   player.play({ src: "https://example.com/song.mp3", coverUrl: cover, duration: 300 });
+  flush();
+
   const control = document.querySelector(".music-dock-control")!;
   const art = control.querySelector(".music-dock-art")!;
   expect(getComputedStyle(art).filter).toBe("none");
+
   await userEvent.hover(control);
   await vi.waitFor(() => expect(getComputedStyle(art).filter).toBe("blur(4px)"));
+
   if (matchMedia("(prefers-reduced-motion: no-preference)").matches) {
     await vi.waitFor(() => expect(getComputedStyle(art).transform).toMatch(/1\.1/));
   }
 });
 
 test("the buffering icon keeps spinning while the audio stalls", () => {
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => new Promise(() => {}));
+  mockMediaElement(() => new Promise(() => {}));
+
   render(() => <MusicDock />);
   player.play({ src: "https://example.com/song.mp3", duration: 300 });
+  flush();
+
   const spinner = document.querySelector(".music-spin")!;
   expect(spinner).not.toBeNull();
+
   const [animation] = spinner.getAnimations() as CSSAnimation[];
   expect(animation.animationName).toBe("music-spin");
   expect(animation.effect?.getComputedTiming().iterations).toBe(Infinity);
@@ -48,12 +61,14 @@ test("the buffering icon keeps spinning while the audio stalls", () => {
 });
 
 test("the dock only fades in when opened, not when its preserved root is reinserted", async () => {
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   const { container } = render(() => <MusicDock />);
   const track = { src: "https://example.com/song.mp3", duration: 300 };
+
   player.play(track);
+  flush();
+
   const dock = container.querySelector<HTMLElement>(".music-dock")!;
   expect(getComputedStyle(dock).animationName).toBe("music-dock-in");
   await vi.waitFor(() => expect(getComputedStyle(dock).animationName).toBe("none"));
@@ -62,14 +77,20 @@ test("the dock only fades in when opened, not when its preserved root is reinser
   container.remove();
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   parent.append(container);
+
   expect(container.querySelector(".music-dock")).toBe(dock);
   expect(getComputedStyle(dock).animationName).toBe("none");
   expect(dock.getAnimations()).toHaveLength(0);
 
   player.clear();
+  flush();
+
   expect(getComputedStyle(dock).animationName).toBe("music-dock-out");
   await vi.waitFor(() => expect(container.querySelector(".music-dock")).toBeNull());
+
   player.play(track);
+  flush();
+
   expect(getComputedStyle(container.querySelector(".music-dock")!).animationName).toBe(
     "music-dock-in",
   );
@@ -84,12 +105,15 @@ test("the hover zoom only runs when reduced motion is not preferred", () => {
           ? collectRules(rule.cssRules)
           : [],
     );
+
   const styleRules = [...document.styleSheets].flatMap((sheet) => collectRules(sheet.cssRules));
   const zoomRules = styleRules.filter(
     (rule): rule is CSSStyleRule =>
       rule instanceof CSSStyleRule && rule.style.transform.includes("scale(1.1)"),
   );
+
   expect(zoomRules.length).toBeGreaterThan(0);
+
   for (const rule of zoomRules) {
     expect(rule.parentRule).toBeInstanceOf(CSSMediaRule);
     const condition = (rule.parentRule as CSSMediaRule).conditionText;

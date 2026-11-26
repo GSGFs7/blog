@@ -18,6 +18,7 @@ coverage/
 .coverage
 coverage.xml
 test-results/
+.vitest/
 .vitest-attachments/
 __screenshots__/
 __traces__/

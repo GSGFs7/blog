@@ -1,4 +1,5 @@
 import { cleanup, render } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { canApplyBackgroundUpdate } from "@/core/navigation/adapters/native/background-update";
@@ -58,10 +59,12 @@ test("playground protects edited code and releases protection when it is restore
 
   model.value = "unsaved code";
   model.onChange();
+  flush();
   expect(canApplyBackgroundUpdate(document)).toBe(false);
 
   model.value = "initial";
   model.onChange();
+  flush();
   expect(canApplyBackgroundUpdate(document)).toBe(true);
 });
 
@@ -76,6 +79,7 @@ test.each(["keydown", "paste", "input"])(
     const terminal = container.shadowRoot!.querySelector("div")!;
     terminal.addEventListener(type, (event) => event.stopPropagation());
     terminal.dispatchEvent(new Event(type, { bubbles: true, composed: true }));
+    flush();
 
     expect(document.activeElement).toBe(document.body);
     expect(canApplyBackgroundUpdate(document)).toBe(false);

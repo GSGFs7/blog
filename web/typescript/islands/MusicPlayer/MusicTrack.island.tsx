@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, onSettled, Show } from "solid-js";
 
 import { fileTitle, formatTime, musicSource } from "./format";
 import { coverBackground, extractMusicMetadata } from "./metadata";
@@ -21,7 +21,7 @@ export default function MusicTrack(props: { src?: unknown }) {
     player.update(next);
   };
 
-  onMount(() => {
+  onSettled(() => {
     const src = musicSource(props.src);
     if (!src) {
       setInvalid(true);
@@ -31,18 +31,6 @@ export default function MusicTrack(props: { src?: unknown }) {
 
     const controller = new AbortController();
     let cover: string | undefined;
-    onCleanup(() => {
-      controller.abort();
-      if (!cover) {
-        return;
-      }
-      if (player.track()?.coverUrl === cover) {
-        player.retainCover(cover);
-        return;
-      }
-      URL.revokeObjectURL(cover);
-    });
-
     void extractMusicMetadata(src, controller.signal)
       .then((result) => {
         if (!result) return;
@@ -54,6 +42,18 @@ export default function MusicTrack(props: { src?: unknown }) {
         update({ ...result, title: result.title || fileTitle(src) });
       })
       .catch(() => {});
+
+    return () => {
+      controller.abort();
+      if (!cover) {
+        return;
+      }
+      if (player.track()?.coverUrl === cover) {
+        player.retainCover(cover);
+        return;
+      }
+      URL.revokeObjectURL(cover);
+    };
   });
 
   return (

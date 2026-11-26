@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onSettled, Show } from "solid-js";
 
 import { monaco } from "./monaco";
 import { PythonWorker } from "./python.worker";
@@ -108,7 +108,7 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
   const [edited, setEdited] = createSignal(false);
   const [output, setOutput] = createSignal("");
 
-  const initialSource = typeof props.source === "string" ? props.source : DEFAULT_SOURCE;
+  const initialSource = () => (typeof props.source === "string" ? props.source : DEFAULT_SOURCE);
 
   const appendOutput = (value: string) => {
     setOutput((current) => current + value);
@@ -121,7 +121,7 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
   };
 
   const _reset = () => {
-    editor?.setValue(initialSource);
+    editor?.setValue(initialSource());
     setOutput("");
   };
 
@@ -166,16 +166,17 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
     pythonWorker.init();
   };
 
-  onMount(() => {
+  onSettled(() => {
     const root = editorContainer.getRootNode();
     if (root instanceof ShadowRoot) {
       mirrorMonacoStyles(root);
     }
 
+    const source = initialSource();
     const style = getComputedStyle(editorContainer);
     const markdownFontSize = Number.parseFloat(style.fontSize) * 0.85;
     editor = monaco.editor.create(editorContainer, {
-      value: initialSource,
+      value: source,
       language: "python",
       theme: defineMarkdownTheme(editorContainer),
 
@@ -210,16 +211,16 @@ export function PythonPlayground(props: Readonly<PythonPlaygroundProps>) {
       tabSize: 4,
     });
 
-    editor.onDidChangeModelContent(() => setEdited(editor?.getValue() !== initialSource));
+    editor.onDidChangeModelContent(() => setEdited(editor?.getValue() !== source));
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, run);
-  });
 
-  onCleanup(() => {
-    stop();
+    return () => {
+      stop();
 
-    const model = editor?.getModel();
-    editor?.dispose();
-    model?.dispose();
+      const model = editor?.getModel();
+      editor?.dispose();
+      model?.dispose();
+    };
   });
 
   return (

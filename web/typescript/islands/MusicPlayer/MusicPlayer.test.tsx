@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { cleanup as cleanupIslands } from "@/core/bootstrap";
@@ -16,6 +17,14 @@ vi.mock("./metadata", () => ({
   }),
   coverBackground: vi.fn(),
 }));
+
+function mockMediaElement(playImpl: (this: HTMLAudioElement) => Promise<void> = async () => {}) {
+  const load = vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playImpl);
+  return { load, pause, play };
+}
+
 beforeEach(() => {
   const slot = document.createElement("div");
   slot.id = "app-persistent-root";
@@ -26,38 +35,47 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   cleanupIslands(document);
+  flush();
   document.getElementById("app-persistent-root")?.remove();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
 test("the dock mounts on first play, is reused, and can remount after navigation cleanup", async () => {
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function (
-    this: HTMLAudioElement,
-  ) {
+  const { play } = mockMediaElement(async function () {
     this.dispatchEvent(new Event("playing"));
   });
+
   render(() => <MusicTrack src="https://example.com/song.mp3" />);
+
   expect(document.querySelector("audio")).toBeNull();
   expect(document.querySelector('[data-solid-island="MusicDock"]')).toBeNull();
+
   await waitFor(() => expect(screen.getByRole("button", { name: "play song.mp3" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "play song.mp3" }));
+  flush();
+
   expect(play).toHaveBeenCalledOnce();
   expect(screen.getByRole("region", { name: "music player" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "pause song.mp3" })).toBeInTheDocument();
+
   const audio = document.querySelector("audio")!;
   fireEvent.click(screen.getByRole("button", { name: "pause song.mp3" }));
+
   expect(document.querySelectorAll("audio")).toHaveLength(1);
   expect(document.querySelector("audio")).toBe(audio);
+
   play.mockClear();
   cleanupIslands(document.body);
+  flush();
+
   expect(document.getElementById("app-persistent-root")).not.toBeNull();
   expect(player.track()).toBeNull();
   expect(audio.hasAttribute("src")).toBe(false);
   expect(document.querySelector('[data-solid-island="MusicDock"]')).toBeNull();
+
   fireEvent.click(screen.getByRole("button", { name: "play song.mp3" }));
+
   expect(play).toHaveBeenCalledOnce();
   expect(document.querySelectorAll("audio")).toHaveLength(1);
 });
@@ -75,15 +93,21 @@ test("cover color updates do not reload the image and repeated load events are b
     title: "Song",
   });
   vi.mocked(coverBackground).mockReturnValue("rgb(30, 40, 50)");
+
   const { container, unmount } = render(() => <MusicTrack src="https://example.com/song.mp3" />);
   await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+
   const img = container.querySelector("img")!;
   const observer = new MutationObserver(() => {});
   observer.observe(img, { attributes: true, attributeFilter: ["src"] });
+
   try {
     fireEvent.load(img);
     expect(observer.takeRecords()).toHaveLength(0);
+
     fireEvent.load(img);
+    flush();
+
     expect(coverBackground).toHaveBeenCalledTimes(1);
     expect(container.querySelector("img")).toBe(img);
     expect(container.querySelector(".music-track")).toHaveStyle({
@@ -101,60 +125,76 @@ test("the loading placeholder never shares the cover slot with the play icon", a
   vi.mocked(extractMusicMetadata).mockImplementationOnce(
     () => new Promise<MusicMetadata>((resolve) => (settle = resolve)),
   );
+
   const { container } = render(() => <MusicTrack src="https://example.com/song.mp3" />);
+
   expect(container.querySelector(".music-note")).not.toBeNull();
   expect(container.querySelector(".music-play-icon")).toBeNull();
+
   settle({ src: "https://example.com/song.mp3", coverUrl: "blob:cover" });
   await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+
   expect(container.querySelector(".music-note")).toBeNull();
   expect(container.querySelector(".music-play-icon")).not.toBeNull();
 });
 
 test("a pause longer than three seconds closes the player", async () => {
   vi.useFakeTimers();
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   render(() => <MusicDock />);
   player.play({ src: "https://example.com/song.mp3" });
+  flush();
+
   expect(player.track()).not.toBeNull();
+
   await vi.advanceTimersByTimeAsync(2_000);
   expect(player.track()).not.toBeNull();
+
   await vi.advanceTimersByTimeAsync(1_000);
   expect(player.track()).toBeNull();
 });
 
 test("resuming within three seconds keeps the player open", async () => {
   vi.useFakeTimers();
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   render(() => <MusicDock />);
   player.play({ src: "https://example.com/song.mp3" });
+
   await vi.advanceTimersByTimeAsync(2_000);
   document.querySelector("audio")!.dispatchEvent(new Event("playing"));
+
   await vi.advanceTimersByTimeAsync(20_000);
   expect(player.track()).not.toBeNull();
 });
 
 test("the dock animates out before it unmounts", async () => {
   vi.useFakeTimers();
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   render(() => <MusicDock />);
   player.play({ src: "https://example.com/song.mp3", duration: 300 });
+  flush();
+
   const dock = document.querySelector(".music-dock")!;
   expect(dock).not.toBeNull();
+
   const audio = document.querySelector("audio")!;
   audio.currentTime = 42;
   audio.dispatchEvent(new Event("timeupdate"));
+  flush();
+
   expect(screen.getByText("0:42")).toBeInTheDocument();
+
   player.clear();
+  flush();
+
   expect(document.querySelector(".music-dock")).toBe(dock);
   expect(dock).toHaveAttribute("data-state", "closed");
   expect(screen.getByText("0:42")).toBeInTheDocument();
   expect(screen.getByText("5:00")).toBeInTheDocument();
+
   await vi.advanceTimersByTimeAsync(200);
   expect(document.querySelector(".music-dock")).toBeNull();
 });
@@ -165,16 +205,19 @@ test("an unmounted active card hands its cover over to the player", async () => 
     src: "https://example.com/song.mp3",
     coverUrl: "blob:cover",
   });
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   render(() => <MusicDock />);
   const card = render(() => <MusicTrack src="https://example.com/song.mp3" />);
   await waitFor(() => expect(screen.getByRole("button", { name: "play song.mp3" })).toBeEnabled());
+
   player.play({ src: "https://example.com/song.mp3", coverUrl: "blob:cover" });
+  flush();
   expect(player.track()?.coverUrl).toBe("blob:cover");
+
   card.unmount();
   expect(revoke).not.toHaveBeenCalledWith("blob:cover");
+
   player.clear();
   expect(revoke).toHaveBeenCalledWith("blob:cover");
 });
@@ -185,20 +228,24 @@ test("an unmounted inactive card revokes its own cover", async () => {
     src: "https://example.com/other.mp3",
     coverUrl: "blob:other",
   });
+
   const card = render(() => <MusicTrack src="https://example.com/other.mp3" />);
   await waitFor(() => expect(screen.getByRole("button", { name: "play other.mp3" })).toBeEnabled());
+
   card.unmount();
   expect(revoke).toHaveBeenCalledWith("blob:other");
 });
 
 test("the dock layers the cover art under the play button", async () => {
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+  mockMediaElement();
+
   render(() => <MusicDock />);
   player.play({ src: "https://example.com/song.mp3", coverUrl: "blob:cover", duration: 300 });
+  flush();
+
   const control = document.querySelector(".music-dock-control")!;
   const art = control.querySelector("img.music-dock-art");
+
   expect(art).toHaveAttribute("src", "blob:cover");
   expect(art).toHaveAttribute("alt", "");
   expect(control.firstElementChild).toBe(art);
@@ -212,6 +259,7 @@ test("the dock layers the cover art under the play button", async () => {
 test("the dock shows a buffering icon and keeps the pause action", async () => {
   let paused = true;
   render(() => <MusicDock />);
+
   const audio = document.querySelector("audio")!;
   Object.defineProperty(audio, "paused", { get: () => paused });
   vi.spyOn(audio, "load").mockImplementation(() => {});
@@ -223,42 +271,55 @@ test("the dock shows a buffering icon and keeps the pause action", async () => {
     paused = true;
     audio.dispatchEvent(new Event("pause"));
   });
+
   player.play({ src: "https://example.com/song.mp3", duration: 300 });
+  flush();
   expect(document.querySelector(".lucide-pause")).not.toBeNull();
+
   audio.dispatchEvent(new Event("waiting"));
-  expect(document.querySelector(".lucide-rotate-cw")).not.toBeNull();
+  flush();
+
   const button = screen.getByRole("button", { name: "pause" });
+  expect(document.querySelector(".lucide-rotate-cw")).not.toBeNull();
   expect(button).toHaveAttribute("aria-busy", "true");
+
   pause.mockClear();
   fireEvent.click(button);
+  flush();
+
   expect(pause).toHaveBeenCalledOnce();
   expect(document.querySelector(".lucide-play")).not.toBeNull();
   expect(button).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("the shared persistent root preserves the audio and player state when the source card is removed", async () => {
-  vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
-  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function (
-    this: HTMLAudioElement,
-  ) {
+  const { pause, play } = mockMediaElement(async function () {
     this.dispatchEvent(new Event("playing"));
   });
+
   const card = render(() => <MusicTrack src="https://example.com/song.mp3" />);
   fireEvent.click(await screen.findByRole("button", { name: "play song.mp3" }));
+
   const slot = document.getElementById("app-persistent-root")!;
   const audio = slot.querySelector("audio")!;
   audio.currentTime = 42;
   audio.dispatchEvent(new Event("timeupdate"));
+
   const next = document.createElement("body");
   next.innerHTML = '<main>next page</main><div id="app-persistent-root" data-app-preserve></div>';
   const plan = preparePreservation(document.body, next);
   expect(plan.roots).toEqual([slot]);
+
   pause.mockClear();
   cleanupIslands(document.body, plan.roots);
   card.unmount();
-  for (const { current, incoming } of plan.pairs) incoming.replaceWith(current);
+  flush();
+
+  for (const { current, incoming } of plan.pairs) {
+    incoming.replaceWith(current);
+  }
   document.body.replaceChildren(...Array.from(next.childNodes));
+
   expect(document.querySelector("audio")).toBe(audio);
   expect(player.time()).toBe(42);
   expect(player.playing()).toBe(true);

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const mockCanvas = vi.hoisted(() => ({
@@ -150,6 +151,7 @@ test("updates when formula input changes", () => {
 
   const input = screen.getByRole("textbox");
   fireEvent.input(input, { target: { value: "cos(x)" } });
+  flush();
 
   expect(mockCanvas.setDataCalls.length).toBeGreaterThan(beforeCount);
 });
@@ -164,6 +166,7 @@ test("shows error when formula compilation throws", () => {
   render(() => <ECharts />);
 
   fireEvent.input(screen.getByRole("textbox"), { target: { value: "invalid" } });
+  flush();
 
   expect(screen.getByRole("alert")).toHaveTextContent("Mock compile error");
 });
@@ -172,6 +175,7 @@ test("keeps a compilation error when the viewport changes", () => {
   render(() => <ECharts />);
 
   fireEvent.input(screen.getByRole("textbox"), { target: { value: "invalid" } });
+  flush();
   expect(screen.getByRole("alert")).toBeInTheDocument();
 
   mockCanvas.viewportCallback!({ xMin: -5, xMax: 5, yMin: -1, yMax: 1 });
@@ -184,9 +188,11 @@ test("clears a compilation error after fixing formula", () => {
 
   const input = screen.getByRole("textbox");
   fireEvent.input(input, { target: { value: "invalid" } });
+  flush();
   expect(screen.getByRole("alert")).toBeInTheDocument();
 
   fireEvent.input(input, { target: { value: "cos(x)" } });
+  flush();
 
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
@@ -195,6 +201,7 @@ test("renders tooltip when setTooltip callback is called", () => {
   render(() => <ECharts />);
 
   mockCanvas.tooltipCallback!({ x: 1.23456, y: 2.34567, canvasX: 100, canvasY: 50 });
+  flush();
 
   expect(document.querySelector("output")).toBeInTheDocument();
   expect(document.querySelector("output")!.textContent).toContain("1.23456");
@@ -205,9 +212,11 @@ test("hides tooltip when setTooltip callback is called with null", () => {
   render(() => <ECharts />);
 
   mockCanvas.tooltipCallback!({ x: 1, y: 2, canvasX: 100, canvasY: 50 });
+  flush();
   expect(document.querySelector("output")).toBeInTheDocument();
 
   mockCanvas.tooltipCallback!(null);
+  flush();
   expect(document.querySelector("output")).not.toBeInTheDocument();
 });
 
@@ -233,6 +242,7 @@ test("tooltip output is positioned absolutely", () => {
   render(() => <ECharts />);
 
   mockCanvas.tooltipCallback!({ x: 1, y: 2, canvasX: 100, canvasY: 50 });
+  flush();
 
   const output = document.querySelector("output")!;
   expect(output.style.position).toBe("absolute");
