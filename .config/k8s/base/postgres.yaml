@@ -41,8 +41,7 @@ spec:
             name: blog-postgres-config
       containers:
         - name: blog-postgres
-          # TODO: use a self built image
-          image: pgvector/pgvector:0.8.7-pg18-trixie
+          image: ghcr.io/gsgfs7/pgvector-alpine:v0.8.7-pg19.0-avx512
           ports:
             - containerPort: 5432
           volumeMounts:

@@ -1,6 +1,6 @@
 // compile this file with ssr mode.
 
-import { NoHydration, renderToString } from "solid-js/web";
+import { NoHydration, renderToString } from "@solidjs/web";
 
 import { SSR_COMPONENTS, STATIC_COMPONENTS } from "./islands/ssr_registry";
 
@@ -47,4 +47,4 @@ export function buildSsrManifest() {
   };
 }
 
-export { generateHydrationScript } from "solid-js/web";
+export { generateHydrationScript } from "@solidjs/web";

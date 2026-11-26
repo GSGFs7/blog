@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onSettled, Show } from "solid-js";
 
 import { ChartCanvas, type TooltipPoint, type Viewport } from "./chart-canvas";
 import { compileExpression, sampleExpression } from "./math-parser";
@@ -29,10 +29,15 @@ function toNumber(data: unknown): number | null {
 }
 
 export function ECharts(props: Readonly<Props>) {
-  const [source, setSource] = createSignal("sin(x)");
-  // TODO: merge there two to Viewport type
-  const [xRange, setXRange] = createSignal([-RANGE_DEFAULT, RANGE_DEFAULT]);
-  const [yRange, setYRange] = createSignal([-RANGE_DEFAULT, RANGE_DEFAULT]);
+  const [source, setSource] = createSignal(() => {
+    if (typeof props.formula === "number") {
+      return props.formula.toString();
+    }
+    if (typeof props.formula === "string") {
+      return props.formula;
+    }
+    return "sin(x)";
+  });
   const [tooltip, setTooltip] = createSignal<TooltipPoint | null>(null);
   const [error, setError] = createSignal("");
   let container!: HTMLCanvasElement;
@@ -71,56 +76,51 @@ export function ECharts(props: Readonly<Props>) {
   };
 
   // TODO: input validation
-  onMount(() => {
+  onSettled(() => {
     // init props state
-    setXRange([
+    const nextXRange: [number, number] = [
       toNumber(props["x-min"]) ?? -RANGE_DEFAULT,
       toNumber(props["x-max"]) ?? RANGE_DEFAULT,
-    ]);
-    setYRange([
+    ];
+    const nextYRange: [number, number] = [
       toNumber(props["y-min"]) ?? -RANGE_DEFAULT,
       toNumber(props["y-max"]) ?? RANGE_DEFAULT,
-    ]);
-    let formula: string;
-    if (typeof props.formula === "number") {
-      formula = props.formula.toString();
-    } else if (typeof props.formula === "string") {
-      formula = props.formula;
-    } else {
-      formula = "sin(x)";
-    }
-    setSource(formula);
+    ];
 
     // init canvas
     canvas = new ChartCanvas(
       container,
       {
-        xMin: xRange()[0],
-        xMax: xRange()[1],
-        yMin: yRange()[0],
-        yMax: yRange()[1],
+        xMin: nextXRange[0],
+        xMax: nextXRange[1],
+        yMin: nextYRange[0],
+        yMax: nextYRange[1],
       },
       updateCurve,
       setTooltip,
       disablePanAndZoom(),
     );
+    updateCurve(canvas.getViewport(), source());
+
+    return () => {
+      canvas?.dispose();
+    };
   });
 
-  createEffect(() => {
-    // registry this to solid effect
-    const formula = source();
+  createEffect(
+    source,
+    (formula) => {
+      if (!canvas) {
+        return;
+      }
 
-    if (!canvas) {
-      return;
-    }
-
-    const viewport = canvas.getViewport();
-    updateCurve(viewport, formula);
-  });
-
-  onCleanup(() => {
-    canvas?.dispose();
-  });
+      const viewport = canvas.getViewport();
+      updateCurve(viewport, formula);
+    },
+    // in solid 2, createEffect is prior to onSettled.
+    // defer it at the first run.
+    { defer: true },
+  );
 
   // TODO: reset button
   return (
@@ -131,7 +131,7 @@ export function ECharts(props: Readonly<Props>) {
           <input
             value={source()}
             onInput={(e) => setSource(e.currentTarget.value)}
-            spellcheck={false}
+            spellcheck="false"
           />
         </label>
       </Show>

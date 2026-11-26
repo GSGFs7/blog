@@ -1,5 +1,5 @@
 import type { ModelViewerElement } from "@google/model-viewer";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onSettled, Show } from "solid-js";
 
 interface Props {
   src?: unknown;
@@ -133,33 +133,32 @@ export default function ModelViewer(props: Readonly<Props>) {
     }
   }
 
-  onMount(() => {
+  onSettled(() => {
     if (!("IntersectionObserver" in window)) {
       void load();
-      return;
+    } else {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (disposed || !entries.some((entry) => entry.isIntersecting)) {
+            return;
+          }
+
+          observer?.disconnect();
+          void load();
+        },
+        {
+          rootMargin: "200px",
+        },
+      );
+
+      observer.observe(container);
     }
 
-    observer = new IntersectionObserver(
-      (entries) => {
-        if (disposed || !entries.some((entry) => entry.isIntersecting)) {
-          return;
-        }
-
-        observer?.disconnect();
-        void load();
-      },
-      {
-        rootMargin: "200px",
-      },
-    );
-
-    observer.observe(container);
-  });
-
-  onCleanup(() => {
-    disposed = true;
-    observer?.disconnect();
-    removeViewer();
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      removeViewer();
+    };
   });
 
   return (
@@ -167,7 +166,7 @@ export default function ModelViewer(props: Readonly<Props>) {
       <div
         class="model-viewer-stage"
         ref={(e) => (container = e)}
-        aria-busy={Boolean(status()) && !failed()}
+        aria-busy={Boolean(status()) && !failed() ? "true" : "false"}
       />
 
       <Show when={status()}>

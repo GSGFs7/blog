@@ -3,3 +3,13 @@ overrides:
 
 patchedDependencies:
   monaco-editor@0.57.0: patches/monaco-editor@0.57.0.patch
+
+permissions:
+  "@solidjs/web":
+    skills: true
+  solid-js:
+    skills: [reactivity-diagnostics, solid-2.0, solid-2.0-cheatsheet]
+
+skills:
+  dirs:
+    - .agents/skills

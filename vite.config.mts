@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import solidPlugin from "@solidjs/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import Sonda from "sonda/vite";
 import { loadEnv, type Plugin } from "vite";
-import solidPlugin from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
 // reload entre page when django template has updated
@@ -102,8 +102,7 @@ export default defineConfig(({ command, isSsrBuild, mode }) => {
       !isSsrBuild && tailwindcss(),
       solidPlugin({
         ssr: true,
-        hot: mode !== "test",
-        dev: command === "serve" && mode !== "test",
+        refresh: mode !== "test",
       }),
       djangoTemplateReload(),
       !isSsrBuild && cssSource(),

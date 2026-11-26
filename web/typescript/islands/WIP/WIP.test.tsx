@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
+import { flush } from "solid-js";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { WIP } from "./WIP.island";
@@ -34,6 +35,7 @@ test("updates progress after the timer fires", () => {
   render(() => <WIP />);
 
   vi.advanceTimersByTime(400);
+  flush();
 
   expect(screen.getByText("当前进度: 📦 打包资源")).toBeInTheDocument();
   expect(document.querySelector<HTMLElement>(".h-2.animate-pulse")).toHaveStyle({

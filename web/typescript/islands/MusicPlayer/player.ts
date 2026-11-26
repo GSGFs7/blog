@@ -1,4 +1,4 @@
-import { batch, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 
 import type { MusicMetadata } from "./types";
 
@@ -12,6 +12,19 @@ let audio: HTMLAudioElement | undefined;
 let release: (() => void) | undefined;
 let attempt = 0;
 let retainedCover: string | undefined;
+// sync
+let currentTrack: MusicMetadata | null = null;
+let currentDuration = 0;
+
+function writeTrack(next: MusicMetadata | null = null) {
+  currentTrack = next;
+  setTrack(next);
+}
+
+function writeDuration(next: number) {
+  currentDuration = next;
+  setDuration(next);
+}
 
 function releaseRetainedCover() {
   if (!retainedCover) {
@@ -28,19 +41,17 @@ function clear() {
   audio?.removeAttribute("src");
   audio?.load();
   releaseRetainedCover();
-  batch(() => {
-    setTrack(null);
-    setPlaying(false);
-    setLoading(false);
-    setTime(0);
-    setDuration(0);
-    setError("");
-  });
+  writeTrack(null);
+  setPlaying(false);
+  setLoading(false);
+  setTime(0);
+  writeDuration(0);
+  setError("");
 }
 
 async function resume() {
   const current = audio;
-  if (!current || !track()) {
+  if (!current || !currentTrack) {
     return;
   }
 
@@ -63,7 +74,7 @@ async function resume() {
 }
 
 function toggle() {
-  if (!audio || !track()) {
+  if (!audio || !currentTrack) {
     return;
   }
 
@@ -79,14 +90,14 @@ function play(next: MusicMetadata) {
   if (!audio) {
     return;
   }
-  if (track()?.src === next.src) {
+  if (currentTrack?.src === next.src) {
     toggle();
     return;
   }
 
   clear();
-  setTrack(next);
-  setDuration(next.duration ?? 0);
+  writeTrack(next);
+  writeDuration(next.duration ?? 0);
   audio.src = next.src;
   void resume();
 }
@@ -100,7 +111,9 @@ function attach(element: HTMLAudioElement) {
     element.addEventListener(
       name,
       () => {
-        if (track()) handler();
+        if (currentTrack) {
+          handler();
+        }
       },
       { signal: controller.signal },
     );
@@ -117,7 +130,7 @@ function attach(element: HTMLAudioElement) {
   listen("canplay", () => setLoading(false));
   listen("timeupdate", () => setTime(element.currentTime));
   listen("durationchange", () =>
-    setDuration(Number.isFinite(element.duration) ? element.duration : 0),
+    writeDuration(Number.isFinite(element.duration) ? element.duration : 0),
   );
   listen("ended", clear);
   listen("error", () => {
@@ -156,16 +169,16 @@ export const player = {
     retainedCover = url;
   },
   update(next: MusicMetadata) {
-    if (track()?.src === next.src) {
+    if (currentTrack?.src === next.src) {
       if (retainedCover && retainedCover !== next.coverUrl) {
         releaseRetainedCover();
       }
-      setTrack(next);
+      writeTrack(next);
     }
   },
   seek(value: number) {
-    if (audio && Number.isFinite(value) && duration() > 0) {
-      audio.currentTime = Math.max(0, Math.min(duration(), value));
+    if (audio && Number.isFinite(value) && currentDuration > 0) {
+      audio.currentTime = Math.max(0, Math.min(currentDuration, value));
       setTime(audio.currentTime);
     }
   },

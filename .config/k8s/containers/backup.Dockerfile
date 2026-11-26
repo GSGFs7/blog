@@ -1,25 +1,19 @@
 # syntax=docker/dockerfile:1
 # Backup image with PostgreSQL client tools and upload script
 
-FROM archlinux:latest
+FROM ghcr.io/gsgfs7/pgvector-alpine:v0.8.7-pg19.0-avx512
 
-# Install PostgreSQL client
-RUN pacman-key --init && \
-    pacman-key --populate archlinux && \
-    pacman -Syu --noconfirm postgresql python-pip && \
-    rm -rf /etc/pacman.d/gnupg/ /var/cache/pacman/pkg/
+USER root
 
-# Create working directory
+RUN apk add --no-cache bash ca-certificates python3 py3-pip && \
+    pip install --no-cache-dir --break-system-packages boto3 python-dotenv && \
+    apk del py3-pip
+
 WORKDIR /app
 
-# Copy upload script
 COPY scripts/upload.py /app/
-
-# Install Python dependencies (from pypi)
-# Using --break-system-packages because Arch Linux is an externally managed environment
-RUN pip install --no-cache-dir boto3 python-dotenv --break-system-packages
 
 ENV PYTHONUNBUFFERED=1
 
-# Set default command
-CMD ["pg_dump", "--version"]
+ENTRYPOINT []
+CMD [ "pg_dump", "--version" ]

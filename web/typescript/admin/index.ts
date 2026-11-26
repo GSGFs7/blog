@@ -1,4 +1,4 @@
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
 
 import { COMPONENTS } from "@/islands";
 
@@ -11,7 +11,7 @@ setupIslands(COMPONENTS);
   ) as HTMLTextAreaElement;
   // TODO: add a switch?
   if (textareaForMarkdownEditor) {
-    const { AdminPostEditor } = await import("./post_editor");
+    const { AdminPostEditor } = await import("./PostEditor");
 
     // 1. create new element for render editor
     const newDiv = document.createElement("div");

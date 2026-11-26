@@ -14,8 +14,8 @@ const solidWeb = vi.hoisted(() => {
   };
 });
 
-vi.mock("solid-js/web", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("solid-js/web")>()),
+vi.mock("@solidjs/web", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@solidjs/web")>()),
   hydrate: solidWeb.hydrate,
   render: solidWeb.render,
 }));

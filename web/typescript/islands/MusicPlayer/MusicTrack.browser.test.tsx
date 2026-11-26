@@ -26,18 +26,18 @@ test.each([320, 768])("music placeholder preserves layout at %i px", async (widt
   vi.mocked(extractMusicMetadata).mockImplementationOnce(
     () => new Promise((resolve) => (settle = resolve)),
   );
+
   const article = document.createElement("article");
   article.className = "markdown-body";
   article.style.width = `${width}px`;
   article.innerHTML = `<span data-solid-island="MusicTrack">${placeholder}</span><p>Following text</p>`;
   document.body.append(article);
+
   const island = article.querySelector<HTMLElement>("[data-solid-island]")!;
   const following = article.querySelector("p")!;
   const initial = island.firstElementChild!.getBoundingClientRect();
   const followingTop = following.getBoundingClientRect().top;
   expect(initial.height).toBeGreaterThan(0);
-  island.replaceChildren();
-  render(() => <MusicTrack src="https://example.com/song.mp3" />, { container: island });
 
   const checkLayout = () => {
     const mounted = island.firstElementChild!.getBoundingClientRect();
@@ -46,7 +46,11 @@ test.each([320, 768])("music placeholder preserves layout at %i px", async (widt
     expect(following.getBoundingClientRect().top).toBe(followingTop);
     expect(document.querySelector("audio")).toBeNull();
   };
+
+  island.replaceChildren();
+  render(() => <MusicTrack src="https://example.com/song.mp3" />, { container: island });
   checkLayout();
+
   settle({
     src: "https://example.com/song.mp3",
     title: "A long music title that should be truncated without shifting the following text",
@@ -54,6 +58,7 @@ test.each([320, 768])("music placeholder preserves layout at %i px", async (widt
     duration: 180,
     size: 5_242_880,
   });
+
   await vi.waitFor(() => expect(island.textContent).toContain("Artist"));
   checkLayout();
 });

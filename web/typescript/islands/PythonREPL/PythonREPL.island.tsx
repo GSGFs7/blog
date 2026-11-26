@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onSettled } from "solid-js";
 
 import { PythonWorker } from "./python.worker";
 import { Terminal } from "./terminal";
@@ -34,7 +34,7 @@ export function PythonREPL(_props: Readonly<PythonREPLProps>) {
   const [interacted, setInteracted] = createSignal(false);
   const interactionController = new AbortController();
 
-  onMount(() => {
+  onSettled(() => {
     if (!container) {
       return;
     }
@@ -92,13 +92,13 @@ export function PythonREPL(_props: Readonly<PythonREPLProps>) {
       });
       worker.init();
     });
-  });
 
-  onCleanup(() => {
-    disposed = true;
-    interactionController.abort();
-    worker?.terminate();
-    terminal?.dispose();
+    return () => {
+      disposed = true;
+      interactionController.abort();
+      worker?.terminate();
+      terminal?.dispose();
+    };
   });
 
   return (

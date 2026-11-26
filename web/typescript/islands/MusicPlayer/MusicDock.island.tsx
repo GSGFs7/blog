@@ -1,13 +1,13 @@
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { render } from "solid-js/web";
+import { render } from "@solidjs/web";
+import { createEffect, createMemo, createSignal, onSettled, Show } from "solid-js";
 
 import type { IslandElement } from "@/core/bootstrap";
 
 import { formatTime } from "./format";
 import { player } from "./player";
-import type { MusicMetadata } from "./types";
 
 import "./music.css";
+import type { MusicMetadata } from "./types";
 
 const PAUSE_CLOSE_DELAY = 3_000;
 const DOCK_EXIT_DURATION = 180;
@@ -37,34 +37,40 @@ export function ensureMusicDock() {
 export default function MusicDock() {
   let audio!: HTMLAudioElement;
   const activeSrc = createMemo(() => player.track()?.src);
+  const pausedSrc = createMemo(() => (activeSrc() && !player.playing() ? activeSrc() : null));
   const [dock, setDock] = createSignal<DockState | null>(null);
 
-  onMount(() => {
-    onCleanup(player.attach(audio));
+  onSettled(() => {
+    return player.attach(audio);
   });
 
-  createEffect(() => {
-    if (!activeSrc() || player.playing()) {
+  createEffect(pausedSrc, (src) => {
+    if (!src) {
       return;
     }
 
     const timer = setTimeout(player.clear, PAUSE_CLOSE_DELAY);
-    onCleanup(() => clearTimeout(timer));
+    return () => clearTimeout(timer);
   });
 
-  createEffect(() => {
-    const track = player.track();
-    if (track) {
-      setDock({ track, time: player.time(), duration: player.duration() });
-      return;
-    }
-    if (!dock()) {
-      return;
-    }
+  createEffect(
+    () => {
+      const track = player.track();
+      return track ? { track, time: player.time(), duration: player.duration() } : null;
+    },
+    (next, prev) => {
+      if (next) {
+        setDock(next);
+        return;
+      }
+      if (!prev) {
+        return;
+      }
 
-    const timer = setTimeout(() => setDock(null), DOCK_EXIT_DURATION);
-    onCleanup(() => clearTimeout(timer));
-  });
+      const timer = setTimeout(() => setDock(null), DOCK_EXIT_DURATION);
+      return () => clearTimeout(timer);
+    },
+  );
 
   return (
     <>
@@ -90,7 +96,7 @@ export default function MusicDock() {
               <button
                 type="button"
                 onClick={player.toggle}
-                aria-busy={player.loading()}
+                aria-busy={player.loading() ? "true" : "false"}
                 aria-label={player.playing() ? "pause" : "play"}
               >
                 {player.loading() ? (
