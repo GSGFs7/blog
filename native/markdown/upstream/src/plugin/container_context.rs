@@ -59,7 +59,7 @@ impl<'a, 'b> ContainerHtml<'a, 'b> {
     }
 
     /// Add a child element.
-    pub fn element(&mut self, tag: impl Into<String>) -> HtmlElement<'_> {
+    pub fn element(&mut self, tag: impl AsRef<str>) -> HtmlElement<'_> {
         self.html.element(tag)
     }
 

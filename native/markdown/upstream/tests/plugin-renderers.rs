@@ -226,9 +226,9 @@ impl NodeRenderer<Label> for PairRenderer {
         );
         if cx.format() == "html" {
             out.write_str("<span class=\"");
-            out.write_str(&markdown_it::common::utils::escape_html(&value.0));
+            out.write_str(&markdown_it::render::escape_html(&value.0));
             out.write_str("\" data-id=\"");
-            out.write_str(&markdown_it::common::utils::escape_html(&node.attrs()[0].1));
+            out.write_str(&markdown_it::render::escape_html(&node.attrs()[0].1));
             out.write_str("\">");
             cx.render_children(node.id(), out);
             out.write_str("</span>");

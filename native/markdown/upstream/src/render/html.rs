@@ -1,10 +1,10 @@
 //! HTML output helpers shared by the built-in HTML renderers.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use super::{NodeRenderer, RenderContext, Writer};
-use crate::common::utils::escape_html;
 use crate::document::{HtmlAttribute, Node, NodeValue};
 
 /// Link-like payloads that render as `<a href="…">`.
@@ -128,22 +128,22 @@ fn write_html_attr_group<'a>(
 ) {
     if name == "class" || name == "style" {
         output.write_char(' ');
-        output.write_str(&escape_html(name));
+        output.write_escaped_html(name);
         output.write_str("=\"");
         let separator = if name == "class" { ' ' } else { ';' };
         for (index, value) in values.enumerate() {
             if index != 0 {
                 output.write_char(separator);
             }
-            output.write_str(&escape_html(value));
+            output.write_escaped_html(value);
         }
         output.write_char('"');
     } else {
         for value in values {
             output.write_char(' ');
-            output.write_str(&escape_html(name));
+            output.write_escaped_html(name);
             output.write_str("=\"");
-            output.write_str(&escape_html(value));
+            output.write_escaped_html(value);
             output.write_char('"');
         }
     }
@@ -179,6 +179,74 @@ pub(crate) fn write_html_self_close(
 
 pub(crate) fn write_html_text(output: &mut Writer, value: &str) {
     output.write_escaped_html(value);
+}
+
+/// Escape `" < > &` with corresponding HTML entities.
+/// ```
+/// # use markdown_it::render::escape_html;
+/// assert_eq!(escape_html("&\""), "&amp;&quot;");
+/// ```
+pub fn escape_html(str: &str) -> Cow<'_, str> {
+    let Some(first) = find_first_html_escape(str.as_bytes()) else {
+        return Cow::Borrowed(str);
+    };
+
+    // '"' -> "&quot;"
+    let mut output = String::with_capacity(str.len() + 5);
+    push_escaped_html_from(str, first, &mut output);
+    Cow::Owned(output)
+}
+
+/// Append `str` into `output` with HTML special characters escaped, without
+/// allocating an intermediate `String`.
+#[inline]
+pub(crate) fn write_escaped_html_to(str: &str, output: &mut String) {
+    let Some(first) = find_first_html_escape(str.as_bytes()) else {
+        output.push_str(str);
+        return;
+    };
+
+    output.reserve(str.len() + 5);
+    push_escaped_html_from(str, first, output);
+}
+
+#[inline]
+fn find_first_html_escape(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 32 {
+        bytes
+            .iter()
+            .position(|b| matches!(b, b'&' | b'<' | b'>' | b'"'))
+    } else {
+        let other = memchr::memchr3(b'&', b'<', b'>', bytes).unwrap_or(bytes.len());
+        memchr::memchr(b'"', &bytes[..other]).or_else(|| (other < bytes.len()).then_some(other))
+    }
+}
+
+fn push_escaped_html_from(str: &str, first: usize, output: &mut String) {
+    output.push_str(&str[..first]);
+
+    let mut start = first;
+    for (offset, byte) in str[first..].bytes().enumerate() {
+        let index = first + offset;
+        macro_rules! append_escape {
+            ($entity:literal) => {{
+                if start != index {
+                    output.push_str(&str[start..index]);
+                }
+                output.push_str($entity);
+                start = index + 1;
+            }};
+        }
+        match byte {
+            b'&' => append_escape!("&amp;"),
+            b'<' => append_escape!("&lt;"),
+            b'>' => append_escape!("&gt;"),
+            b'"' => append_escape!("&quot;"),
+            _ => {}
+        }
+    }
+
+    output.push_str(&str[start..]);
 }
 
 #[cfg(test)]

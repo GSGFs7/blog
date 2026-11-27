@@ -91,8 +91,4 @@ impl Node {
     pub(crate) fn type_id(&self) -> TypeId {
         self.data.type_id()
     }
-
-    pub(crate) fn replace_value<T: NodeValue>(&mut self, value: T) {
-        self.data.replace_value(NodeData::new(value));
-    }
 }

@@ -43,14 +43,13 @@
 use markdown_it::MarkdownIt;
 #[cfg(feature = "sourcemap")]
 use markdown_it::common::sourcemap::SourcePos;
-use markdown_it::common::utils::escape_html;
 use markdown_it::document::edit::EditBatch;
 use markdown_it::document::{Document, Node, NodeId, Text};
 use markdown_it::plugin::PluginSpec;
 use markdown_it::plugins::cmark::block::blockquote::Blockquote;
 use markdown_it::plugins::cmark::block::paragraph::Paragraph;
 use markdown_it::plugins::cmark::inline::newline::{Hardbreak, Softbreak};
-use markdown_it::render::{NodeRenderer, RenderContext, Writer};
+use markdown_it::render::{NodeRenderer, RenderContext, Writer, escape_html};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlertKind {

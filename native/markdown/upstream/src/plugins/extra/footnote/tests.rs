@@ -1,7 +1,7 @@
 use super::{FootnoteEnv, FootnoteReferenceEnds, FootnoteScans};
 use crate as markdown_it;
 use crate::MarkdownIt;
-use crate::common::utils::normalize_reference;
+use crate::reference::normalize_reference;
 
 #[test]
 fn footnote_scan_cache_keeps_success_and_failure_and_context() {
