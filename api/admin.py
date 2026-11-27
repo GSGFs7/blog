@@ -257,6 +257,7 @@ class GuestAdmin(admin.ModelAdmin):
                     "name",
                     "email",
                     "avatar",
+                    "avatar_source_url",
                     "is_admin",
                 ]
             },
@@ -273,7 +274,7 @@ class GuestAdmin(admin.ModelAdmin):
         ),
     ]
 
-    readonly_fields = ["created_at", "updated_at", "last_visit"]
+    readonly_fields = ["avatar_source_url", "created_at", "updated_at", "last_visit"]
     list_display = ["name", "created_at", "updated_at"]
     list_filter = []
     search_fields = ["name", "email"]

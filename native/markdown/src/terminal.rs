@@ -88,6 +88,8 @@ pub(crate) fn render_terminal(
 mod tests {
     use std::collections::HashMap;
 
+    use markdown_it::render::escape_html;
+
     use crate::sanitizer::sanitize;
 
     #[test]
@@ -143,8 +145,8 @@ mod tests {
                 "A &amp; B &#10; second",
             ),
         ] {
-            let title = crate::rewriter::escape_html(title);
-            let prompt = crate::rewriter::escape_html(prompt);
+            let title = escape_html(title);
+            let prompt = escape_html(prompt);
             assert_eq!(
                 crate::builder::build().render(source),
                 format!(

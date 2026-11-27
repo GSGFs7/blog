@@ -83,7 +83,68 @@ use std::fmt::Debug;
 
 use downcast_rs::{Downcast, impl_downcast};
 
-use crate::common::utils::{is_js_whitespace, normalize_reference};
+use crate::common::utils::is_js_whitespace;
+
+/// Unicode case folding + space normalization, used for reference labels.
+///
+/// Strings equal according to the CommonMark standard normalize to the same
+/// key (case differences and internal whitespace runs collapse away).
+/// ```
+/// # use markdown_it::reference::normalize_reference;
+/// assert_eq!(normalize_reference("hello"), normalize_reference("HELLO"));
+/// assert_eq!(normalize_reference("a   b"), normalize_reference("a b"));
+/// ```
+pub fn normalize_reference(str: &str) -> String {
+    // markdown-it.js: `str.trim().replace(/\s+/g, " ")`, so both the trimming
+    // and the collapsing use JavaScript's `\s` rather than Rust's `\s`.
+    let mut collapsed = String::with_capacity(str.len());
+    let mut pending_space = false;
+    for ch in str.chars() {
+        if is_js_whitespace(ch) {
+            pending_space = !collapsed.is_empty();
+        } else {
+            if pending_space {
+                collapsed.push(' ');
+                pending_space = false;
+            }
+            collapsed.push(ch);
+        }
+    }
+
+    // .toLowerCase().toUpperCase() should get rid of all differences
+    // between letter variants.
+    //
+    // Simple .toLowerCase() doesn't normalize 125 code points correctly,
+    // and .toUpperCase doesn't normalize 6 of them (list of exceptions:
+    // İ, ϴ, ẞ, Ω, K, Å - those are already uppercased, but have differently
+    // uppercased versions).
+    //
+    // Here's an example showing how it happens. Lets take greek letter omega:
+    // uppercase U+0398 (Θ), U+03f4 (ϴ) and lowercase U+03b8 (θ), U+03d1 (ϑ)
+    //
+    // Unicode entries:
+    // 0398;GREEK CAPITAL LETTER THETA;Lu;0;L;;;;;N;;;;03B8;
+    // 03B8;GREEK SMALL LETTER THETA;Ll;0;L;;;;;N;;;0398;;0398
+    // 03D1;GREEK THETA SYMBOL;Ll;0;L;<compat> 03B8;;;;N;GREEK SMALL LETTER SCRIPT THETA;;0398;;0398
+    // 03F4;GREEK CAPITAL THETA SYMBOL;Lu;0;L;<compat> 0398;;;;N;;;;03B8;
+    //
+    // Case-insensitive comparison should treat all of them as equivalent.
+    //
+    // But .toLowerCase() doesn't change ϑ (it's already lowercase),
+    // and .toUpperCase() doesn't change ϴ (already uppercase).
+    //
+    // Applying first lower then upper case normalizes any character:
+    // '\u0398\u03f4\u03b8\u03d1'.toLowerCase().toUpperCase() === '\u0398\u0398\u0398\u0398'
+    //
+    // Note: this is equivalent to unicode case folding; unicode normalization
+    // is a different step that is not required here.
+    //
+    // Final result should be uppercased, because it's later stored in an object
+    // (this avoid a conflict with Object.prototype members,
+    // most notably, `__proto__`)
+    //
+    collapsed.to_lowercase().to_uppercase()
+}
 
 /// Storage for parsed references.
 ///
@@ -239,7 +300,28 @@ impl ReferenceMapEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{CustomReferenceMap, DefaultReferenceMap};
+    use super::{CustomReferenceMap, DefaultReferenceMap, normalize_reference};
+
+    #[test]
+    fn normalize_reference_uses_javascript_whitespace() {
+        // BOM collapses to a space like JavaScript's `replace(/\s+/g, " ")`.
+        assert_eq!(
+            normalize_reference("a\u{feff}b"),
+            normalize_reference("a b")
+        );
+        assert_eq!(
+            normalize_reference("\u{feff}a\u{feff}"),
+            normalize_reference("a")
+        );
+        // NEL is not whitespace for JavaScript, so it survives.
+        assert_ne!(normalize_reference("a\u{85}b"), normalize_reference("a b"));
+        assert_eq!(
+            normalize_reference("a\u{85}b"),
+            normalize_reference("A\u{85}B")
+        );
+        // Whitespace-only labels normalize to nothing.
+        assert_eq!(normalize_reference(" \t\u{feff}"), "");
+    }
 
     #[test]
     fn lookup_length_filter_preserves_whitespace_and_unicode_normalization() {

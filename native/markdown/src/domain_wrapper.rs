@@ -5,9 +5,8 @@ use std::rc::Rc;
 use lol_html::errors::RewritingError;
 use lol_html::html_content::Element;
 use lol_html::{RewriteStrSettings, element, end_tag, rewrite_str};
+use markdown_it::render::escape_html;
 use url::{Host, Url};
-
-use crate::rewriter::escape_html;
 
 #[derive(Debug)]
 struct Link {

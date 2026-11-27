@@ -1,6 +1,39 @@
-import { createMemo, For, Loading, onCleanup } from "solid-js";
+import { createMemo, createSignal, For, Loading, onCleanup, Show } from "solid-js";
 
 import { CommentListItem } from "./schema";
+
+function avatarInitial(name: string): string {
+  const first = Array.from(name.trim())[0];
+  return first ? first.toUpperCase() : "?";
+}
+
+function CommentAvatar(props: { avatar: string; guestName: string }) {
+  const [failedSrc, setFailedSrc] = createSignal<string | null>(null);
+  const src = createMemo(() => props.avatar.trim());
+
+  return (
+    <Show
+      when={src() !== "" && failedSrc() !== src()}
+      fallback={
+        <div
+          aria-hidden="true"
+          class="flex size-10 items-center justify-center rounded-full bg-gray-700 text-sm font-medium text-gray-200 select-none"
+        >
+          {avatarInitial(props.guestName)}
+        </div>
+      }
+    >
+      <img
+        alt={`${props.guestName}'s avatar`}
+        class="size-10 rounded-full object-cover"
+        width={40}
+        height={40}
+        src={src()}
+        onError={() => setFailedSrc(src())}
+      />
+    </Show>
+  );
+}
 
 export function CommentList(props: { postId: number }) {
   const comments = createMemo(async () => {
@@ -35,13 +68,7 @@ export function CommentList(props: { postId: number }) {
         {(comment) => (
           <div class="my-4 flex w-full items-start">
             <div class="flex w-24 shrink-0 flex-col items-center gap-1 py-1">
-              <img
-                alt={`${comment.guest_name}'s avatar`}
-                class="size-10 rounded-full object-cover"
-                width={40}
-                height={40}
-                src={comment.avatar}
-              />
+              <CommentAvatar avatar={comment.avatar} guestName={comment.guest_name} />
               <div class="group relative w-full px-2 text-center text-sm">{comment.guest_name}</div>
             </div>
 

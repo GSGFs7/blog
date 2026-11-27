@@ -191,7 +191,7 @@ impl EditBatch {
 
         self.apply_text(document);
         for edit in self.node_patches.values.drain(..) {
-            document.node_mut(edit.node).data.replace_value(edit.value);
+            document.replace_node_data(edit.node, edit.value);
         }
         #[cfg(feature = "sourcemap")]
         self.apply_source_maps(document);
@@ -285,7 +285,7 @@ impl EditBatch {
 
     fn apply_attributes(&mut self, document: &mut Document) {
         for edit in self.node_patches.attributes.drain(..) {
-            let attrs = document.node_mut(edit.node).attrs_mut();
+            let attrs = document.node_mut_untracked(edit.node).attrs_mut();
             match edit.change {
                 AttributeChange::Set(value) => {
                     if let Some(index) = attrs.iter().position(|attr| attr.0 == edit.name) {
@@ -312,7 +312,9 @@ impl EditBatch {
     #[cfg(feature = "sourcemap")]
     fn apply_source_maps(&mut self, document: &mut Document) {
         for edit in self.node_patches.source_maps.drain(..) {
-            document.node_mut(edit.node).set_srcmap(edit.source_map);
+            document
+                .node_mut_untracked(edit.node)
+                .set_srcmap(edit.source_map);
         }
     }
 }

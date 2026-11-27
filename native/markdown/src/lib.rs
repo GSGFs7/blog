@@ -7,7 +7,6 @@ mod frontmatter;
 mod image_optimizer;
 mod image_wrapper;
 pub(crate) mod markdown_it_py;
-mod rewriter;
 mod sanitizer;
 mod solid_island;
 mod spoiler;

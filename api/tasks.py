@@ -6,7 +6,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from .ml_model import get_ml_model
-from .models import Gal, Post, PostChunk
+from .models import Gal, Guest, Post, PostChunk
+from .services.avatar import (
+    AvatarRetryableError,
+    AvatarService,
+    AvatarValidationError,
+)
 from .text_chunking import chunk_text
 from .vndb import query_vn
 
@@ -110,3 +115,41 @@ def generate_search_embedding_task(query: str):
     except Exception as e:
         logger.error(f"生成搜索 embedding 失败: {query[:50]}, 错误: {e}")
         raise
+
+
+@shared_task(
+    autoretry_for=(AvatarRetryableError,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+    soft_time_limit=20,
+    time_limit=30,
+)
+def sync_guest_avatar_task(guest_id: str, source_url: str) -> str | None:
+    try:
+        guest = Guest.objects.get(pk=guest_id)
+    except Guest.DoesNotExist:
+        return None
+
+    expected_avatar = guest.avatar
+    expected_source_url = guest.avatar_source_url
+    if expected_source_url and expected_source_url != source_url:
+        return None
+
+    try:
+        mirrored_url = AvatarService().mirror(source_url)
+    except AvatarValidationError as exc:
+        logger.warning("Skipping invalid avatar for guest %s: %s", guest_id, exc)
+        return None
+
+    updated = Guest.objects.filter(
+        pk=guest_id,
+        avatar=expected_avatar,
+        avatar_source_url=expected_source_url,
+    ).update(
+        avatar=mirrored_url,
+        avatar_source_url=source_url,
+        updated_at=timezone.now(),
+    )
+    if not updated:
+        return None
+    return mirrored_url

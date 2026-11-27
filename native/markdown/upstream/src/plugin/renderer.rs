@@ -82,7 +82,7 @@ where
         if BLOCK {
             cx.cr(out);
         }
-        render_html_fragment(|html| (self.0)(value, html), cx.options(), out);
+        render_html_fragment(|html| (self.0)(value, html), cx.options().xhtml_out, out);
         if BLOCK {
             cx.cr(out);
         }
@@ -128,12 +128,15 @@ where
         if BLOCK {
             context.cr(output);
         }
-        let mut html = Html::new();
-        {
-            let mut cx = ContainerHtml::new(&mut html, context, node.id());
-            (self.0)(value, &mut cx);
-        }
-        html.render_into(output, context.options());
+        let xhtml_out = context.options().xhtml_out;
+        render_html_fragment(
+            |html| {
+                let mut cx = ContainerHtml::new(html, context, node.id());
+                (self.0)(value, &mut cx);
+            },
+            xhtml_out,
+            output,
+        );
         if BLOCK {
             context.cr(output);
         }

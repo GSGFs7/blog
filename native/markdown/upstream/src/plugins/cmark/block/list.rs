@@ -7,9 +7,8 @@
 //!  - <https://spec.commonmark.org/0.30/#lists>
 //!  - <https://spec.commonmark.org/0.30/#list-items>
 use crate::MarkdownIt;
-use crate::common::utils::find_indent_of_from_column;
 use crate::document::{Document, Node, NodeId};
-use crate::parser::block::{BlockRule, BlockState};
+use crate::parser::block::{BlockRule, BlockState, find_indent_of_from_column};
 use crate::plugins::cmark::block::hr::HrScanner;
 use crate::plugins::cmark::block::paragraph::{Paragraph, ParagraphInterrupt};
 use crate::render::{

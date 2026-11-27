@@ -270,7 +270,7 @@ mod tests {
             for prefix in ["[", "!["] {
                 for references in ["", "\n\n[r]: /url"] {
                     let input = format!("{prefix}{html}(<?l{references}");
-                    let escaped = crate::common::utils::escape_html(html);
+                    let escaped = crate::render::escape_html(html);
                     assert_eq!(
                         render(&input),
                         format!("<p>{prefix}{escaped}(&lt;?l</p>\n"),

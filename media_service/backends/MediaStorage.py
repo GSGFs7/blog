@@ -137,7 +137,7 @@ class MediaStorage(Storage):
         }
 
         # add cache control header to R2 metadata
-        if name.startswith(("images/raw/", "musics/")):
+        if name.startswith(("images/raw/", "musics/", "avatars/")):
             # hash indexed image. cache it as long as possible
             options["cache_control"] = IMMUTABLE_CACHE_CONTROL
         elif name.startswith(

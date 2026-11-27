@@ -487,25 +487,24 @@ impl CoreRule for EmphasisCleanup {
 
     fn run(&self, state: &mut CoreState<'_>) {
         let document = &mut *state.document;
-        let mut stack = vec![(document.root(), false)];
-        while let Some((node, expanded)) = stack.pop() {
-            if expanded {
-                if needs_cleanup(document, node) {
-                    document.rewrite_children(node, |document, children| {
-                        fragments_join_children(document, children);
-                    });
-                }
-                continue;
+        document.finish_cleanup_tracking(|document, node| {
+            if needs_cleanup(document, node) {
+                document.rewrite_children(node, |document, children| {
+                    fragments_join_children(document, children);
+                });
             }
+        });
 
-            if document.children(node).is_empty() {
-                continue;
-            }
-
-            stack.push((node, true));
-            for &child in document.children(node) {
-                if !document.children(child).is_empty() {
-                    stack.push((child, false));
+        #[cfg(debug_assertions)]
+        {
+            for event in document.events(document.root()) {
+                if let crate::document::StructuralEvent::Enter(node) = event {
+                    debug_assert!(
+                        !needs_cleanup(document, node.id()),
+                        "dirty-parent tracking missed node {:?} ({})",
+                        node.id(),
+                        node.name()
+                    );
                 }
             }
         }
@@ -590,7 +589,7 @@ fn fragments_join_children(document: &mut Document, nodes: &mut Vec<NodeId>) {
             document.discard_node(id);
         } else {
             if let Some(marker) = marker {
-                document.node_mut(id).replace_value(marker.into_text());
+                document.replace_node_value(id, marker.into_text());
             }
             nodes[write] = id;
             write += 1;
@@ -1078,5 +1077,241 @@ mod tests {
             document.node(pair).srcmap().unwrap().get_byte_offsets(),
             (1, 2)
         );
+    }
+
+    #[test]
+    fn dirty_parent_tracking_covers_empty_text_consumed_markers_edits_and_parent_links() {
+        use crate::document::edit::EditBatch;
+
+        let md = MarkdownIt::with_preset(Preset::CommonMark);
+
+        // Exercise every mutation source before running EmphasisCleanup directly.
+        let mut doc = Document::new("", crate::document::Root::new(""));
+        doc.start_cleanup_tracking();
+        let root = doc.root();
+
+        // 1. Clean container with metadata-only edits on a detached Text stays clean.
+        let clean_parent = doc.create_node(CustomEmphasis);
+        let clean_child = doc.create_node(Text::new("untouched"));
+        doc.node_mut(clean_child)
+            .attrs_mut()
+            .push(("data-k".into(), "v".into()));
+        #[cfg(feature = "sourcemap")]
+        doc.node_mut(clean_child)
+            .set_srcmap(Some(crate::common::sourcemap::SourcePos::new(0, 9)));
+        doc.push_child(clean_parent, clean_child);
+        doc.push_child(root, clean_parent);
+        assert!(!doc.has_dirty_cleanup_parents());
+
+        // 2. Empty Text, remaining==0 marker, and unmatched marker + Text merge.
+        let p_fragments = doc.create_node(CustomEmphasis);
+        let t_prefix = doc.create_node(Text::new("a"));
+        let m_zero = doc.create_node(EmphMarker {
+            marker: '*',
+            length: 2,
+            remaining: 0,
+            open: true,
+            close: true,
+        });
+        let t_empty = doc.create_node(Text::new(""));
+        let m_unmatched = doc.create_node(EmphMarker {
+            marker: '_',
+            length: 2,
+            remaining: 1,
+            open: false,
+            close: true,
+        });
+        let t_suffix = doc.create_node(Text::new("b"));
+        let m_standalone = doc.create_node(EmphMarker {
+            marker: '*',
+            length: 1,
+            remaining: 1,
+            open: true,
+            close: false,
+        });
+        let barrier = doc.create_node(CustomEmphasis);
+        doc.attach_children(
+            p_fragments,
+            vec![
+                t_prefix,
+                m_zero,
+                t_empty,
+                m_unmatched,
+                t_suffix,
+                barrier,
+                m_standalone,
+            ],
+        );
+        doc.push_child(root, p_fragments);
+
+        // 3. Attached non-empty Text cleared via set_content / EditBatch.
+        let p_edited = doc.create_node(CustomEmphasis);
+        let t_cleared = doc.create_node(Text::new("will clear"));
+        let t_kept = doc.create_node(Text::new("kept"));
+        doc.push_child(p_edited, t_cleared);
+        doc.push_child(root, p_edited);
+        doc.value_mut::<Text>(t_cleared).unwrap().set_content("");
+        doc.insert_after(t_cleared, t_kept);
+
+        let p_batch = doc.create_node(CustomEmphasis);
+        let t_batch = doc.create_node(Text::new("x"));
+        doc.push_child(p_batch, t_batch);
+        doc.push_child(root, p_batch);
+        let mut batch = EditBatch::new();
+        batch.replace_text(t_batch, 0..1, "");
+        batch.commit(&mut doc);
+
+        // 4. Removing a middle separator exposes two adjacent Text siblings.
+        let p_removed_mid = doc.create_node(CustomEmphasis);
+        let t_left = doc.create_node(Text::new("left-"));
+        let mid = doc.create_node(CustomEmphasis);
+        let t_right = doc.create_node(Text::new("right"));
+        doc.attach_children(p_removed_mid, vec![t_left, mid, t_right]);
+        doc.push_child(root, p_removed_mid);
+        doc.remove_node(mid);
+
+        // 5. Stale dirty parent deleted before cleanup runs must not panic.
+        let p_deleted = doc.create_node(CustomEmphasis);
+        let t_deleted = doc.create_node(Text::new(""));
+        doc.push_child(p_deleted, t_deleted);
+        doc.push_child(root, p_deleted);
+        doc.remove_node(p_deleted);
+
+        let mut state = CoreState::new("", &md, &mut doc);
+        EmphasisCleanup.run(&mut state);
+
+        assert!(!doc.has_dirty_cleanup_parents());
+        assert_eq!(doc.children(clean_parent), &[clean_child]);
+        assert_eq!(doc.parent(clean_child), Some(clean_parent));
+
+        assert_eq!(
+            doc.children(p_fragments),
+            &[t_prefix, barrier, m_standalone]
+        );
+        assert_eq!(doc.text(t_prefix), Some("a_b"));
+        assert_eq!(doc.text(m_standalone), Some("*"));
+        for &alive in &[t_prefix, barrier, m_standalone] {
+            assert_eq!(doc.parent(alive), Some(p_fragments));
+        }
+        for dead in [m_zero, t_empty, t_suffix] {
+            assert!(doc.get_node(dead).is_none());
+        }
+
+        assert_eq!(doc.children(p_edited), &[t_kept]);
+        assert_eq!(doc.parent(t_kept), Some(p_edited));
+        assert!(doc.get_node(t_cleared).is_none());
+
+        assert!(doc.children(p_batch).is_empty());
+        assert!(doc.get_node(t_batch).is_none());
+
+        assert_eq!(doc.children(p_removed_mid), &[t_left]);
+        assert_eq!(doc.text(t_left), Some("left-right"));
+        assert_eq!(doc.parent(t_left), Some(p_removed_mid));
+        assert!(doc.get_node(t_right).is_none());
+    }
+
+    #[test]
+    fn plugin_created_markers_are_cleaned_without_touching_detached_subtrees() {
+        struct InsertMarkers;
+
+        impl CoreRule for InsertMarkers {
+            fn run(&self, state: &mut CoreState<'_>) {
+                let doc = &mut *state.document;
+                let marker = EmphMarker {
+                    marker: '*',
+                    length: 1,
+                    remaining: 1,
+                    open: true,
+                    close: false,
+                };
+                let attached = doc.create_node(CustomEmphasis);
+                let attached_marker = doc.create_node(marker);
+                doc.push_child(attached, attached_marker);
+                doc.push_child(doc.root(), attached);
+
+                let replaced = doc.create_node(CustomEmphasis);
+                let replaced_marker = doc.create_node(());
+                let mut batch = crate::document::edit::EditBatch::new();
+                batch.replace_value(replaced_marker, marker);
+                batch.commit(doc);
+                doc.push_child(replaced, replaced_marker);
+                doc.push_child(doc.root(), replaced);
+
+                let detached = doc.create_node(CustomEmphasis);
+                let nested = doc.create_node(CustomEmphasis);
+                let empty = doc.create_node(Text::new(""));
+                doc.push_child(detached, nested);
+                doc.push_child(nested, empty);
+                state.root_ext_mut().insert(empty);
+            }
+        }
+
+        let mut md = MarkdownIt::with_preset(Preset::CommonMark);
+        md.add_rule_instance(InsertMarkers)
+            .before::<EmphasisCleanup>();
+        let doc = md.parse("");
+        let children = doc.children(doc.root());
+        assert_eq!(children.len(), 2);
+        for &child in children {
+            assert_eq!(doc.text(doc.children(child)[0]), Some("*"));
+        }
+        let root = doc.value::<crate::document::Root>(doc.root()).unwrap();
+        let empty = *root.ext.get::<NodeId>().unwrap();
+        assert_eq!(doc.text(empty), Some(""));
+    }
+
+    #[test]
+    fn cleanup_tracking_stops_when_the_rule_runs() {
+        struct AddEmptyText;
+
+        impl CoreRule for AddEmptyText {
+            fn run(&self, state: &mut CoreState<'_>) {
+                let doc = &mut *state.document;
+                let child = doc.create_node(Text::new(""));
+                doc.push_child(doc.root(), child);
+            }
+        }
+
+        let mut md = MarkdownIt::with_preset(Preset::CommonMark);
+        md.add_rule_instance(AddEmptyText)
+            .after::<EmphasisCleanup>();
+        let mut doc = md.parse("");
+        let child = doc.children(doc.root())[0];
+        assert_eq!(doc.text(child), Some(""));
+        assert!(!doc.has_dirty_cleanup_parents());
+
+        for _ in 0..32 {
+            let parent = doc.create_node(CustomEmphasis);
+            let child = doc.create_node(Text::new(""));
+            doc.push_child(parent, child);
+            doc.discard_node(parent);
+        }
+        assert!(!doc.has_dirty_cleanup_parents());
+
+        let mut md = MarkdownIt::empty();
+        md.add_rule_instance(AddEmptyText);
+        let doc = md.parse("");
+        assert!(!doc.has_dirty_cleanup_parents());
+    }
+
+    #[test]
+    fn cleanup_handles_a_document_replaced_by_a_core_rule() {
+        struct ReplaceDocument;
+
+        impl CoreRule for ReplaceDocument {
+            fn run(&self, state: &mut CoreState<'_>) {
+                let mut doc = Document::new("", crate::document::Root::new(""));
+                let empty = doc.create_node(Text::new(""));
+                doc.push_child(doc.root(), empty);
+                *state.document = doc;
+            }
+        }
+
+        let mut md = MarkdownIt::with_preset(Preset::CommonMark);
+        md.add_rule_instance(ReplaceDocument)
+            .after::<InlineParserRule>()
+            .before::<EmphasisCleanup>();
+        let doc = md.parse("");
+        assert!(doc.children(doc.root()).is_empty());
     }
 }

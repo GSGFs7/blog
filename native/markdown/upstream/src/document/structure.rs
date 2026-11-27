@@ -27,7 +27,8 @@ impl Document {
     #[track_caller]
     pub fn remove_node(&mut self, node: NodeId) {
         let (parent, index) = self.sibling_location(node);
-        self.node_mut(parent).children.remove(index);
+        self.node_mut_untracked(parent).children.remove(index);
+        self.mark_cleanup_dirty(parent);
         self.delete_subtree(node);
     }
 
@@ -58,8 +59,9 @@ impl Document {
     pub fn insert_before(&mut self, target: NodeId, node: NodeId) {
         let (parent, index) = self.sibling_location(target);
         self.check_attachment(parent, node);
-        self.node_mut(node).parent = Some(parent);
-        self.node_mut(parent).children.insert(index, node);
+        self.node_mut_untracked(node).parent = Some(parent);
+        self.node_mut_untracked(parent).children.insert(index, node);
+        self.mark_cleanup_dirty(parent);
     }
 
     /// Insert a detached node after `target`.
@@ -77,8 +79,11 @@ impl Document {
     pub fn insert_after(&mut self, target: NodeId, node: NodeId) {
         let (parent, index) = self.sibling_location(target);
         self.check_attachment(parent, node);
-        self.node_mut(node).parent = Some(parent);
-        self.node_mut(parent).children.insert(index + 1, node);
+        self.node_mut_untracked(node).parent = Some(parent);
+        self.node_mut_untracked(parent)
+            .children
+            .insert(index + 1, node);
+        self.mark_cleanup_dirty(parent);
     }
 
     /// Replace an attached non-root node with a detached subtree.
@@ -95,8 +100,9 @@ impl Document {
     pub fn replace_node(&mut self, target: NodeId, replacement: NodeId) {
         let (parent, index) = self.sibling_location(target);
         self.check_attachment(parent, replacement);
-        self.node_mut(replacement).parent = Some(parent);
-        self.node_mut(parent).children[index] = replacement;
+        self.node_mut_untracked(replacement).parent = Some(parent);
+        self.node_mut_untracked(parent).children[index] = replacement;
+        self.mark_cleanup_dirty(parent);
         self.delete_subtree(target);
     }
 
@@ -217,9 +223,11 @@ impl Document {
 
         // Validation passed; links and payloads are still unchanged.
         for &child in &children {
-            self.node_mut(child).parent = Some(parent);
+            self.node_mut_untracked(child).parent = Some(parent);
         }
-        let mut removed = std::mem::replace(&mut self.node_mut(parent).children, children);
+        let mut removed =
+            std::mem::replace(&mut self.node_mut_untracked(parent).children, children);
+        self.mark_cleanup_dirty(parent);
         removed.retain(|child| !retained.contains(child));
         self.delete_subtrees(removed);
     }

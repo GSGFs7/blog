@@ -9,6 +9,7 @@ use crate::links::{LinkFormatter, MDLinkFormatter};
 use crate::parser::block::BlockParser;
 use crate::parser::core::{CoreRule, CoreRuleRunner, CoreState, RuleBuilder};
 use crate::parser::inline::InlineParser;
+use crate::parser::inline::helpers::emph_pair::EmphasisCleanup;
 use crate::plugin::MarkdownItBuilder;
 use crate::presets::{Preset, PresetConfig};
 use crate::render::{
@@ -160,6 +161,9 @@ impl MarkdownIt {
     pub fn parse(&self, src: &str) -> Document {
         let source: Arc<str> = Arc::from(normalize_input(src).as_ref());
         let mut document = Document::new(Arc::clone(&source), Root::new(Arc::clone(&source)));
+        if self.has_rule::<EmphasisCleanup>() {
+            document.start_cleanup_tracking();
+        }
         document
             .node_mut(document.root())
             .ext_mut()

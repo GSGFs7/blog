@@ -97,6 +97,7 @@ class MediaStorageTest(SimpleTestCase):
         for name, policy in (
             ("images/raw/a.png", "public, max-age=31536000, immutable"),
             ("musics/a.mp3", "public, max-age=31536000, immutable"),
+            ("avatars/ab/cd/hash.webp", "public, max-age=31536000, immutable"),
             ("images/avif/a.avif", "public, max-age=604800"),
             ("images/webp/a.webp", "public, max-age=604800"),
             ("images/thumbnails/a.jpg", "public, max-age=604800"),
