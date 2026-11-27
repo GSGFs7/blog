@@ -6,8 +6,7 @@ use html_escape::decode_html_entities;
 use lol_html::errors::RewritingError;
 use lol_html::html_content::Element;
 use lol_html::{RewriteStrSettings, element, end_tag, rewrite_str};
-
-use crate::rewriter::escape_html;
+use markdown_it::render::escape_html;
 
 #[derive(Debug)]
 struct Picture {

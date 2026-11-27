@@ -1,8 +1,8 @@
 use markdown_it::MarkdownIt;
 use markdown_it::plugins::directives::{self, DirectiveKind, DirectiveNode, DirectiveRenderer};
+use markdown_it::render::escape_html;
 
 use super::component::Component;
-use crate::rewriter::escape_html;
 
 pub(crate) fn add(md: &mut MarkdownIt) {
     for &name in Component::ALL
@@ -27,12 +27,12 @@ fn render(
     fmt: &mut DirectiveRenderer<'_, '_>,
 ) {
     let component = Component::from_directive(name).expect("registered Solid directive");
-    let props = component.props_json(node.attrs().iter().chain(attrs).map(|(name, value)| {
-        (
-            name.clone(),
-            markdown_it::common::utils::escape_html(value).into_owned(),
-        )
-    }));
+    let props = component.props_json(
+        node.attrs()
+            .iter()
+            .chain(attrs)
+            .map(|(name, value)| (name.clone(), escape_html(value).into_owned())),
+    );
     let block = kind != DirectiveKind::Text;
     let tag = if block { "div" } else { "span" };
 

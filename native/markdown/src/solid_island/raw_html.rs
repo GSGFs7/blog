@@ -1,9 +1,9 @@
 use lol_html::errors::RewritingError;
 use lol_html::html_content::{ContentType, Element};
 use lol_html::{HandlerResult, RewriteStrSettings, element, rewrite_str};
+use markdown_it::render::escape_html;
 
 use super::component::Component;
-use crate::rewriter::escape_html;
 
 pub(crate) fn rewrite_raw_html(html: &str) -> Result<String, RewritingError> {
     if !html.contains("directive") {
@@ -40,7 +40,8 @@ fn rewrite_element(element: &mut Element<'_, '_>) -> HandlerResult {
         .iter()
         .map(|attribute| (attribute.name(), attribute.value()))
         .collect();
-    let props = escape_html(&component.props_json(attributes.iter().cloned()));
+    let props_json = component.props_json(attributes.iter().cloned());
+    let props = escape_html(&props_json);
     for (name, _) in &attributes {
         element.remove_attribute(name);
     }

@@ -5,6 +5,7 @@ use html_escape::decode_html_entities;
 use lol_html::errors::RewritingError;
 use lol_html::html_content::{ContentType, Element};
 use lol_html::{HandlerResult, RewriteStrSettings, element, rewrite_str};
+use markdown_it::render::escape_html;
 use regex::Regex;
 
 use crate::types::ImageMetadata;
@@ -50,7 +51,7 @@ pub(crate) fn inject_placeholders(
                 let style = format!(
                     "{style}{separator}background-image:url({placeholder});background-size:cover"
                 );
-                element.set_attribute("style", &crate::rewriter::escape_html(&style))?;
+                element.set_attribute("style", &escape_html(&style))?;
 
                 let class = element.get_attribute("class").unwrap_or_default();
                 let class = decode_html_entities(&class);
@@ -60,7 +61,7 @@ pub(crate) fn inject_placeholders(
                 {
                     element.set_attribute(
                         "class",
-                        &crate::rewriter::escape_html(format!("{class} image-placeholder").trim()),
+                        &escape_html(format!("{class} image-placeholder").trim()),
                     )?;
                 }
                 Ok(())
@@ -132,13 +133,13 @@ fn rewrite_image(
     if let Some(src) = image.avif_src.as_deref() {
         sources.push_str(&format!(
             "<source srcset=\"{}\" type=\"image/avif\">",
-            crate::rewriter::escape_html(src)
+            escape_html(src)
         ));
     }
     if let Some(src) = image.webp_src.as_deref() {
         sources.push_str(&format!(
             "<source srcset=\"{}\" type=\"image/webp\">",
-            crate::rewriter::escape_html(src)
+            escape_html(src)
         ));
     }
     element.before(&format!("<picture>{sources}"), ContentType::Html);
