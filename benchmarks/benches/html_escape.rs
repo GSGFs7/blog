@@ -2,7 +2,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use markdown_it::document::{Document, Node, Text};
-use markdown_it::render::{NodeRenderer, RenderContext, Writer};
+use markdown_it::render::{escape_html, NodeRenderer, RenderContext, Writer};
 use markdown_it::MarkdownIt;
 
 // Preserve the previous rendering operation as a same-process control.
@@ -10,7 +10,7 @@ struct LegacyHtmlTextRenderer;
 
 impl NodeRenderer<Text> for LegacyHtmlTextRenderer {
     fn render(&self, _: &Node, value: &Text, _: &mut RenderContext<'_>, output: &mut Writer) {
-        output.write_str(&markdown_it::common::utils::escape_html(value.as_str()));
+        output.write_str(&escape_html(value.as_str()));
     }
 }
 
@@ -32,7 +32,7 @@ fn benchmark(c: &mut Criterion) {
             .unwrap()
             .as_str();
         // Verify the full output independently before timing document rendering.
-        let expected = markdown_it::common::utils::escape_html(text);
+        let expected = escape_html(text);
         assert_eq!(md.render_document(&document, "html"), expected);
         assert_eq!(legacy.render_document(&document, "html"), expected);
         let mut group = c.benchmark_group(format!("html-escape/{name}"));
@@ -70,7 +70,7 @@ fn benchmark_sizes(c: &mut Criterion) {
                 _ => unreachable!(),
             };
             assert_eq!(source.len(), len);
-            let expected = markdown_it::common::utils::escape_html(&source).into_owned();
+            let expected = escape_html(&source).into_owned();
             let document = Document::new("", Text::new(source));
             assert_eq!(md.render_document(&document, "html"), expected);
             assert_eq!(legacy.render_document(&document, "html"), expected);

@@ -8,7 +8,8 @@ mod state;
 mod validation;
 
 pub(crate) use self::document::parse_document;
-pub use self::lines::*;
+pub use self::lines::LineOffset;
+pub(crate) use self::lines::{build_line_offsets, find_indent_of_from_column};
 pub use self::parser::BlockParserRule;
 pub use self::rule::*;
 pub use self::state::BlockState;

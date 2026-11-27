@@ -1,5 +1,3 @@
-// Parser state class
-//
 use memchr::memchr2_iter;
 
 /// Holds start/end/etc. positions for a specific source text line.
@@ -123,9 +121,41 @@ fn build_line_offset(bytes: &[u8], line_start: usize, line_end: usize) -> LineOf
     }
 }
 
+/// Calculate spaces and tab-expanded indent starting at `pos` from the given
+/// virtual `column` (needed after container markers, which shift tab stops).
+///
+/// Returns `(relative_indent, first_nonspace_byte_offset)`.
+pub(crate) fn find_indent_of_from_column(
+    line: &str,
+    mut pos: usize,
+    mut column: usize,
+) -> (usize, usize) {
+    let bytes = line.as_bytes();
+    let mut indent = 0;
+
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b' ' => {
+                indent += 1;
+                column += 1;
+                pos += 1;
+            }
+            b'\t' => {
+                let width = 4 - column % 4;
+                indent += width;
+                column += width;
+                pos += 1;
+            }
+            _ => break,
+        }
+    }
+
+    (indent, pos)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{LineOffset, build_line_offsets};
+    use super::{LineOffset, build_line_offsets, find_indent_of_from_column};
 
     fn compact(offsets: &[LineOffset]) -> Vec<(usize, usize, usize, i32)> {
         offsets
@@ -211,5 +241,13 @@ mod tests {
             compact(&build_line_offsets(src)),
             vec![(0, src.len(), 17, 20)]
         );
+    }
+
+    #[test]
+    fn finds_indent_from_virtual_column() {
+        assert_eq!(find_indent_of_from_column(">\tfoo", 1, 1), (3, 2));
+        assert_eq!(find_indent_of_from_column("> \tfoo", 1, 1), (3, 3));
+        assert_eq!(find_indent_of_from_column("1.\t\tfoo", 2, 2), (6, 4));
+        assert_eq!(find_indent_of_from_column("foo", 0, 0), (0, 0));
     }
 }

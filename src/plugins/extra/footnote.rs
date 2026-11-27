@@ -54,11 +54,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::MarkdownIt;
 use crate::common::extset::RootExtSet;
-use crate::common::utils::normalize_reference;
 use crate::document::{Document, Node, NodeId, StructuralEvent};
 use crate::parser::block::{BlockRule, BlockState};
 use crate::parser::core::{CoreRule, CoreState};
 use crate::parser::inline::{InlineRule, InlineState};
+use crate::reference::normalize_reference;
 use crate::render::{
     EmptyRenderer,
     NodeRenderer,

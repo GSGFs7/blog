@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::common::utils::escape_html;
+use super::write_escaped_html_to;
 
 /// Output buffer supplied to [`NodeRenderer`](super::NodeRenderer) implementations.
 ///
@@ -40,17 +40,26 @@ impl Writer {
         self.output.push(value);
     }
 
-    /// Avoid scalar entity detection for long text that needs no escaping.
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.output.len()
+    }
+
+    #[inline]
+    pub(crate) fn as_str(&self) -> &str {
+        &self.output
+    }
+
+    #[inline]
+    pub(crate) fn as_mut_string(&mut self) -> &mut String {
+        &mut self.output
+    }
+
+    /// Escape HTML special characters directly into the output buffer without
+    /// allocating an intermediate `String`.
     #[inline]
     pub(crate) fn write_escaped_html(&mut self, value: &str) {
-        if value.len() >= 32
-            && memchr::memchr3(b'&', b'<', b'>', value.as_bytes()).is_none()
-            && memchr::memchr(b'"', value.as_bytes()).is_none()
-        {
-            self.output.push_str(value);
-        } else {
-            self.output.push_str(&escape_html(value));
-        }
+        write_escaped_html_to(value, &mut self.output);
     }
 
     /// Append formatted output.
@@ -94,7 +103,7 @@ mod tests {
                         output.finish(),
                         format!(
                             "prefix:{}&amp;&quot;:suffix",
-                            crate::common::utils::escape_html(&input),
+                            crate::render::escape_html(&input),
                         ),
                         "escaping differs for {input:?}",
                     );

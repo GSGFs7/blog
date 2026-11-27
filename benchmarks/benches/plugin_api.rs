@@ -6,7 +6,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use markdown_it::document::{Node, NodeId};
 use markdown_it::parser::inline::{InlineRule, InlineState};
 use markdown_it::plugin::{Html, InlinePluginState, PluginSpec};
-use markdown_it::render::{NodeRenderer, RenderContext, Writer};
+use markdown_it::render::{escape_html, NodeRenderer, RenderContext, Writer};
 use markdown_it::MarkdownIt;
 
 #[derive(Debug)]
@@ -56,11 +56,11 @@ impl NodeRenderer<Emoji> for LowRenderer {
             out.write_str(" ");
             out.write_str(name);
             out.write_str("=\"");
-            out.write_str(&markdown_it::common::utils::escape_html(value));
+            out.write_str(&escape_html(value));
             out.write_str("\"");
         }
         out.write_str(">");
-        out.write_str(&markdown_it::common::utils::escape_html("🚀"));
+        out.write_str(&escape_html("🚀"));
         out.write_str("</");
         out.write_str("span");
         out.write_str(">");

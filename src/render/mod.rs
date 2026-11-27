@@ -30,9 +30,11 @@ pub(crate) use builtin::{
     TransparentRenderer,
 };
 pub use context::RenderContext;
+pub use html::escape_html;
 pub(crate) use html::{
     LinkHtmlRenderer,
     LinkValue,
+    write_escaped_html_to,
     write_html_attrs_with,
     write_html_close,
     write_html_open,

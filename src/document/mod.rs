@@ -1,6 +1,7 @@
 //! Document storage.
 
 mod arena;
+mod cleanup;
 mod data;
 pub mod edit;
 mod events;
@@ -27,6 +28,9 @@ pub struct Document {
     source: Arc<str>,
     arena: Arena<Node>,
     root: NodeId,
+    /// Candidate parents that may require fragment cleanup (`EmphMarker`,
+    /// empty `Text`, or adjacent `Text` children). Present only before cleanup.
+    dirty_cleanup_parents: Option<Vec<NodeId>>,
 }
 
 impl Document {
@@ -56,6 +60,7 @@ impl Document {
             source: source.into(),
             arena,
             root,
+            dirty_cleanup_parents: None,
         }
     }
 
@@ -112,11 +117,40 @@ impl Document {
     /// Panics if the slot is unknown or the generation is stale.
     #[track_caller]
     pub fn node_mut(&mut self, id: NodeId) -> &mut Node {
+        if self.is_tracking_cleanup() {
+            self.note_node_mut_for_cleanup(id);
+        }
+        self.node_mut_untracked(id)
+    }
+
+    /// Internal mutable access without triggering cleanup dirty-parent tracking.
+    ///
+    /// Callers in `document` are responsible for updating cleanup state if their
+    /// mutation can introduce unresolved fragments, empty `Text`, or adjacent `Text`.
+    #[inline]
+    #[track_caller]
+    fn node_mut_untracked(&mut self, id: NodeId) -> &mut Node {
         match self.arena.get_mut(id) {
             Some(node) => node,
-            None => {
-                panic!("invalid or stale node ID: {id:?}")
-            }
+            None => panic!("invalid or stale node ID: {id:?}"),
+        }
+    }
+
+    /// Replace a node's payload in place while keeping cleanup tracking in sync.
+    #[track_caller]
+    pub(crate) fn replace_node_value<T: NodeValue>(&mut self, id: NodeId, value: T) {
+        self.replace_node_data(id, data::NodeData::new(value));
+    }
+
+    /// Replace a node's stored payload data while keeping cleanup tracking in sync.
+    #[inline]
+    #[track_caller]
+    fn replace_node_data(&mut self, id: NodeId, replacement: data::NodeData) {
+        let node = self.node_mut_untracked(id);
+        let parent = node.parent;
+        node.data.replace_value(replacement);
+        if let Some(parent) = parent {
+            self.mark_cleanup_dirty(parent);
         }
     }
 
@@ -203,8 +237,14 @@ impl Document {
     pub fn push_child(&mut self, parent: NodeId, child: NodeId) {
         self.check_attachment(parent, child);
 
-        self.node_mut(child).parent = Some(parent);
-        self.node_mut(parent).children.push(child);
+        let child_state = {
+            let node = self.node_mut_untracked(child);
+            node.parent = Some(parent);
+            node.data.fragment_state
+        };
+
+        self.note_child_pushed_for_cleanup(parent, child_state);
+        self.node_mut_untracked(parent).children.push(child);
     }
 
     /// Markdown source owned by this document, used for byte source maps.
@@ -224,11 +264,18 @@ impl Document {
     ///
     /// Panics if `parent` is invalid or stale.
     pub fn take_children(&mut self, parent: NodeId) -> Vec<NodeId> {
-        let children = std::mem::take(&mut self.node_mut(parent).children);
+        let children = std::mem::take(&mut self.node_mut_untracked(parent).children);
         for &child in &children {
-            self.node_mut(child).parent = None;
+            self.node_mut_untracked(child).parent = None;
         }
         children
+    }
+
+    #[inline]
+    fn debug_assert_detachable(&self, parent: NodeId, child: NodeId) {
+        debug_assert_ne!(child, self.root, "cannot attach the document root");
+        debug_assert_ne!(child, parent, "cannot attach a node to itself");
+        debug_assert!(self.node(child).parent.is_none(), "child must be detached");
     }
 
     /// Attach an ordered sequence of detached children to an empty `parent`.
@@ -238,13 +285,35 @@ impl Document {
             "parent must have no children"
         );
 
-        for &child in &children {
-            debug_assert_ne!(child, self.root, "cannot attach the document root");
-            debug_assert_ne!(child, parent, "cannot attach a node to itself");
-            debug_assert!(self.node(child).parent.is_none(), "child must be detached");
-            self.node_mut(child).parent = Some(parent);
+        let mut iter = children.iter();
+        let mut prev_is_text = false;
+        let mut dirty = false;
+        if self.is_tracking_cleanup() {
+            for &child in &mut iter {
+                self.debug_assert_detachable(parent, child);
+                let child_node = self.node_mut_untracked(child);
+                child_node.parent = Some(parent);
+                if child_node
+                    .data
+                    .fragment_state
+                    .advance_sibling_scan(&mut prev_is_text)
+                {
+                    dirty = true;
+                    break;
+                }
+            }
         }
-        self.node_mut(parent).children = children;
+        // Link the remaining children when tracking is disabled or the parent
+        // is already known to be dirty.
+        for &child in iter {
+            self.debug_assert_detachable(parent, child);
+            self.node_mut_untracked(child).parent = Some(parent);
+        }
+
+        self.node_mut_untracked(parent).children = children;
+        if dirty {
+            self.mark_cleanup_dirty(parent);
+        }
     }
 
     /// Detach `parent`'s children, run `rewrite`, then reattach the result.
