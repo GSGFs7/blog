@@ -10,7 +10,8 @@ class Guest(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=50)
     email = models.EmailField()
-    avatar = models.URLField(max_length=200)
+    avatar = models.CharField(max_length=500, blank=True, default="")
+    avatar_source_url = models.TextField(blank=True, default="")
     is_admin = models.BooleanField(default=False)
     last_visit = models.DateTimeField(auto_now=True)
 

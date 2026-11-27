@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Mapping
@@ -9,6 +11,13 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from api.models import Guest, OAuthIdentity, OAuthProvider
+from api.services.avatar import (
+    AvatarRetryableError,
+    AvatarService,
+    AvatarValidationError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthServiceError(Exception):
@@ -55,6 +64,7 @@ class OAuthService:
         *,
         client: httpx2.AsyncClient | None = None,
         timeout: float = 10.0,
+        avatar_service: AvatarService | None = None,
     ):
         if not provider.is_active:
             raise OAuthProviderUnavailable(
@@ -64,6 +74,9 @@ class OAuthService:
         self.provider = provider
         self.client = client
         self.timeout = timeout
+        self.avatar_service = avatar_service or AvatarService(
+            timeout=AvatarService.LOGIN_TIMEOUT
+        )
 
     @classmethod
     async def for_provider(
@@ -200,8 +213,33 @@ class OAuthService:
             extra_params=token_params,
         )
         user = await self.fetch_user(token)
+
+        mirrored_avatar: str | None = None
+        schedule_avatar_retry = False
+        if user.avatar:
+            try:
+                mirrored_avatar = await asyncio.wait_for(
+                    self.avatar_service.amirror(user.avatar),
+                    timeout=self.avatar_service.timeout,
+                )
+            except (TimeoutError, AvatarRetryableError) as exc:
+                logger.warning(
+                    "Avatar sync failed during OAuth login: %s",
+                    str(exc) or type(exc).__name__,
+                )
+                schedule_avatar_retry = True
+            except AvatarValidationError as exc:
+                logger.warning("Rejected OAuth avatar during login: %s", exc)
+            except Exception:
+                logger.exception("Unexpected error syncing avatar during OAuth login")
+                schedule_avatar_retry = True
+
         return await sync_to_async(self._persist_identity, thread_sensitive=True)(
-            self.provider.pk, user, token
+            self.provider.pk,
+            user,
+            token,
+            mirrored_avatar=mirrored_avatar,
+            schedule_avatar_retry=schedule_avatar_retry,
         )
 
     async def _request_json(self, method: str, url: str, **kwargs) -> dict[str, Any]:
@@ -238,6 +276,9 @@ class OAuthService:
         provider_id: int,
         user: OAuthUser,
         token: OAuthToken,
+        *,
+        mirrored_avatar: str | None = None,
+        schedule_avatar_retry: bool = False,
     ):
         try:
             with transaction.atomic():
@@ -245,7 +286,13 @@ class OAuthService:
                     provider_id=provider_id,
                     user_id=user.user_id,
                 )
-                cls._update_identity(identity, user, token)
+                cls._update_identity(
+                    identity,
+                    user,
+                    token,
+                    mirrored_avatar=mirrored_avatar,
+                    schedule_avatar_retry=schedule_avatar_retry,
+                )
                 return identity
         except OAuthIdentity.DoesNotExist:
             # new user
@@ -256,9 +303,10 @@ class OAuthService:
                 guest = Guest.objects.create(
                     name=user.name,
                     email=user.email,
-                    avatar=user.avatar,
+                    avatar=mirrored_avatar or "",
+                    avatar_source_url=user.avatar,
                 )
-                return OAuthIdentity.objects.create(
+                identity = OAuthIdentity.objects.create(
                     guest=guest,
                     provider_id=provider_id,
                     user_id=user.user_id,
@@ -267,31 +315,69 @@ class OAuthService:
                     expires_at=token.expires_at,
                     extra_data=user.raw,
                 )
+                if schedule_avatar_retry and user.avatar:
+                    cls._schedule_avatar_sync(str(guest.pk), user.avatar)
+                return identity
         except IntegrityError:
             with transaction.atomic():
                 identity = OAuthIdentity.objects.select_related("guest").get(
                     provider_id=provider_id,
                     user_id=user.user_id,
                 )
-                cls._update_identity(identity, user, token)
+                cls._update_identity(
+                    identity,
+                    user,
+                    token,
+                    mirrored_avatar=mirrored_avatar,
+                    schedule_avatar_retry=schedule_avatar_retry,
+                )
                 return identity
 
     @staticmethod
+    def _schedule_avatar_sync(guest_id: str, source_url: str) -> None:
+        def enqueue() -> None:
+            from api.tasks import sync_guest_avatar_task
+
+            try:
+                sync_guest_avatar_task.delay(guest_id, source_url)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to enqueue avatar sync task for guest %s: %s",
+                    guest_id,
+                    exc,
+                )
+
+        transaction.on_commit(enqueue)
+
+    @classmethod
     def _update_identity(
+        cls,
         identity: OAuthIdentity,
         user: OAuthUser,
         token: OAuthToken,
+        *,
+        mirrored_avatar: str | None = None,
+        schedule_avatar_retry: bool = False,
     ) -> None:
         # guest
         guest_updated_fields = []
-        for field in ("name", "email", "avatar"):
+        for field in ("name", "email"):
             value = getattr(user, field)
             # update different field
             if value and getattr(identity.guest, field) != value:
                 setattr(identity.guest, field, value)
                 guest_updated_fields.append(field)
+        if mirrored_avatar and identity.guest.avatar != mirrored_avatar:
+            identity.guest.avatar = mirrored_avatar
+            guest_updated_fields.append("avatar")
+        if user.avatar and identity.guest.avatar_source_url != user.avatar:
+            identity.guest.avatar_source_url = user.avatar
+            guest_updated_fields.append("avatar_source_url")
         if guest_updated_fields:
             identity.guest.save(update_fields=[*guest_updated_fields, "updated_at"])
+
+        if schedule_avatar_retry and user.avatar:
+            cls._schedule_avatar_sync(str(identity.guest_id), user.avatar)
 
         # guest oauth identity
         identity.access_token = token.access_token

@@ -67,8 +67,6 @@ CSP_POLICY = {
         "blob:",
         IMAGE_CDN_ORIGIN,
         STATIC_CDN_ORIGIN,
-        # TODO: avatar transfer
-        # "avatars.githubusercontent.com",
     ],
     "font-src": [CSP.SELF, "data:", STATIC_CDN_ORIGIN],
     "connect-src": [CSP.SELF, "blob:", STATIC_CDN_ORIGIN, MUSIC_CDN_ORIGIN],
